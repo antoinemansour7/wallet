@@ -1,43 +1,70 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import * as XLSX from 'xlsx'
 import { parseSpreadsheet } from './parseSpreadsheet'
 
 function makeFile(content, filename, type = 'text/csv') {
   return new File([content], filename, { type })
 }
 
+const AI_ROWS = [
+  { SYMBOL: 'AAPL', DESCRIPTION: 'Apple Inc.', QUANTITY: '10', 'MARKET VALUE': '1500.00' },
+  { SYMBOL: 'MSFT', DESCRIPTION: 'Microsoft Corp.', QUANTITY: '5', 'MARKET VALUE': '1500.00' },
+]
+
 describe('parseSpreadsheet', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ rows: AI_ROWS }),
+    }))
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   describe('CSV', () => {
-    it('parses headers and rows from a valid CSV', async () => {
+    it('sends CSV text to the AI endpoint and returns normalized rows', async () => {
       const csv = 'Symbol,Shares,Price\nAAPL,10,150.00\nMSFT,5,300.00'
       const { headers, rows } = await parseSpreadsheet(makeFile(csv, 'portfolio.csv'))
 
-      expect(headers).toEqual(['Symbol', 'Shares', 'Price'])
-      expect(rows).toHaveLength(2)
-      expect(rows[0]).toMatchObject({ Symbol: 'AAPL', Shares: '10', Price: '150.00' })
-      expect(rows[1]).toMatchObject({ Symbol: 'MSFT', Shares: '5', Price: '300.00' })
+      expect(fetch).toHaveBeenCalledWith('/api/extract-pdf', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ text: csv }),
+      }))
+      expect(rows).toEqual(AI_ROWS)
+      expect(headers).toEqual(Object.keys(AI_ROWS[0]))
     })
 
-    it('returns empty arrays for a header-only CSV', async () => {
-      const csv = 'Symbol,Shares,Price\n'
+    it('returns empty headers and rows when AI returns empty array', async () => {
+      fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ rows: [] }) })
+      const csv = 'Symbol,Shares\n'
       const { headers, rows } = await parseSpreadsheet(makeFile(csv, 'empty.csv'))
 
-      expect(headers).toEqual(['Symbol', 'Shares', 'Price'])
       expect(rows).toHaveLength(0)
+      expect(headers).toHaveLength(0)
     })
+  })
 
-    it('skips blank lines', async () => {
-      const csv = 'Symbol,Shares\nAAPL,10\n\nMSFT,5\n'
-      const { rows } = await parseSpreadsheet(makeFile(csv, 'gaps.csv'))
+  describe('Excel', () => {
+    it('converts Excel to CSV, sends to AI endpoint, and returns normalized rows', async () => {
+      const ws = XLSX.utils.aoa_to_sheet([['Symbol', 'Shares'], ['AAPL', 10]])
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Sheet1')
+      const buffer = XLSX.write(wb, { type: 'array', bookType: 'xlsx' })
+      const file = new File(
+        [buffer],
+        'portfolio.xlsx',
+        { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+      )
 
-      expect(rows).toHaveLength(2)
-    })
+      const { headers, rows } = await parseSpreadsheet(file)
 
-    it('handles a single-column CSV', async () => {
-      const csv = 'Ticker\nAAPL\nNVDA\nTSLA'
-      const { headers, rows } = await parseSpreadsheet(makeFile(csv, 'tickers.csv'))
-
-      expect(headers).toEqual(['Ticker'])
-      expect(rows).toHaveLength(3)
+      expect(fetch).toHaveBeenCalledWith('/api/extract-pdf', expect.objectContaining({
+        method: 'POST',
+      }))
+      expect(rows).toEqual(AI_ROWS)
+      expect(headers).toEqual(Object.keys(AI_ROWS[0]))
     })
   })
 
