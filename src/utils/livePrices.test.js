@@ -23,6 +23,16 @@ const ROWS = [
   },
 ]
 
+const CDR_ROW = {
+  SYMBOL: 'AVGO',
+  DESCRIPTION: 'BROADCOM INC CDR C$HDG',
+  'ACCOUNT CURRENCY': 'CAD',
+  QUANTITY: '655',
+  'BOOK VALUE': '8848.86',
+  'MARKET PRICE': '15.30',
+  'MARKET VALUE': '10021.50',
+}
+
 afterEach(() => {
   vi.unstubAllGlobals()
 })
@@ -30,6 +40,10 @@ afterEach(() => {
 describe('collectSymbols', () => {
   it('deduplicates non-empty symbols', () => {
     expect(collectSymbols([...ROWS, { SYMBOL: 'AAPL' }, { SYMBOL: '' }])).toEqual(['AAPL', 'NVDA.NE'])
+  })
+
+  it('requests Canadian Yahoo symbols for CAD CDR rows', () => {
+    expect(collectSymbols([CDR_ROW])).toEqual(['AVGO.NE'])
   })
 })
 
@@ -90,6 +104,27 @@ describe('applyLivePrices', () => {
 
     expect(rows[0]['DAY CHANGE']).toBe('50.00')
     expect(rows[0]['DAY CHANGE %']).toBe('3.45%')
+  })
+
+  it('does not overwrite CAD rows with USD quotes', () => {
+    const { rows, updatedRows } = applyLivePrices([CDR_ROW], [
+      { symbol: 'AVGO', currency: 'USD', price: 401.65, change: 8.8, changePercent: 2.2 },
+    ])
+
+    expect(updatedRows).toBe(0)
+    expect(rows[0]['MARKET PRICE']).toBe('15.30')
+    expect(rows[0]['MARKET VALUE']).toBe('10021.50')
+  })
+
+  it('updates CAD CDR rows with matching Canadian quotes', () => {
+    const { rows, updatedRows } = applyLivePrices([CDR_ROW], [
+      { symbol: 'AVGO.NE', requestedSymbol: 'AVGO.NE', currency: 'CAD', price: 15.5, change: 0.2, changePercent: 1.31 },
+    ])
+
+    expect(updatedRows).toBe(1)
+    expect(rows[0]['MARKET PRICE']).toBe('15.50')
+    expect(rows[0]['MARKET VALUE']).toBe('10152.50')
+    expect(rows[0]['DAY CHANGE']).toBe('131.00')
   })
 })
 

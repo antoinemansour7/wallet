@@ -70,6 +70,7 @@ async function fetchYahooChartQuote(symbol) {
     }
 
     return {
+      requestedSymbol: symbol,
       symbol: meta.symbol ?? symbol,
       shortName: meta.shortName ?? meta.longName ?? '',
       currency: meta.currency ?? '',
@@ -191,7 +192,10 @@ export async function fetchYahooQuotes(symbols, options = {}) {
     }
   }
 
-  const found = new Set(quotes.map((quote) => quote.symbol.toUpperCase()))
+  const found = new Set(quotes.flatMap((quote) => [
+    quote.symbol?.toUpperCase(),
+    quote.requestedSymbol?.toUpperCase(),
+  ].filter(Boolean)))
   const missing = uniqueSymbols.filter((symbol) => !found.has(symbol.toUpperCase()))
 
   return {

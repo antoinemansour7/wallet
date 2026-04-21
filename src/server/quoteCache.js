@@ -75,6 +75,7 @@ export async function setCachedQuote(symbol, quote) {
   const nextQuote = {
     ...quote,
     symbol: quote.symbol ?? symbol,
+    requestedSymbol: quote.requestedSymbol ?? symbol,
     fetchedAt: quote.fetchedAt ?? Date.now(),
   }
 

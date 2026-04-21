@@ -12,10 +12,48 @@ function symbolKey(symbol) {
   return String(symbol ?? '').trim().toUpperCase()
 }
 
+function isCdr(row) {
+  return /\bCDR\b/i.test(String(row.DESCRIPTION ?? ''))
+}
+
+function isCadAccount(row) {
+  return symbolKey(row['ACCOUNT CURRENCY']) === 'CAD'
+}
+
+function hasExchangeSuffix(symbol) {
+  return String(symbol ?? '').includes('.')
+}
+
+function getQuoteSymbolsForRow(row) {
+  const symbol = String(row.SYMBOL ?? '').trim()
+  if (!symbol) return []
+
+  if (isCdr(row) && isCadAccount(row) && !hasExchangeSuffix(symbol)) {
+    return [`${symbol}.NE`]
+  }
+
+  return [symbol]
+}
+
+function isSafeQuoteForRow(row, quote) {
+  const rowCurrency = symbolKey(row['ACCOUNT CURRENCY'])
+  const quoteCurrency = symbolKey(quote.currency)
+
+  if (rowCurrency && quoteCurrency && rowCurrency !== quoteCurrency) {
+    return false
+  }
+
+  if (isCdr(row) && isCadAccount(row) && quoteCurrency && quoteCurrency !== 'CAD') {
+    return false
+  }
+
+  return true
+}
+
 export function collectSymbols(rows) {
   return [...new Set(
     rows
-      .map((row) => String(row.SYMBOL ?? '').trim())
+      .flatMap(getQuoteSymbolsForRow)
       .filter(Boolean),
   )]
 }
@@ -45,14 +83,20 @@ export async function fetchLivePrices(symbols) {
 }
 
 export function applyLivePrices(rows, quotes) {
-  const quoteMap = new Map(quotes.map((quote) => [symbolKey(quote.symbol), quote]))
+  const quoteMap = new Map()
+  quotes.forEach((quote) => {
+    quoteMap.set(symbolKey(quote.symbol), quote)
+    if (quote.requestedSymbol) quoteMap.set(symbolKey(quote.requestedSymbol), quote)
+  })
   let updatedRows = 0
 
   const nextRows = rows.map((row) => {
-    const quote = quoteMap.get(symbolKey(row.SYMBOL))
+    const quote = getQuoteSymbolsForRow(row)
+      .map((symbol) => quoteMap.get(symbolKey(symbol)))
+      .find(Boolean)
     const quantity = parseNum(row.QUANTITY)
 
-    if (!quote || !Number.isFinite(quote.price) || quantity <= 0) {
+    if (!quote || !Number.isFinite(quote.price) || quantity <= 0 || !isSafeQuoteForRow(row, quote)) {
       return row
     }
 
