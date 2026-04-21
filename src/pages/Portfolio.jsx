@@ -1,19 +1,42 @@
 import { useState, useRef } from 'react'
 import { parseSpreadsheet } from '../utils/parseSpreadsheet'
+import {
+  parseNum, fmtCurrency, fmtPct, fmtNumber, pnlColor,
+  computeStats, groupByAccount,
+} from '../utils/portfolioStats'
 
-const STAT_CARDS = [
-  { label: 'Total Value', key: 'value', hint: 'Sum of all positions' },
-  { label: 'All-time P&L', key: 'alltime', hint: 'Since inception' },
-  { label: '1-Year Return', key: 'oney', hint: 'Last 12 months' },
-  { label: "30-Day Change", key: 'thirty', hint: 'Last 30 days' },
+// ─── Column definitions ────────────────────────────────────────────────────
+const COLS = [
+  { key: 'SYMBOL',                 label: 'Symbol',     align: 'left',  type: 'symbol'   },
+  { key: 'DESCRIPTION',            label: 'Description',align: 'left',  type: 'desc'     },
+  { key: 'QUANTITY',               label: 'Qty',        align: 'right', type: 'number'   },
+  { key: 'MARKET PRICE',           label: 'Price',      align: 'right', type: 'currency' },
+  { key: 'MARKET VALUE',           label: 'Mkt Value',  align: 'right', type: 'currency' },
+  { key: 'BOOK VALUE',             label: 'Book Value', align: 'right', type: 'currency' },
+  { key: 'DAY CHANGE',             label: 'Day Chg',    align: 'right', type: 'pnl'      },
+  { key: 'DAY CHANGE %',           label: 'Day %',      align: 'right', type: 'pct'      },
+  { key: 'UNREALIZED GAIN/LOSS',   label: 'P&L',        align: 'right', type: 'pnl'      },
+  { key: 'UNREALIZED GAIN/LOSS %', label: 'P&L %',      align: 'right', type: 'pct'      },
 ]
 
+function renderCell(type, val) {
+  switch (type) {
+    case 'currency': return { text: fmtCurrency(val), cls: 'text-slate-300' }
+    case 'pnl':      return { text: fmtCurrency(val), cls: pnlColor(val) }
+    case 'pct':      return { text: fmtPct(val),      cls: pnlColor(val) }
+    case 'number':   return { text: fmtNumber(val),   cls: 'text-slate-300' }
+    case 'symbol':   return { text: val ?? '—',        cls: 'text-slate-100 font-semibold' }
+    case 'desc':     return { text: val ?? '—',        cls: 'text-slate-400' }
+    default:         return { text: val ?? '—',        cls: 'text-slate-300' }
+  }
+}
+
+// ─── Component ─────────────────────────────────────────────────────────────
 export default function Portfolio() {
-  const [headers, setHeaders] = useState([])
-  const [rows, setRows] = useState([])
-  const [fileName, setFileName] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [rows, setRows]             = useState([])
+  const [fileName, setFileName]     = useState('')
+  const [error, setError]           = useState('')
+  const [loading, setLoading]       = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const inputRef = useRef(null)
 
@@ -22,8 +45,7 @@ export default function Portfolio() {
     setError('')
     setLoading(true)
     try {
-      const { headers, rows } = await parseSpreadsheet(file)
-      setHeaders(headers)
+      const { rows } = await parseSpreadsheet(file)
       setRows(rows)
       setFileName(file.name)
     } catch (err) {
@@ -39,6 +61,10 @@ export default function Portfolio() {
     handleFile(e.dataTransfer.files[0])
   }
 
+  const hasData = rows.length > 0
+  const stats   = hasData ? computeStats(rows) : null
+  const groups  = hasData ? groupByAccount(rows) : []
+
   return (
     <div className="min-h-screen bg-wall-bg">
       <div className="max-w-6xl mx-auto px-6 py-8">
@@ -51,14 +77,28 @@ export default function Portfolio() {
 
         {/* Stat cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
-          {STAT_CARDS.map(({ label, hint }) => (
-            <div key={label} className="bg-wall-surface border border-white/[0.06] rounded-xl p-4 group">
-              <p className="text-slate-500 text-[11px] font-medium uppercase tracking-wider mb-2">{label}</p>
-              <p className="text-2xl font-semibold text-slate-600 font-mono tabular">—</p>
-              {/* TODO: calculate from rows + stock API */}
-              <p className="text-slate-700 text-[11px] mt-1.5">{hint}</p>
-            </div>
-          ))}
+          <StatCard
+            label="Total Value"
+            value={stats ? fmtCurrency(stats.totalMarketValue) : null}
+            sub={hasData ? `${rows.length} positions` : 'Sum of all positions'}
+          />
+          <StatCard
+            label="All-time P&L"
+            value={stats ? fmtCurrency(stats.totalUnrealized) : null}
+            sub={stats ? fmtPct(stats.unrealizedPct) : 'Unrealized gain/loss'}
+            pnl={stats?.totalUnrealized}
+          />
+          <StatCard
+            label="Today's Change"
+            value={stats ? fmtCurrency(stats.totalDayChange) : null}
+            sub={stats ? fmtPct(stats.dayChangePct) : 'vs. yesterday close'}
+            pnl={stats?.totalDayChange}
+          />
+          <StatCard
+            label="Positions"
+            value={hasData ? String(rows.length) : null}
+            sub={hasData ? `${groups.length} account${groups.length !== 1 ? 's' : ''}` : 'Across all accounts'}
+          />
         </div>
 
         {/* Upload zone */}
@@ -82,7 +122,6 @@ export default function Portfolio() {
             className="hidden"
             onChange={(e) => handleFile(e.target.files[0])}
           />
-
           {loading ? (
             <div className="flex flex-col items-center gap-3">
               <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
@@ -108,62 +147,125 @@ export default function Portfolio() {
         </div>
 
         {error && (
-          <div className="flex items-center gap-2 bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3 mb-6">
-            <span className="text-rose-400 text-sm">{error}</span>
+          <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3 mb-6">
+            <p className="text-rose-400 text-sm">{error}</p>
           </div>
         )}
 
-        {/* Data table */}
-        {rows.length > 0 && (
+        {/* Positions table grouped by account */}
+        {hasData && (
           <div>
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-slate-300 text-sm font-medium">Raw Data</h2>
+              <h2 className="text-slate-300 text-sm font-medium">Positions</h2>
               <span className="text-slate-600 text-xs bg-wall-surface border border-white/[0.06] px-2.5 py-1 rounded-full">
                 {rows.length} row{rows.length !== 1 ? 's' : ''}
               </span>
             </div>
-            <div className="overflow-x-auto rounded-xl border border-white/[0.06] bg-wall-surface">
-              <table className="min-w-full">
-                <thead>
-                  <tr className="border-b border-white/[0.06]">
-                    {headers.map((h) => (
-                      <th
-                        key={h}
-                        className="px-4 py-3 text-left text-[11px] font-medium text-slate-500 uppercase tracking-wider whitespace-nowrap"
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row, i) => (
-                    <tr
-                      key={i}
-                      className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors last:border-0"
-                    >
-                      {headers.map((h) => (
-                        <td
-                          key={h}
-                          className="px-4 py-2.5 text-sm text-slate-300 whitespace-nowrap font-mono tabular"
-                        >
-                          {row[h] ?? '—'}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {/* TODO: compute P&L per row using stock API price data */}
-              <div className="px-4 py-2.5 border-t border-white/[0.04]">
-                <p className="text-slate-700 text-xs">
-                  P&L calculations will appear here once a stock price API is connected.
-                </p>
-              </div>
+
+            <div className="rounded-xl border border-white/[0.06] overflow-hidden">
+              {groups.map(([acct, acctRows], gi) => {
+                const acctStats = computeStats(acctRows)
+                return (
+                  <div key={acct} className={gi > 0 ? 'border-t border-white/[0.08]' : ''}>
+                    {/* Account header */}
+                    <div className="flex items-center justify-between px-4 py-2.5 bg-wall-elevated border-b border-white/[0.06]">
+                      <div className="flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                        <span className="text-slate-400 text-xs font-medium tracking-wide">Account {acct}</span>
+                        <span className="text-slate-700 text-xs">· {acctRows.length} positions</span>
+                      </div>
+                      <span className="text-slate-300 text-xs font-mono tabular font-medium">
+                        {fmtCurrency(acctStats.totalMarketValue)}
+                      </span>
+                    </div>
+
+                    {/* Column headers */}
+                    <div className="overflow-x-auto bg-wall-surface">
+                      <table className="min-w-full">
+                        {gi === 0 && (
+                          <thead>
+                            <tr className="border-b border-white/[0.06]">
+                              {COLS.map((col) => (
+                                <th
+                                  key={col.key}
+                                  className={`px-4 py-3 text-[11px] font-medium text-slate-600 uppercase tracking-wider whitespace-nowrap ${
+                                    col.align === 'right' ? 'text-right' : 'text-left'
+                                  }`}
+                                >
+                                  {col.label}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                        )}
+                        <tbody>
+                          {acctRows.map((row, i) => (
+                            <tr
+                              key={i}
+                              className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors last:border-0"
+                            >
+                              {COLS.map((col) => {
+                                const { text, cls } = renderCell(col.type, row[col.key])
+                                return (
+                                  <td
+                                    key={col.key}
+                                    className={`px-4 py-2.5 text-sm whitespace-nowrap font-mono tabular ${cls} ${
+                                      col.align === 'right' ? 'text-right' : 'text-left'
+                                    } ${col.type === 'desc' ? 'max-w-[180px] truncate font-sans' : ''}`}
+                                    title={col.type === 'desc' ? (row[col.key] ?? '') : undefined}
+                                  >
+                                    {text}
+                                  </td>
+                                )
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Account subtotal */}
+                    <div className="flex items-center justify-between px-4 py-2.5 bg-wall-elevated border-t border-white/[0.06]">
+                      <span className="text-slate-600 text-xs font-medium">Subtotal</span>
+                      <div className="flex items-center gap-4 font-mono tabular text-xs">
+                        <span className="text-slate-500">
+                          Book {fmtCurrency(acctRows.reduce((s, r) => s + parseNum(r['BOOK VALUE']), 0))}
+                        </span>
+                        <span className={`font-medium ${pnlColor(acctStats.totalUnrealized)}`}>
+                          P&L {fmtCurrency(acctStats.totalUnrealized)} ({fmtPct(acctStats.unrealizedPct)})
+                        </span>
+                        <span className={pnlColor(acctStats.totalDayChange)}>
+                          Day {fmtCurrency(acctStats.totalDayChange)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// ─── Sub-components ─────────────────────────────────────────────────────────
+function StatCard({ label, value, sub, pnl }) {
+  const hasValue = value !== null && value !== undefined
+  const pnlCls   = pnl !== undefined && pnl !== null ? pnlColor(pnl) : ''
+
+  return (
+    <div className="bg-wall-surface border border-white/[0.06] rounded-xl p-4">
+      <p className="text-slate-500 text-[11px] font-medium uppercase tracking-wider mb-2">{label}</p>
+      <p className={`text-2xl font-semibold font-mono tabular ${hasValue ? (pnlCls || 'text-slate-100') : 'text-slate-700'}`}>
+        {hasValue ? value : '—'}
+      </p>
+      <p className={`text-[11px] mt-1.5 font-mono tabular ${
+        pnl !== undefined && pnl !== null && hasValue ? pnlColor(pnl) + ' opacity-80' : 'text-slate-600'
+      }`}>
+        {sub}
+      </p>
     </div>
   )
 }
