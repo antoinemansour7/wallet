@@ -29,9 +29,9 @@ export function fmtNumber(val) {
 
 export function pnlColor(val) {
   const n = parseNum(val)
-  if (n > 0) return 'text-emerald-400'
-  if (n < 0) return 'text-rose-400'
-  return 'text-slate-400'
+  if (n > 0) return 'text-green-600'
+  if (n < 0) return 'text-red-600'
+  return 'text-stone-400'
 }
 
 export function computeStats(rows) {

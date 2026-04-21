@@ -71,9 +71,9 @@ describe('fmtPct', () => {
 })
 
 describe('pnlColor', () => {
-  it('returns emerald for positive', () => expect(pnlColor(300)).toBe('text-emerald-400'))
-  it('returns rose for negative',    () => expect(pnlColor(-587)).toBe('text-rose-400'))
-  it('returns slate for zero',       () => expect(pnlColor(0)).toBe('text-slate-400'))
+  it('returns green for positive', () => expect(pnlColor(300)).toBe('text-green-600'))
+  it('returns red for negative',   () => expect(pnlColor(-587)).toBe('text-red-600'))
+  it('returns stone for zero',     () => expect(pnlColor(0)).toBe('text-stone-400'))
 })
 
 describe('computeStats', () => {

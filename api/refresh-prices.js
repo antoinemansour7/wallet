@@ -1,4 +1,4 @@
-import { refreshKnownYahooQuotes } from '../src/server/yahooQuotes.js'
+import { refreshKnownMarketQuotes } from '../src/server/marketQuotes.js'
 
 function isAuthorized(req) {
   if (!process.env.CRON_SECRET) return true
@@ -16,7 +16,7 @@ export default async function handler(req, res) {
 
   try {
     const limit = Number(req.query?.limit ?? process.env.QUOTE_REFRESH_LIMIT ?? 100)
-    const result = await refreshKnownYahooQuotes({ limit })
+    const result = await refreshKnownMarketQuotes({ limit })
     return res.status(200).json({
       refreshed: result.cache.refreshed,
       quotes: result.quotes.length,

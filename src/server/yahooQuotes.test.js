@@ -40,4 +40,37 @@ describe('fetchYahooQuotes cache', () => {
     expect(second.cache.refreshed).toBe(0)
     expect(second.quotes[0].price).toBe(125)
   })
+
+  it('uses Yahoo previous-close metadata when a CDR only returns today candle', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        chart: {
+          result: [
+            {
+              meta: {
+                symbol: 'MSTR.NE',
+                currency: 'CAD',
+                regularMarketPrice: 11.5,
+                chartPreviousClose: 11.75,
+              },
+              timestamp: [1776797678],
+              indicators: {
+                quote: [
+                  { close: [11.5] },
+                ],
+              },
+            },
+          ],
+          error: null,
+        },
+      }),
+    }))
+
+    const result = await fetchYahooQuotes(['MSTR.NE'])
+
+    expect(result.quotes[0].previousClose).toBe(11.75)
+    expect(result.quotes[0].change).toBeCloseTo(-0.25)
+    expect(result.quotes[0].changePercent).toBeCloseTo(-2.1277)
+  })
 })

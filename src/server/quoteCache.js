@@ -1,6 +1,7 @@
 import { Redis } from '@upstash/redis'
 
-const KNOWN_SYMBOLS_KEY = 'quotes:symbols'
+const CACHE_VERSION = 'v3'
+const KNOWN_SYMBOLS_KEY = `quotes:${CACHE_VERSION}:symbols`
 const memoryQuotes = new Map()
 const memorySymbols = new Set()
 
@@ -11,7 +12,7 @@ export const QUOTE_CACHE_TTL_SECONDS = Number(process.env.QUOTE_CACHE_TTL_SECOND
 export const QUOTE_CACHE_RETENTION_SECONDS = Number(process.env.QUOTE_CACHE_RETENTION_SECONDS ?? 24 * 60 * 60)
 
 function quoteKey(symbol) {
-  return `quote:${encodeURIComponent(symbol.toUpperCase())}`
+  return `quote:${CACHE_VERSION}:${encodeURIComponent(symbol.toUpperCase())}`
 }
 
 function getRedis() {

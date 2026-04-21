@@ -58,7 +58,7 @@ describe('fetchLivePrices', () => {
 
     expect(fetch).toHaveBeenCalledWith('/api/live-prices', expect.objectContaining({
       method: 'POST',
-      body: JSON.stringify({ symbols: ['AAPL'] }),
+      body: JSON.stringify({ symbols: ['AAPL', 'USDCAD=X'] }),
     }))
     expect(result.quotes[0].price).toBe(150)
   })

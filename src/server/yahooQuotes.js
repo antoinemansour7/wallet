@@ -23,6 +23,10 @@ export function normalizeSymbols(symbols) {
   )].slice(0, 100)
 }
 
+function isYahooCachedQuote(quote) {
+  return !quote?.provider || quote.provider === 'yahoo'
+}
+
 async function fetchYahooChartQuote(symbol) {
   let lastError = null
 
@@ -56,28 +60,52 @@ async function fetchYahooChartQuote(symbol) {
     }
 
     const price = Number(meta.regularMarketPrice)
-    const previousClose = Number(meta.chartPreviousClose ?? meta.previousClose)
-    const change = Number.isFinite(price) && Number.isFinite(previousClose)
-      ? price - previousClose
-      : null
-    const changePercent = change !== null && previousClose > 0
-      ? (change / previousClose) * 100
-      : null
 
     if (!Number.isFinite(price)) {
       lastError = new Error(`Yahoo Finance returned no price for ${symbol}`)
       continue
     }
 
+    // Derive yesterday's close from the actual daily candles rather than
+    // meta.chartPreviousClose, which is the close at the START of the chart
+    // range (5 days ago) for symbols with full history. Some thinly traded
+    // Canadian CDRs only return today's candle, so fall back to Yahoo's
+    // previous-close metadata in that case.
+    const timestamps = result.timestamp ?? []
+    const closes     = result.indicators?.quote?.[0]?.close ?? []
+    const todayStart = new Date().setHours(0, 0, 0, 0)
+
+    let previousClose = null
+    for (let i = timestamps.length - 1; i >= 0; i--) {
+      if (timestamps[i] * 1000 < todayStart && Number.isFinite(closes[i])) {
+        previousClose = closes[i]
+        break
+      }
+    }
+
+    if (previousClose === null) {
+      previousClose = [
+        meta.regularMarketPreviousClose,
+        meta.previousClose,
+        meta.chartPreviousClose,
+      ].map(Number).find(Number.isFinite) ?? null
+    }
+
+    const change        = previousClose !== null ? price - previousClose : null
+    const changePercent = change !== null && previousClose > 0
+      ? (change / previousClose) * 100
+      : null
+
     return {
       requestedSymbol: symbol,
-      symbol: meta.symbol ?? symbol,
-      shortName: meta.shortName ?? meta.longName ?? '',
-      currency: meta.currency ?? '',
+      symbol:          meta.symbol ?? symbol,
+      provider:        'yahoo',
+      shortName:       meta.shortName ?? meta.longName ?? '',
+      currency:        meta.currency ?? '',
       price,
       change,
       changePercent,
-      previousClose: Number.isFinite(previousClose) ? previousClose : null,
+      previousClose,
       marketTime: meta.regularMarketTime ?? null,
     }
   }
@@ -155,10 +183,12 @@ export async function fetchYahooQuotes(symbols, options = {}) {
   if (!options.forceRefresh) {
     for (const symbol of uniqueSymbols) {
       const cachedQuote = await getCachedQuote(symbol)
-      if (cachedQuote && isFreshQuote(cachedQuote, now)) {
+      if (cachedQuote && isYahooCachedQuote(cachedQuote) && isFreshQuote(cachedQuote, now)) {
         quotes.push({ ...cachedQuote, cacheStatus: 'hit' })
       } else {
-        if (cachedQuote) staleQuotes.set(symbol.toUpperCase(), cachedQuote)
+        if (cachedQuote && isYahooCachedQuote(cachedQuote)) {
+          staleQuotes.set(symbol.toUpperCase(), cachedQuote)
+        }
         symbolsToRefresh.push(symbol)
       }
     }

@@ -1,5 +1,7 @@
 import { parseNum } from './portfolioStats'
 
+const FX_SYMBOL = 'USDCAD=X'
+
 function compactNumber(value) {
   return Number.isFinite(value) ? value.toFixed(2) : ''
 }
@@ -16,10 +18,6 @@ function isCdr(row) {
   return /\bCDR\b/i.test(String(row.DESCRIPTION ?? ''))
 }
 
-function isCadAccount(row) {
-  return symbolKey(row['ACCOUNT CURRENCY']) === 'CAD'
-}
-
 function hasExchangeSuffix(symbol) {
   return String(symbol ?? '').includes('.')
 }
@@ -28,7 +26,11 @@ function getQuoteSymbolsForRow(row) {
   const symbol = String(row.SYMBOL ?? '').trim()
   if (!symbol) return []
 
-  if (isCdr(row) && isCadAccount(row) && !hasExchangeSuffix(symbol)) {
+  if (isCdr(row) && !hasExchangeSuffix(symbol)) {
+    // CDRs always trade in CAD on the NEO exchange.
+    // Don't gate on ACCOUNT CURRENCY — it may not be reliably extracted from the broker CSV.
+    // Don't add the base symbol as fallback: CDR tickers (e.g. ORAC) often don't exist on
+    // US markets (Oracle is ORCL), so requesting them just produces a spurious "not found".
     return [`${symbol}.NE`]
   }
 
@@ -36,17 +38,16 @@ function getQuoteSymbolsForRow(row) {
 }
 
 function isSafeQuoteForRow(row, quote) {
-  const rowCurrency = symbolKey(row['ACCOUNT CURRENCY'])
   const quoteCurrency = symbolKey(quote.currency)
 
-  if (rowCurrency && quoteCurrency && rowCurrency !== quoteCurrency) {
-    return false
+  // CDRs are always CAD-denominated regardless of what ACCOUNT CURRENCY says.
+  if (isCdr(row)) {
+    return !quoteCurrency || quoteCurrency === 'CAD'
   }
 
-  if (isCdr(row) && isCadAccount(row) && quoteCurrency && quoteCurrency !== 'CAD') {
-    return false
-  }
-
+  // For regular stocks, always apply live prices. The account currency field
+  // from the broker CSV may not accurately reflect the security's denomination
+  // (e.g., USD stocks reported under a CAD-denominated account umbrella).
   return true
 }
 
@@ -59,8 +60,11 @@ export function collectSymbols(rows) {
 }
 
 export async function fetchLivePrices(symbols) {
-  const uniqueSymbols = [...new Set(symbols.map((symbol) => String(symbol).trim()).filter(Boolean))]
-  if (uniqueSymbols.length === 0) return { quotes: [], missing: [] }
+  // Always include the USD/CAD FX rate so we can convert USD prices in CAD accounts.
+  const uniqueSymbols = [...new Set(
+    [...symbols, FX_SYMBOL].map((s) => String(s).trim()).filter(Boolean),
+  )]
+  if (uniqueSymbols.length === 0) return { quotes: [], missing: [], usdCadRate: null }
 
   const res = await fetch('/api/live-prices', {
     method: 'POST',
@@ -74,15 +78,29 @@ export async function fetchLivePrices(symbols) {
     throw new Error(data.error || `Quote service error ${res.status}`)
   }
 
+  const allQuotes = Array.isArray(data.quotes) ? data.quotes : []
+
+  // Extract the FX rate and filter it out of the stock quotes.
+  const fxQuote = allQuotes.find(
+    (q) => symbolKey(q.symbol) === FX_SYMBOL || symbolKey(q.requestedSymbol) === FX_SYMBOL,
+  )
+  const usdCadRate = fxQuote && Number.isFinite(fxQuote.price) ? fxQuote.price : null
+  const quotes = allQuotes.filter(
+    (q) => symbolKey(q.symbol) !== FX_SYMBOL && symbolKey(q.requestedSymbol) !== FX_SYMBOL,
+  )
+  const missing = (Array.isArray(data.missing) ? data.missing : [])
+    .filter((s) => symbolKey(s) !== FX_SYMBOL)
+
   return {
-    quotes: Array.isArray(data.quotes) ? data.quotes : [],
-    missing: Array.isArray(data.missing) ? data.missing : [],
+    quotes,
+    missing,
     errors: Array.isArray(data.errors) ? data.errors : [],
     cache: data.cache ?? null,
+    usdCadRate,
   }
 }
 
-export function applyLivePrices(rows, quotes) {
+export function applyLivePrices(rows, quotes, usdCadRate = null) {
   const quoteMap = new Map()
   quotes.forEach((quote) => {
     quoteMap.set(symbolKey(quote.symbol), quote)
@@ -100,16 +118,30 @@ export function applyLivePrices(rows, quotes) {
       return row
     }
 
+    // Convert USD price → CAD for non-CDR stocks held in a CAD-denominated account.
+    // The broker CSV book values are in the account's base currency (CAD), so we must
+    // convert the live USD price to CAD to keep market value and P&L consistent.
+    const accountCurrency = symbolKey(row['ACCOUNT CURRENCY'])
+    const needsConversion = (
+      !isCdr(row)
+      && symbolKey(quote.currency) === 'USD'
+      && accountCurrency === 'CAD'
+      && usdCadRate !== null
+    )
+    const fxRate = needsConversion ? usdCadRate : 1
+
     updatedRows += 1
-    const marketValue = quote.price * quantity
+    const effectivePrice = quote.price * fxRate
+    const marketValue = effectivePrice * quantity
     const bookValue = parseNum(row['BOOK VALUE'])
+
     const dayChange = Number.isFinite(quote.change)
-      ? quote.change * quantity
+      ? quote.change * fxRate * quantity
       : Number.isFinite(quote.previousClose)
-        ? (quote.price - quote.previousClose) * quantity
+        ? (quote.price - quote.previousClose) * fxRate * quantity
         : null
     const dayChangePct = Number.isFinite(quote.changePercent)
-      ? quote.changePercent
+      ? quote.changePercent            // percentage is currency-agnostic
       : Number.isFinite(quote.previousClose) && quote.previousClose > 0
         ? ((quote.price - quote.previousClose) / quote.previousClose) * 100
         : null
@@ -119,7 +151,7 @@ export function applyLivePrices(rows, quotes) {
     return {
       ...row,
       'ACCOUNT CURRENCY': row['ACCOUNT CURRENCY'] || quote.currency || '',
-      'MARKET PRICE': compactNumber(quote.price),
+      'MARKET PRICE': compactNumber(effectivePrice),
       'MARKET VALUE': compactNumber(marketValue),
       'DAY CHANGE': dayChange === null ? row['DAY CHANGE'] : compactNumber(dayChange),
       'DAY CHANGE %': dayChangePct === null ? row['DAY CHANGE %'] : compactPct(dayChangePct),
@@ -133,8 +165,8 @@ export function applyLivePrices(rows, quotes) {
 
 export async function enrichRowsWithLivePrices(rows) {
   const symbols = collectSymbols(rows)
-  const { quotes, missing, errors, cache } = await fetchLivePrices(symbols)
-  const result = applyLivePrices(rows, quotes)
+  const { quotes, missing, errors, cache, usdCadRate } = await fetchLivePrices(symbols)
+  const result = applyLivePrices(rows, quotes, usdCadRate)
 
   return {
     ...result,
