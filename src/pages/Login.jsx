@@ -9,6 +9,25 @@ const BENEFITS = [
   'Prices refreshed every 5 min via Yahoo Finance.',
 ]
 
+function getSignInErrorMessage(err) {
+  switch (err?.code) {
+    case 'auth/unauthorized-domain':
+      return 'This domain is not allowed in Firebase Auth. Add the Vercel domain to Firebase Authentication authorized domains.'
+    case 'auth/invalid-api-key':
+    case 'auth/api-key-not-valid':
+      return 'Firebase API key is missing or invalid in Vercel environment variables.'
+    case 'auth/configuration-not-found':
+    case 'auth/operation-not-allowed':
+      return 'Google sign-in is not enabled for this Firebase project.'
+    case 'auth/popup-blocked':
+      return 'The Google sign-in popup was blocked by your browser.'
+    case 'auth/popup-closed-by-user':
+      return 'The Google sign-in popup was closed before sign-in finished.'
+    default:
+      return err?.message || 'Could not complete Google sign-in. Please try again.'
+  }
+}
+
 export default function Login() {
   const { user, signInWithGoogle } = useAuth()
   const navigate = useNavigate()
@@ -26,7 +45,7 @@ export default function Login() {
       await signInWithGoogle()
     } catch (err) {
       console.error('Sign-in failed:', err)
-      setError('Could not complete Google sign-in. Please try again.')
+      setError(getSignInErrorMessage(err))
     } finally {
       setSigningIn(false)
     }
