@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { parseSpreadsheet } from '../utils/parseSpreadsheet'
 import { enrichRowsWithLivePrices } from '../utils/livePrices'
-import { loadSavedPortfolio, savePortfolio } from '../utils/portfolioStorage'
+import {
+  loadLocalPortfolio,
+  loadSavedPortfolioWithTimeout,
+  saveLocalPortfolio,
+  savePortfolio,
+} from '../utils/portfolioStorage'
 import { useAuth } from '../context/AuthContext'
 import {
   parseNum, fmtCurrency, fmtPct, fmtNumber, pnlColor,
@@ -137,6 +142,43 @@ function timestampToDate(value) {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
+function isPriceRefreshDue(value) {
+  const lastRefreshAt = timestampToDate(value)
+  if (!lastRefreshAt) return true
+
+  return Date.now() - lastRefreshAt.getTime() >= AUTO_PRICE_REFRESH_MS
+}
+
+function portfolioUpdatedAtMs(portfolio) {
+  return timestampToDate(portfolio?.updatedAt)?.getTime() ?? 0
+}
+
+function shouldUseAccountPortfolio(accountPortfolio, localPortfolio) {
+  if (!accountPortfolio?.rows?.length) return false
+  if (!localPortfolio?.rows?.length) return true
+
+  return portfolioUpdatedAtMs(accountPortfolio) >= portfolioUpdatedAtMs(localPortfolio)
+}
+
+function applySavedPortfolio(saved, {
+  setRows,
+  setFileName,
+  setActiveView,
+  setLastUpdatedAt,
+  setLiveStatus,
+  setLiveMessage,
+  fileNameRef,
+  message = 'Loaded saved portfolio from your account.',
+}) {
+  setRows(saved.rows)
+  setFileName(saved.fileName)
+  fileNameRef.current = saved.fileName
+  setActiveView('overview')
+  setLastUpdatedAt(timestampToDate(saved.lastPriceRefreshAt))
+  setLiveStatus('success')
+  setLiveMessage(message)
+}
+
 export default function Portfolio() {
   const { user } = useAuth()
   const [rows, setRows]               = useState([])
@@ -166,11 +208,25 @@ export default function Portfolio() {
   const persistRows = useCallback(async (nextRows, options = {}) => {
     if (!userId || !nextRows.length) return
 
-    await savePortfolio(userId, {
+    try {
+      await savePortfolio(userId, {
+        fileName: options.fileNameOverride ?? fileNameRef.current,
+        rows: nextRows,
+        lastPriceRefreshAt: options.lastPriceRefreshAt ?? null,
+        markUploaded: options.markUploaded ?? false,
+      })
+    } catch (err) {
+      console.warn('Could not sync portfolio to account storage:', err)
+    }
+  }, [userId])
+
+  const persistRowsLocal = useCallback((nextRows, options = {}) => {
+    if (!userId || !nextRows.length) return
+
+    saveLocalPortfolio(userId, {
       fileName: options.fileNameOverride ?? fileNameRef.current,
       rows: nextRows,
       lastPriceRefreshAt: options.lastPriceRefreshAt ?? null,
-      markUploaded: options.markUploaded ?? false,
     })
   }, [userId])
 
@@ -189,12 +245,23 @@ export default function Portfolio() {
       const nextRows = result.rows
       setRows(nextRows)
 
-      if (result.updatedRows > 0) {
-        const refreshedAt = new Date()
+      const shouldPersistRows = result.updatedRows > 0 || options.markUploaded
+      const refreshedAt = result.updatedRows > 0 ? new Date() : null
+      const refreshedAtIso = refreshedAt?.toISOString() ?? null
+
+      if (refreshedAt) {
         setLastUpdatedAt(refreshedAt)
-        await persistRows(nextRows, {
+      }
+
+      if (shouldPersistRows) {
+        persistRowsLocal(nextRows, {
           fileNameOverride: options.fileNameOverride,
-          lastPriceRefreshAt: refreshedAt.toISOString(),
+          lastPriceRefreshAt: refreshedAtIso,
+        })
+        persistRows(nextRows, {
+          fileNameOverride: options.fileNameOverride,
+          lastPriceRefreshAt: refreshedAtIso,
+          markUploaded: options.markUploaded ?? false,
         })
       }
 
@@ -222,7 +289,7 @@ export default function Portfolio() {
       setLiveMessage(`Yahoo refresh failed: ${err.message}`)
       return sourceRows
     }
-  }, [persistRows])
+  }, [persistRows, persistRowsLocal])
 
   useEffect(() => {
     let cancelled = false
@@ -236,22 +303,50 @@ export default function Portfolio() {
       setPortfolioLoading(true)
       setError('')
 
+      let displayedLocalPortfolio = false
+      let localSaved = null
+
       try {
-        const saved = await loadSavedPortfolio(userId)
+        localSaved = loadLocalPortfolio(userId)
+        if (localSaved?.rows?.length) {
+          displayedLocalPortfolio = true
+          applySavedPortfolio(localSaved, {
+            setRows,
+            setFileName,
+            setActiveView,
+            setLastUpdatedAt,
+            setLiveStatus,
+            setLiveMessage,
+            fileNameRef,
+            message: 'Loaded saved portfolio from this browser.',
+          })
+          setPortfolioLoading(false)
+        }
+
+        const saved = await loadSavedPortfolioWithTimeout(userId)
         if (cancelled) return
 
-        if (saved?.rows?.length) {
-          setRows(saved.rows)
-          setFileName(saved.fileName)
-          fileNameRef.current = saved.fileName
-          setActiveView('overview')
-          setLastUpdatedAt(timestampToDate(saved.lastPriceRefreshAt))
-          setLiveStatus('success')
-          setLiveMessage('Loaded saved portfolio from your account.')
-          refreshRowsWithLivePrices(saved.rows, {
-            fileNameOverride: saved.fileName,
+        let portfolioToRefresh = localSaved
+
+        if (saved?.rows?.length && shouldUseAccountPortfolio(saved, localSaved)) {
+          applySavedPortfolio(saved, {
+            setRows,
+            setFileName,
+            setActiveView,
+            setLastUpdatedAt,
+            setLiveStatus,
+            setLiveMessage,
+            fileNameRef,
           })
-        } else {
+          setPortfolioLoading(false)
+          saveLocalPortfolio(userId, saved)
+          portfolioToRefresh = saved
+        } else if (saved?.rows?.length && localSaved?.rows?.length) {
+          persistRows(localSaved, {
+            fileNameOverride: localSaved.fileName,
+            lastPriceRefreshAt: localSaved.lastPriceRefreshAt,
+          })
+        } else if (!localSaved?.rows?.length) {
           setRows([])
           setFileName('')
           fileNameRef.current = ''
@@ -260,8 +355,22 @@ export default function Portfolio() {
           setLiveMessage('')
           setLastUpdatedAt(null)
         }
+
+        if (portfolioToRefresh?.rows?.length && isPriceRefreshDue(portfolioToRefresh.lastPriceRefreshAt)) {
+          refreshRowsWithLivePrices(portfolioToRefresh.rows, {
+            fileNameOverride: portfolioToRefresh.fileName,
+          })
+        }
       } catch (err) {
-        if (!cancelled) setError(`Could not load saved portfolio: ${err.message}`)
+        if (!cancelled) {
+          if (!displayedLocalPortfolio) {
+            setError(`Could not load saved portfolio: ${err.message}`)
+          } else if (localSaved?.rows?.length && isPriceRefreshDue(localSaved.lastPriceRefreshAt)) {
+            refreshRowsWithLivePrices(localSaved.rows, {
+              fileNameOverride: localSaved.fileName,
+            })
+          }
+        }
       } finally {
         if (!cancelled) setPortfolioLoading(false)
       }
@@ -300,9 +409,9 @@ export default function Portfolio() {
       setActiveView(parsedRows.length > 0 ? 'overview' : 'upload')
 
       if (parsedRows.length > 0) {
-        await persistRows(parsedRows, { fileNameOverride: file.name, markUploaded: true })
+        persistRowsLocal(parsedRows, { fileNameOverride: file.name, lastPriceRefreshAt: null })
         setLoadingMsg('Refreshing Yahoo prices...')
-        await refreshRowsWithLivePrices(parsedRows, { fileNameOverride: file.name })
+        await refreshRowsWithLivePrices(parsedRows, { fileNameOverride: file.name, markUploaded: true })
       } else {
         setLiveStatus('idle')
         setLiveMessage('No positions were found in the uploaded file.')
