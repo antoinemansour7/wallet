@@ -42,9 +42,9 @@ describe('parseSpreadsheet', () => {
   })
 
   describe('unsupported file types', () => {
-    it('rejects unsupported file extensions', async () => {
-      const file = makeFile('data', 'data.pdf', 'application/pdf')
-      await expect(parseSpreadsheet(file)).rejects.toThrow('Unsupported file type: .pdf')
+    it('rejects .docx files', async () => {
+      const file = makeFile('data', 'report.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+      await expect(parseSpreadsheet(file)).rejects.toThrow('Unsupported file type: .docx')
     })
 
     it('rejects .txt files', async () => {

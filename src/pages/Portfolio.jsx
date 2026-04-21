@@ -37,6 +37,7 @@ export default function Portfolio() {
   const [fileName, setFileName]     = useState('')
   const [error, setError]           = useState('')
   const [loading, setLoading]       = useState(false)
+  const [loadingMsg, setLoadingMsg] = useState('')
   const [isDragging, setIsDragging] = useState(false)
   const inputRef = useRef(null)
 
@@ -44,7 +45,14 @@ export default function Portfolio() {
     if (!file) return
     setError('')
     setLoading(true)
+    const ext = file.name.split('.').pop().toLowerCase()
+    setLoadingMsg(ext === 'pdf' ? 'Extracting text…' : 'Parsing file…')
     try {
+      if (ext === 'pdf') {
+        // Give the UI a tick to show the first message before the heavy PDF work starts
+        await new Promise((r) => setTimeout(r, 50))
+        setLoadingMsg('Analyzing with AI…')
+      }
       const { rows } = await parseSpreadsheet(file)
       setRows(rows)
       setFileName(file.name)
@@ -52,6 +60,7 @@ export default function Portfolio() {
       setError(err.message)
     } finally {
       setLoading(false)
+      setLoadingMsg('')
     }
   }
 
@@ -118,14 +127,17 @@ export default function Portfolio() {
           <input
             ref={inputRef}
             type="file"
-            accept=".csv,.xlsx,.xls"
+            accept=".csv,.xlsx,.xls,.pdf"
             className="hidden"
             onChange={(e) => handleFile(e.target.files[0])}
           />
           {loading ? (
             <div className="flex flex-col items-center gap-3">
               <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              <p className="text-slate-400 text-sm">Parsing file…</p>
+              <p className="text-slate-400 text-sm">{loadingMsg}</p>
+              {loadingMsg === 'Analyzing with AI…' && (
+                <p className="text-slate-600 text-xs">Claude is reading your document</p>
+              )}
             </div>
           ) : fileName ? (
             <div className="flex flex-col items-center gap-2">
@@ -141,7 +153,7 @@ export default function Portfolio() {
                 <UploadIcon />
               </div>
               <p className="text-slate-300 font-medium text-sm">Drop your portfolio here</p>
-              <p className="text-slate-600 text-xs">CSV · XLSX · XLS · drag & drop or click to browse</p>
+              <p className="text-slate-600 text-xs">CSV · XLSX · XLS · PDF · drag & drop or click to browse</p>
             </div>
           )}
         </div>
