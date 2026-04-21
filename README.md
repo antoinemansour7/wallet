@@ -8,6 +8,7 @@ A stock portfolio tracker with daily research. Built with React + Firebase.
 |---|---|
 | Frontend | React 18 + Vite |
 | Auth | Firebase (Google sign-in only) |
+| User data | Firebase Firestore |
 | Routing | React Router v6 |
 | Styling | Tailwind CSS |
 | AI extraction | Groq-hosted model |
@@ -30,8 +31,9 @@ npm install
 
 1. Create a project at [console.firebase.google.com](https://console.firebase.google.com)
 2. Enable **Authentication → Sign-in method → Google**
-3. Register a web app and copy the config
-4. Copy `.env.example` to `.env` and fill in your values:
+3. Enable **Firestore Database**
+4. Register a web app and copy the config
+5. Copy `.env.example` to `.env` and fill in your values:
 
 ```bash
 cp .env.example .env
@@ -59,6 +61,19 @@ QUOTE_CACHE_RETENTION_SECONDS=86400
 QUOTE_REFRESH_CONCURRENCY=5
 QUOTE_REFRESH_LIMIT=100
 CRON_SECRET=your_cron_secret
+```
+
+Recommended Firestore rule for saved portfolios:
+
+```js
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
 ```
 
 ### 3. Run
@@ -96,6 +111,7 @@ If you use Vercel's built-in Git integration instead, leave those GitHub secrets
 ### Portfolio
 - Upload a CSV, Excel (.xlsx/.xls), or PDF document of your holdings
 - Dashboard renders after upload with KPI cards, charts, and grouped holdings
+- Saved portfolios reload automatically when the same Google user signs back in
 - Yahoo Finance quote refresh updates market price, market value, day change, and unrealized P&L when symbols match
 - Redis caches quotes by ticker so repeated refreshes reuse fresh prices instead of calling Yahoo every time
 

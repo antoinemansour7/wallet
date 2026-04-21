@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { parseSpreadsheet } from '../utils/parseSpreadsheet'
 import { enrichRowsWithLivePrices } from '../utils/livePrices'
+import { loadSavedPortfolio, savePortfolio } from '../utils/portfolioStorage'
+import { useAuth } from '../context/AuthContext'
 import {
   parseNum, fmtCurrency, fmtPct, fmtNumber, pnlColor,
   computeStats, groupByAccount,
@@ -127,11 +129,21 @@ function getPnlBuckets(rows) {
   return buckets
 }
 
+function timestampToDate(value) {
+  if (!value) return null
+  if (value instanceof Date) return value
+  if (typeof value.toDate === 'function') return value.toDate()
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
 export default function Portfolio() {
+  const { user } = useAuth()
   const [rows, setRows]               = useState([])
   const [fileName, setFileName]       = useState('')
   const [error, setError]             = useState('')
   const [loading, setLoading]         = useState(false)
+  const [portfolioLoading, setPortfolioLoading] = useState(true)
   const [loadingMsg, setLoadingMsg]   = useState('')
   const [isDragging, setIsDragging]   = useState(false)
   const [activeView, setActiveView]   = useState('upload')
@@ -139,13 +151,30 @@ export default function Portfolio() {
   const [liveMessage, setLiveMessage] = useState('')
   const [lastUpdatedAt, setLastUpdatedAt] = useState(null)
   const inputRef = useRef(null)
+  const fileNameRef = useRef('')
+  const userId = user?.uid
 
   const hasData = rows.length > 0
   const stats = useMemo(() => (hasData ? computeStats(rows) : null), [hasData, rows])
   const groups = useMemo(() => (hasData ? groupByAccount(rows) : []), [hasData, rows])
   const visibleView = hasData ? activeView : 'upload'
 
-  const refreshRowsWithLivePrices = useCallback(async (sourceRows) => {
+  useEffect(() => {
+    fileNameRef.current = fileName
+  }, [fileName])
+
+  const persistRows = useCallback(async (nextRows, options = {}) => {
+    if (!userId || !nextRows.length) return
+
+    await savePortfolio(userId, {
+      fileName: options.fileNameOverride ?? fileNameRef.current,
+      rows: nextRows,
+      lastPriceRefreshAt: options.lastPriceRefreshAt ?? null,
+      markUploaded: options.markUploaded ?? false,
+    })
+  }, [userId])
+
+  const refreshRowsWithLivePrices = useCallback(async (sourceRows, options = {}) => {
     if (!sourceRows.length) {
       setLiveStatus('idle')
       setLiveMessage('')
@@ -161,7 +190,12 @@ export default function Portfolio() {
       setRows(nextRows)
 
       if (result.updatedRows > 0) {
-        setLastUpdatedAt(new Date())
+        const refreshedAt = new Date()
+        setLastUpdatedAt(refreshedAt)
+        await persistRows(nextRows, {
+          fileNameOverride: options.fileNameOverride,
+          lastPriceRefreshAt: refreshedAt.toISOString(),
+        })
       }
 
       const cache = result.cache
@@ -188,7 +222,57 @@ export default function Portfolio() {
       setLiveMessage(`Yahoo refresh failed: ${err.message}`)
       return sourceRows
     }
-  }, [])
+  }, [persistRows])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadPortfolio() {
+      if (!userId) {
+        setPortfolioLoading(false)
+        return
+      }
+
+      setPortfolioLoading(true)
+      setError('')
+
+      try {
+        const saved = await loadSavedPortfolio(userId)
+        if (cancelled) return
+
+        if (saved?.rows?.length) {
+          setRows(saved.rows)
+          setFileName(saved.fileName)
+          fileNameRef.current = saved.fileName
+          setActiveView('overview')
+          setLastUpdatedAt(timestampToDate(saved.lastPriceRefreshAt))
+          setLiveStatus('success')
+          setLiveMessage('Loaded saved portfolio from your account.')
+          refreshRowsWithLivePrices(saved.rows, {
+            fileNameOverride: saved.fileName,
+          })
+        } else {
+          setRows([])
+          setFileName('')
+          fileNameRef.current = ''
+          setActiveView('upload')
+          setLiveStatus('idle')
+          setLiveMessage('')
+          setLastUpdatedAt(null)
+        }
+      } catch (err) {
+        if (!cancelled) setError(`Could not load saved portfolio: ${err.message}`)
+      } finally {
+        if (!cancelled) setPortfolioLoading(false)
+      }
+    }
+
+    loadPortfolio()
+
+    return () => {
+      cancelled = true
+    }
+  }, [userId, refreshRowsWithLivePrices])
 
   useEffect(() => {
     if (!rows.length) return undefined
@@ -212,11 +296,13 @@ export default function Portfolio() {
       const parsedRows = parsed.rows ?? []
       setRows(parsedRows)
       setFileName(file.name)
+      fileNameRef.current = file.name
       setActiveView(parsedRows.length > 0 ? 'overview' : 'upload')
 
       if (parsedRows.length > 0) {
+        await persistRows(parsedRows, { fileNameOverride: file.name, markUploaded: true })
         setLoadingMsg('Refreshing Yahoo prices...')
-        await refreshRowsWithLivePrices(parsedRows)
+        await refreshRowsWithLivePrices(parsedRows, { fileNameOverride: file.name })
       } else {
         setLiveStatus('idle')
         setLiveMessage('No positions were found in the uploaded file.')
@@ -251,7 +337,9 @@ export default function Portfolio() {
 
         <TabNav activeView={visibleView} hasData={hasData} onChange={setActiveView} />
 
-        {visibleView === 'overview' && (
+        {portfolioLoading && <LoadingPortfolio />}
+
+        {!portfolioLoading && visibleView === 'overview' && (
           <OverviewView
             rows={rows}
             stats={stats}
@@ -263,7 +351,7 @@ export default function Portfolio() {
           />
         )}
 
-        {visibleView === 'charts' && (
+        {!portfolioLoading && visibleView === 'charts' && (
           <ChartsView
             rows={rows}
             stats={stats}
@@ -275,11 +363,11 @@ export default function Portfolio() {
           />
         )}
 
-        {visibleView === 'holdings' && (
+        {!portfolioLoading && visibleView === 'holdings' && (
           <HoldingsView rows={rows} groups={groups} onUploadClick={() => setActiveView('upload')} />
         )}
 
-        {visibleView === 'upload' && (
+        {!portfolioLoading && visibleView === 'upload' && (
           <UploadView
             error={error}
             fileName={fileName}
@@ -296,6 +384,16 @@ export default function Portfolio() {
           />
         )}
       </div>
+    </div>
+  )
+}
+
+function LoadingPortfolio() {
+  return (
+    <div className="rounded-lg border border-white/[0.06] bg-wall-surface px-5 py-8 text-center">
+      <div className="mx-auto mb-3 h-7 w-7 rounded-full border-2 border-sky-400 border-t-transparent animate-spin" />
+      <p className="text-sm font-medium text-slate-300">Loading saved portfolio</p>
+      <p className="mt-1 text-xs text-slate-600">Checking your account for existing holdings.</p>
     </div>
   )
 }
