@@ -92,11 +92,14 @@ The scheduled `/api/refresh-prices` function is configured in `vercel.json`.
 
 ## CI/CD
 
-GitHub Actions runs the pipeline in `.github/workflows/ci-cd.yml`.
+GitHub Actions uses separate CI and CD workflows.
 
-- Pull requests to `main`: install dependencies, run tests, build, then deploy a Vercel preview if Vercel GitHub secrets are configured.
-- Pushes to `main`: install dependencies, run tests, build, then deploy production to Vercel if Vercel GitHub secrets are configured.
-- Manual runs: available from the GitHub Actions tab through `workflow_dispatch`.
+- CI: `.github/workflows/ci.yml`
+- CD: `.github/workflows/cd.yml`
+
+CI runs on pull requests to `main`, pushes to `main`, merges into `main`, and manual `workflow_dispatch` runs. It installs dependencies, runs tests, and builds the app.
+
+CD deploys production to Vercel after the `CI` workflow succeeds on `main`. It can also be run manually from the GitHub Actions tab.
 
 Required GitHub repository secrets for Actions-based Vercel deployments:
 
