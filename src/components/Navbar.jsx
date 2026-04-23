@@ -5,28 +5,24 @@ export default function Navbar() {
   const { user, signOut } = useAuth()
 
   return (
-    <nav className="sticky top-0 z-50 h-14 border-b border-black/[0.07] bg-wall-bg/90 px-5 backdrop-blur-xl glass">
+    <nav className="sticky top-0 z-50 h-14 border-b border-border bg-card/90 px-5 glass">
       <div className="flex h-full items-center justify-between">
-        {/* Left: Brand + nav */}
         <div className="flex items-center gap-5">
-          {/* Logo */}
           <div className="flex items-center gap-2.5">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-wall-green shadow-sm">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand shadow-sm">
               <LogoIcon />
             </div>
-            <span className="text-sm font-bold tracking-tight text-stone-800">WallAI</span>
+            <span className="text-sm font-bold tracking-tight text-text-primary">WallAI</span>
           </div>
 
-          <div className="h-4 w-px bg-black/[0.08]" />
+          <div className="h-4 w-px bg-border" />
 
-          {/* Nav links */}
           <div className="flex items-center gap-0.5">
             <NavItem to="/portfolio" icon={<PortfolioIcon />}>Portfolio</NavItem>
             <NavItem to="/research" icon={<ResearchIcon />}>Research</NavItem>
           </div>
         </div>
 
-        {/* Right: User */}
         {user && (
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2.5">
@@ -34,23 +30,23 @@ export default function Navbar() {
                 <img
                   src={user.photoURL}
                   alt={user.displayName}
-                  className="h-7 w-7 rounded-full ring-1 ring-black/10"
+                  className="h-7 w-7 rounded-full ring-1 ring-border"
                 />
               ) : (
-                <div className="flex h-7 w-7 items-center justify-center rounded-full border border-wall-green/20 bg-wall-green-light text-xs font-bold text-wall-green">
+                <div className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-brand-light text-xs font-bold text-text-secondary">
                   {user.displayName?.[0] ?? '?'}
                 </div>
               )}
-              <span className="hidden text-sm text-stone-500 sm:block">
+              <span className="hidden text-sm text-text-muted sm:block">
                 {user.displayName?.split(' ')[0]}
               </span>
             </div>
 
-            <div className="h-4 w-px bg-black/[0.08]" />
+            <div className="h-4 w-px bg-border" />
 
             <button
               onClick={signOut}
-              className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-stone-400 transition-all hover:bg-black/[0.05] hover:text-stone-700"
+              className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-muted transition-all hover:bg-brand-light hover:text-text-primary"
             >
               Sign out
             </button>
@@ -68,8 +64,8 @@ function NavItem({ to, icon, children }) {
       className={({ isActive }) =>
         `flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-150 ${
           isActive
-            ? 'bg-wall-green text-white'
-            : 'text-stone-500 hover:bg-black/[0.05] hover:text-stone-800'
+            ? 'bg-brand text-white'
+            : 'text-text-muted hover:bg-brand-light hover:text-text-primary'
         }`
       }
     >
