@@ -52,75 +52,60 @@ export default function Login() {
   }
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-wall-bg">
-
-      {/* ── Ambient background ─────────────────────────────────── */}
-      <div className="pointer-events-none absolute inset-0 bg-dot-grid opacity-40" />
-      <div className="pointer-events-none absolute -top-32 left-1/3 h-[480px] w-[480px] rounded-full bg-wall-green/[0.07] blur-[100px]" />
-      <div className="pointer-events-none absolute -bottom-20 right-0 h-[400px] w-[400px] rounded-full bg-amber-100/50 blur-[90px]" />
+    <main className="relative min-h-screen overflow-hidden bg-surface">
+      <div className="pointer-events-none absolute -top-32 left-1/3 h-[480px] w-[480px] rounded-full bg-brand/[0.03] blur-[100px]" />
+      <div className="pointer-events-none absolute -bottom-20 right-0 h-[400px] w-[400px] rounded-full bg-brand-light/80 blur-[90px]" />
 
       <div className="relative mx-auto max-w-7xl px-5 py-10 lg:px-10">
-
-        {/* ── Top nav ────────────────────────────────────────────── */}
         <nav className="mb-14 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-wall-green shadow-glow-green">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand shadow-sm">
               <LogoMark />
             </div>
             <div className="leading-none">
-              <p className="text-sm font-bold tracking-tight text-stone-900">WallAI</p>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-400">Portfolio OS</p>
+              <p className="text-sm font-bold tracking-tight text-text-primary">WallAI</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">Portfolio OS</p>
             </div>
           </div>
-          <span className="rounded-full border border-wall-green/20 bg-wall-green-light px-3 py-1 text-xs font-semibold text-wall-green">
+          <span className="rounded-full border border-border bg-brand-light px-3 py-1 text-xs font-semibold text-text-secondary">
             Private beta
           </span>
         </nav>
 
-        {/* ── Main layout ────────────────────────────────────────── */}
         <div className="grid items-start gap-12 lg:grid-cols-[1fr_400px] lg:gap-16">
-
-          {/* ── Left: Hero ──────────────────────────────────────── */}
           <div className="animate-fade-in">
-
-            {/* Badge */}
-            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-black/[0.07] bg-white px-3.5 py-1.5 text-xs font-semibold text-stone-500 shadow-sm">
-              <span className="h-1.5 w-1.5 rounded-full bg-wall-green" />
+            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-border bg-card px-3.5 py-1.5 text-xs font-semibold text-text-muted shadow-sm">
+              <span className="h-1.5 w-1.5 rounded-full bg-brand" />
               Your brokerage spreadsheet, turned into a living dashboard.
             </div>
 
-            {/* Headline */}
-            <h1 className="mb-5 font-serif text-[clamp(2.8rem,5.5vw,5.2rem)] font-semibold leading-[0.92] tracking-[-0.05em] text-stone-950">
+            <h1 className="mb-5 font-serif text-[clamp(2.8rem,5.5vw,5.2rem)] font-semibold leading-[0.92] tracking-[-0.05em] text-text-primary">
               See what your<br />portfolio is really doing.
             </h1>
 
-            <p className="mb-10 max-w-md text-[1.05rem] leading-relaxed text-stone-500">
+            <p className="mb-10 max-w-md text-[1.05rem] leading-relaxed text-text-muted">
               Upload holdings once, sign back in anytime. WallAI maps your broker's columns, fetches live prices, and gives you clean P&L with account-level context.
             </p>
           </div>
 
-          {/* ── Right: Sign-in card ─────────────────────────────── */}
           <div className="lg:sticky lg:top-10">
-            <div className="relative overflow-hidden rounded-[2rem] border border-black/[0.07] bg-white p-8 shadow-[0_20px_70px_rgba(28,28,28,0.1)]">
-
-              {/* Decorative corner */}
-              <div className="pointer-events-none absolute right-0 top-0 h-28 w-28 rounded-bl-[2rem] bg-wall-green-light opacity-70" />
+            <div className="relative overflow-hidden rounded-[2rem] border border-border bg-card p-8 shadow-[0_20px_70px_rgba(28,28,28,0.06)]">
+              <div className="pointer-events-none absolute right-0 top-0 h-28 w-28 rounded-bl-[2rem] bg-brand-light opacity-70" />
 
               <div className="relative">
-                <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.22em] text-wall-green">Sign in</p>
-                <h2 className="mb-2 text-2xl font-bold tracking-[-0.03em] text-stone-950">
+                <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.22em] text-brand">Sign in</p>
+                <h2 className="mb-2 text-2xl font-bold tracking-[-0.03em] text-text-primary">
                   Continue to your workspace.
                 </h2>
-                <p className="mb-7 text-sm leading-relaxed text-stone-500">
+                <p className="mb-7 text-sm leading-relaxed text-text-muted">
                   Your portfolio, saved uploads, and refreshed quote cache are tied to your Google account.
                 </p>
 
-                {/* Google button */}
                 <button
                   type="button"
                   onClick={handleSignIn}
                   disabled={isSigningIn}
-                  className="flex w-full items-center justify-center gap-3 rounded-2xl bg-stone-950 px-4 py-[14px] text-sm font-bold text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-wall-green hover:shadow-glow-green disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+                  className="flex w-full items-center justify-center gap-3 rounded-2xl bg-brand px-4 py-[14px] text-sm font-bold text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
                 >
                   <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white">
                     <GoogleIcon />
@@ -129,34 +114,32 @@ export default function Login() {
                 </button>
 
                 {error && (
-                  <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  <div className="mt-4 rounded-xl border border-loss/20 bg-loss-bg px-4 py-3 text-sm text-loss">
                     {error}
                   </div>
                 )}
 
-                {/* Benefits */}
-                <div className="mt-7 space-y-3 border-t border-black/[0.06] pt-6">
+                <div className="mt-7 space-y-3 border-t border-border pt-6">
                   {BENEFITS.map((b) => (
                     <div key={b} className="flex items-start gap-2.5">
-                      <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-wall-green-light text-wall-green">
+                      <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-gain-bg text-gain">
                         <CheckIcon />
                       </span>
-                      <span className="text-sm leading-snug text-stone-600">{b}</span>
+                      <span className="text-sm leading-snug text-text-secondary">{b}</span>
                     </div>
                   ))}
                 </div>
 
-                {/* Security note */}
-                <div className="mt-6 flex items-start gap-2.5 rounded-xl bg-wall-elevated px-3.5 py-3">
-                  <span className="mt-px shrink-0 text-stone-400"><LockIcon /></span>
-                  <p className="text-xs leading-relaxed text-stone-400">
+                <div className="mt-6 flex items-start gap-2.5 rounded-xl bg-brand-light px-3.5 py-3">
+                  <span className="mt-px shrink-0 text-text-muted"><LockIcon /></span>
+                  <p className="text-xs leading-relaxed text-text-muted">
                     Authentication via Firebase. API keys and market data providers stay server-side only.
                   </p>
                 </div>
               </div>
             </div>
 
-            <p className="mt-4 text-center text-xs leading-relaxed text-stone-400">
+            <p className="mt-4 text-center text-xs leading-relaxed text-text-muted">
               By continuing, you agree to use WallAI for tracking only — not financial advice.
             </p>
           </div>
@@ -165,8 +148,6 @@ export default function Login() {
     </main>
   )
 }
-
-// ── Icons ─────────────────────────────────────────────────────────────────────
 
 function LogoMark() {
   return (
