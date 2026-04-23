@@ -10,32 +10,23 @@
   }
 
   body {
-    background-color: #F8F6F1;
-    color: #1C1C1C;
+    background-color: #fafbfc;
+    color: #18181b;
     font-family: 'Inter', system-ui, sans-serif;
   }
 
-  /* Custom scrollbar */
   ::-webkit-scrollbar        { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track  { background: transparent; }
-  ::-webkit-scrollbar-thumb  { background: rgba(0,0,0,0.12); border-radius: 9999px; }
-  ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.22); }
+  ::-webkit-scrollbar-thumb  { background: rgba(0,0,0,0.10); border-radius: 9999px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.20); }
 }
 
 @layer utilities {
-  /* Tabular numbers for financial data */
   .tabular {
     font-variant-numeric: tabular-nums;
     font-feature-settings: 'tnum';
   }
 
-  /* Dot-grid background — subtle on light */
-  .bg-dot-grid {
-    background-image: radial-gradient(circle, rgba(0,0,0,0.06) 1px, transparent 1px);
-    background-size: 22px 22px;
-  }
-
-  /* Glass */
   .glass {
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
