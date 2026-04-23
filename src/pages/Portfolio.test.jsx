@@ -71,9 +71,9 @@ describe('fmtPct', () => {
 })
 
 describe('pnlColor', () => {
-  it('returns green for positive', () => expect(pnlColor(300)).toBe('text-green-600'))
-  it('returns red for negative',   () => expect(pnlColor(-587)).toBe('text-red-600'))
-  it('returns stone for zero',     () => expect(pnlColor(0)).toBe('text-stone-400'))
+  it('returns gain for positive', () => expect(pnlColor(300)).toBe('text-gain'))
+  it('returns loss for negative',  () => expect(pnlColor(-587)).toBe('text-loss'))
+  it('returns muted for zero',     () => expect(pnlColor(0)).toBe('text-text-muted'))
 })
 
 describe('computeStats', () => {
@@ -104,6 +104,15 @@ describe('computeStats', () => {
     const { totalMarketValue, totalUnrealized } = computeStats([ROW_GAIN])
     expect(totalMarketValue).toBeCloseTo(1500, 1)
     expect(totalUnrealized).toBeCloseTo(300, 1)
+  })
+
+  it('includes cash and realized pnl when provided', () => {
+    const stats = computeStats(rows, { cashValue: 500, realizedPnl: 125 })
+
+    expect(stats.totalCashValue).toBe(500)
+    expect(stats.totalRealized).toBe(125)
+    expect(stats.totalMarketValue).toBeCloseTo(1500 + 1848.49 + 500, 2)
+    expect(stats.totalPnl).toBeCloseTo(300 - 587.1 + 125, 2)
   })
 })
 
