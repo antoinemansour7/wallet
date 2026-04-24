@@ -2,7 +2,7 @@ import { TABS } from './constants'
 
 export default function TabNav({ activeView, hasData, onChange }) {
   return (
-    <div className="mb-7 flex gap-1 rounded-xl border border-border bg-brand-light p-1 shadow-sm">
+    <div className="mb-7 flex gap-1 rounded-full border border-border bg-brand-light p-1">
       {TABS.map((tab) => {
         const disabled = !hasData && tab.id !== 'upload'
         const isActive = activeView === tab.id
@@ -12,9 +12,9 @@ export default function TabNav({ activeView, hasData, onChange }) {
             type="button"
             disabled={disabled}
             onClick={() => onChange(tab.id)}
-            className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-150 ${
+            className={`flex-1 rounded-full px-3 py-2 text-sm font-medium transition-all duration-150 ${
               isActive
-                ? 'bg-brand text-white shadow-sm'
+                ? 'bg-brand text-white'
                 : 'text-text-muted hover:bg-black/[0.04] hover:text-text-primary'
             } ${disabled ? 'cursor-not-allowed opacity-30 hover:bg-transparent hover:text-text-muted' : ''}`}
           >

@@ -1,9 +1,13 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
-    {
-      "path": "/api/refresh-prices",
-      "schedule": "0 14 * * *"
-    }
+    { "path": "/api/refresh-prices",   "schedule": "0 14 * * *" },
+    { "path": "/api/nightly-research", "schedule": "0 3 * * *"  }
+  ],
+  "functions": {
+    "api/nightly-research.js": { "maxDuration": 300 }
+  },
+  "rewrites": [
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }

@@ -67,6 +67,26 @@ describe('parseSpreadsheet', () => {
       expect(rows).toHaveLength(0)
       expect(headers).toHaveLength(0)
     })
+
+    it('extracts explicit cash rows separately from position rows', async () => {
+      const csv = [
+        'Account number;Account currency;Symbol;Description;Quantity;Book value;Market Value',
+        '"68BB39W";CAD;AVGO;"BROADCOM INC CDR C$HDG";"655";"8848.86";"10021.50"',
+        '"68BB39W";CAD;;"Cash balance";;"0";"6420.25"',
+      ].join('\n')
+
+      const { rows, cashEntries } = await parseSpreadsheet(makeFile(csv, 'portfolio.csv'))
+
+      expect(rows).toHaveLength(1)
+      expect(rows[0].SYMBOL).toBe('AVGO')
+      expect(cashEntries).toEqual([
+        expect.objectContaining({
+          accountNumber: '68BB39W',
+          currency: 'CAD',
+          amount: '6420.25',
+        }),
+      ])
+    })
   })
 
   describe('Excel', () => {

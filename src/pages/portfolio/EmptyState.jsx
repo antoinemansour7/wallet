@@ -13,7 +13,7 @@ export default function EmptyState({ onUploadClick }) {
       <button
         type="button"
         onClick={onUploadClick}
-        className="mt-5 rounded-full border border-brand bg-brand px-5 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-zinc-800"
+        className="mt-5 rounded-full border border-brand bg-brand px-6 py-2.5 text-sm font-semibold text-white transition-all hover:opacity-85"
       >
         Upload a file
       </button>

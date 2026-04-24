@@ -21,6 +21,7 @@ function chartResponse(symbol, price, previousClose = 100) {
 }
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
@@ -42,6 +43,8 @@ describe('fetchYahooQuotes cache', () => {
   })
 
   it('uses Yahoo previous-close metadata when a CDR only returns today candle', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-04-21T16:00:00Z'))
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({

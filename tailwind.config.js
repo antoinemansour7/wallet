@@ -7,27 +7,44 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'Fira Code', 'ui-monospace', 'monospace'],
+        sans:    ['Inter', 'system-ui', 'sans-serif'],
+        display: ['Plus Jakarta Sans', 'Inter', 'system-ui', 'sans-serif'],
+        mono:    ['JetBrains Mono', 'Fira Code', 'ui-monospace', 'monospace'],
       },
       colors: {
-        brand:          '#1c1c1c',
-        'brand-light':  '#f4f4f5',
-        surface:        '#fafbfc',
-        card:           '#ffffff',
-        border:         '#e4e4e7',
-        'border-subtle':'#f4f4f5',
-        'text-primary': '#18181b',
-        'text-secondary':'#52525b',
-        'text-muted':   '#a1a1aa',
-        gain:           '#0d9488',
-        'gain-bg':      '#f0fdfa',
-        loss:           '#dc2626',
-        'loss-bg':      '#fef2f2',
+        // Primary — Revolut Dark + White
+        brand:           '#191c1f',   // Revolut Dark
+        'brand-light':   '#f4f4f4',   // Light Surface
+        surface:         '#ffffff',   // Pure white page bg
+        card:            '#ffffff',   // Card bg
+
+        // Borders
+        border:          '#c9c9cd',   // Revolut grey-tone-20
+        'border-subtle': '#f4f4f4',
+
+        // Text
+        'text-primary':   '#191c1f',  // Revolut Dark
+        'text-secondary': '#505a63',  // Mid Slate
+        'text-muted':     '#8d969e',  // Cool Gray
+
+        // Semantic — Revolut teal & danger
+        gain:      '#00a87e',         // Revolut Teal
+        'gain-bg': '#e6f7f2',
+        loss:      '#e23b4a',         // Revolut Danger
+        'loss-bg': '#fdf2f3',
+
+        // Dark surfaces — Research page dark theme
+        'wall-bg':      '#191c1f',    // Revolut Dark (page bg)
+        'wall-surface': '#22272b',    // Elevated dark surface (cards)
+      },
+      borderRadius: {
+        card: '20px',     // Revolut card radius
+        pill: '9999px',   // Revolut pill radius
       },
       boxShadow: {
-        'card':       '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
-        'card-hover': '0 4px 12px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.04)',
+        // Revolut uses ZERO shadows — depth through contrast
+        'card':       'none',
+        'card-hover': 'none',
       },
       animation: {
         'spin-slow':  'spin 1.5s linear infinite',

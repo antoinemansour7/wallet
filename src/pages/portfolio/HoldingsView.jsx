@@ -8,7 +8,7 @@ export default function HoldingsView({ rows, accounts, onUploadClick }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-text-primary">Accounts & Positions</h2>
-        <span className="rounded-full border border-border bg-card px-3 py-1 font-mono text-xs text-text-muted shadow-sm">
+        <span className="rounded-full border border-border bg-card px-3 py-1 font-mono text-xs text-text-muted">
           {accounts.length} accounts · {rows.length} positions
         </span>
       </div>
@@ -20,7 +20,7 @@ export default function HoldingsView({ rows, accounts, onUploadClick }) {
         const cashSourceLabel = account.cashSource === 'explicit' ? 'Cash from file' : account.cashSource === 'inferred' ? 'Inferred cash' : 'Cash'
 
         return (
-          <div key={acct} className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
+          <div key={acct} className="overflow-hidden rounded-card border border-border bg-card">
             <div className="flex items-center justify-between border-b border-border-subtle bg-brand-light px-4 py-3">
               <div className="flex items-center gap-2.5">
                 <span className="h-2 w-2 rounded-full bg-brand" />

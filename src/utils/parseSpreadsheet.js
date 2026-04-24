@@ -1,6 +1,7 @@
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
 import { extractTextFromPdf, extractPositionsFromText } from './extractPdfPositions'
+import { parseNum } from './portfolioStats'
 
 const OUTPUT_HEADERS = [
   'ACCOUNT NUMBER',
@@ -34,6 +35,17 @@ const COLUMN_ALIASES = {
   'UNREALIZED GAIN/LOSS %': ['unrealized gain/loss %', 'unrealized gain loss %', 'unrealized p&l %', 'p&l %'],
 }
 
+const CASH_HINTS = [
+  'cash',
+  'settled cash',
+  'unsettled cash',
+  'cash balance',
+  'available cash',
+  'available to invest',
+  'buying power',
+  'balance',
+]
+
 function cleanValue(value) {
   if (value === null || value === undefined) return ''
   return String(value).trim().replace(/^"(.*)"$/, '$1')
@@ -63,7 +75,56 @@ function getValue(row, headerIndex, outputKey) {
   return ''
 }
 
+function getAnyValue(row, headerIndex, aliases) {
+  for (const alias of aliases) {
+    const originalKey = headerIndex.get(normalizeHeader(alias))
+    if (originalKey !== undefined) return cleanValue(row[originalKey])
+  }
+  return ''
+}
+
+function extractStructuredCashEntries(rawRows) {
+  return rawRows
+    .map((row) => {
+      const headerIndex = buildHeaderIndex(row)
+      const symbol = getValue(row, headerIndex, 'SYMBOL')
+      const description = getValue(row, headerIndex, 'DESCRIPTION')
+      const label = `${symbol} ${description}`.trim().toLowerCase()
+      const hasCashHint = CASH_HINTS.some((hint) => label.includes(hint))
+      if (!hasCashHint) return null
+
+      const amount = getValue(row, headerIndex, 'MARKET VALUE')
+        || getValue(row, headerIndex, 'BOOK VALUE')
+        || getAnyValue(row, headerIndex, [
+          'cash value',
+          'cash',
+          'amount',
+          'value',
+          'available to invest',
+          'available cash',
+          'buying power',
+          'balance',
+        ])
+
+      if (amount === '' || Number.isNaN(parseNum(amount))) return null
+
+      return {
+        accountNumber: getValue(row, headerIndex, 'ACCOUNT NUMBER') || 'Unknown',
+        currency: getValue(row, headerIndex, 'ACCOUNT CURRENCY') || '',
+        amount: cleanValue(amount),
+        label: description || symbol || 'Cash',
+      }
+    })
+    .filter(Boolean)
+}
+
+function isCashLikePosition(row) {
+  const label = `${row.SYMBOL ?? ''} ${row.DESCRIPTION ?? ''}`.trim().toLowerCase()
+  return CASH_HINTS.some((hint) => label.includes(hint))
+}
+
 function normalizeStructuredRows(rawRows) {
+  const cashEntries = extractStructuredCashEntries(rawRows)
   const rows = rawRows
     .filter((row) => Object.values(row).some((value) => cleanValue(value) !== ''))
     .map((row) => {
@@ -74,9 +135,9 @@ function normalizeStructuredRows(rawRows) {
       })
       return normalized
     })
-    .filter((row) => row.SYMBOL || row.DESCRIPTION)
+    .filter((row) => (row.SYMBOL || row.DESCRIPTION) && !isCashLikePosition(row))
 
-  return { headers: OUTPUT_HEADERS, rows }
+  return { headers: OUTPUT_HEADERS, rows, cashEntries }
 }
 
 /**

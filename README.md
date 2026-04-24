@@ -52,6 +52,8 @@ GROQ_API_KEY
 UPSTASH_REDIS_REST_URL
 UPSTASH_REDIS_REST_TOKEN
 POLYGON_API_KEY
+ANTHROPIC_API_KEY
+PERPLEXITY_API_KEY
 ```
 
 Optional server-side cache controls:
@@ -63,6 +65,26 @@ QUOTE_REFRESH_CONCURRENCY=5
 QUOTE_REFRESH_LIMIT=100
 CRON_SECRET=your_cron_secret
 ```
+
+Optional research/scraper auth:
+
+```
+X_API_KEY
+X_API_KEY_SECRET
+X_BEARER_TOKEN
+X_ACCESS_TOKEN
+X_ACCESS_TOKEN_SECRET
+TWITTER_COOKIES_JSON
+TWITTER_COOKIES_BASE64
+TWITTER_AUTH_TOKEN
+TWITTER_CT0
+TWITTER_USERNAME
+TWITTER_PASSWORD
+TWITTER_EMAIL
+TWITTER_2FA_SECRET
+```
+
+`X_BEARER_TOKEN` is the main credential for app-only read access on the official X API, and it now powers the nightly research pipeline's tracked-account reads plus adaptive recent searches. `X_ACCESS_TOKEN` and `X_ACCESS_TOKEN_SECRET` are only needed if you later move to user-context endpoints. The `TWITTER_*` cookie credentials are legacy fallback auth for the old unofficial scraper path.
 
 Recommended Firestore rule for saved portfolios:
 
@@ -133,7 +155,10 @@ Quote refresh behavior:
 - `vercel.json` schedules `/api/refresh-prices` daily to warm known ticker prices in the background.
 
 ### Research
-- Daily market news and top movers — **pending stock API integration**
+- Yahoo Finance RSS headlines
+- Claude extracts candidate tickers from social/news signals
+- Perplexity generates full deep-research reports with citations
+- Twitter/X scraping works best with session cookies; username/password login is only a fallback
 
 ## Live Price API Options
 

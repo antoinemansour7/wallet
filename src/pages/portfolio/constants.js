@@ -18,15 +18,15 @@ export const TABS = [
   { id: 'upload',   label: 'Upload'   },
 ]
 
-export const CHART_COLORS = ['#1c1c1c', '#3f3f46', '#52525b', '#71717a', '#a1a1aa', '#d4d4d8']
+export const CHART_COLORS = ['#191c1f', '#494fdf', '#00a87e', '#505a63', '#8d969e', '#c9c9cd']
 
 export const CHART_GRADIENTS = [
-  ['#1c1c1c', '#3f3f46'],
-  ['#3f3f46', '#52525b'],
-  ['#52525b', '#71717a'],
-  ['#71717a', '#a1a1aa'],
-  ['#a1a1aa', '#d4d4d8'],
-  ['#1c1c1c', '#52525b'],
+  ['#191c1f', '#505a63'],
+  ['#494fdf', '#191c1f'],
+  ['#00a87e', '#191c1f'],
+  ['#505a63', '#8d969e'],
+  ['#8d969e', '#c9c9cd'],
+  ['#191c1f', '#8d969e'],
 ]
 
 export const AUTO_PRICE_REFRESH_MS = 5 * 60 * 1000

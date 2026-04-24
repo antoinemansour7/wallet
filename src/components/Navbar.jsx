@@ -9,10 +9,10 @@ export default function Navbar() {
       <div className="flex h-full items-center justify-between">
         <div className="flex items-center gap-5">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand shadow-sm">
+            <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-brand">
               <LogoIcon />
             </div>
-            <span className="text-sm font-bold tracking-tight text-text-primary">WallAI</span>
+            <span className="font-display text-sm font-semibold tracking-tight text-text-primary">WallAI</span>
           </div>
 
           <div className="h-4 w-px bg-border" />
@@ -33,7 +33,7 @@ export default function Navbar() {
                   className="h-7 w-7 rounded-full ring-1 ring-border"
                 />
               ) : (
-                <div className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-brand-light text-xs font-bold text-text-secondary">
+                <div className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-brand-light text-xs font-semibold text-text-secondary">
                   {user.displayName?.[0] ?? '?'}
                 </div>
               )}
@@ -46,7 +46,7 @@ export default function Navbar() {
 
             <button
               onClick={signOut}
-              className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-muted transition-all hover:bg-brand-light hover:text-text-primary"
+              className="rounded-full px-3 py-1.5 text-xs font-medium text-text-muted transition-all hover:bg-brand-light hover:text-text-primary"
             >
               Sign out
             </button>
@@ -62,7 +62,7 @@ function NavItem({ to, icon, children }) {
     <NavLink
       to={to}
       className={({ isActive }) =>
-        `flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-150 ${
+        `flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-all duration-150 ${
           isActive
             ? 'bg-brand text-white'
             : 'text-text-muted hover:bg-brand-light hover:text-text-primary'

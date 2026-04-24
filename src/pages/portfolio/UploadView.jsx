@@ -2,7 +2,7 @@ import UploadIcon from './UploadIcon'
 
 function InfoPanel({ title, icon, children }) {
   return (
-    <section className="rounded-xl border border-border bg-card p-4 shadow-card">
+    <section className="rounded-card border border-border bg-card p-4">
       <h2 className="mb-3 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-text-muted">
         <span>{icon}</span>{title}
       </h2>
@@ -50,7 +50,7 @@ export default function UploadView({ error, fileName, hasData, inputRef, isDragg
                 <p className="text-base font-semibold text-text-secondary">{isDragging ? 'Drop to import' : 'Drop your portfolio here'}</p>
                 <p className="mt-1.5 text-xs text-text-muted">CSV · XLSX · XLS · PDF</p>
                 <p className="mt-3 text-xs text-text-muted">
-                  or <span className="cursor-pointer text-brand underline underline-offset-2 hover:text-zinc-700">browse files</span>
+                  or <span className="cursor-pointer text-brand underline underline-offset-2 hover:opacity-75">browse files</span>
                 </p>
               </div>
             </div>

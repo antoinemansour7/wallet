@@ -73,7 +73,9 @@ export default function Portfolio() {
       setRows(saved.rows ?? [])
       setAccounts(saved.accounts ?? {})
       setFileName(saved.fileName || '')
-      setLastUpdatedAt(saved.lastPriceRefreshAt ? new Date(saved.lastPriceRefreshAt) : null)
+      const priceTime = saved.lastPriceRefreshAt ? new Date(saved.lastPriceRefreshAt).getTime() : 0
+      setLastUpdatedAt(priceTime ? new Date(priceTime) : null)
+      lastRefreshRef.current = priceTime || 0
       setActiveView('overview')
     }
 
@@ -140,12 +142,22 @@ export default function Portfolio() {
     }
   }, [applyPortfolioRows])
 
+  const lastRefreshRef = useRef(0)
+  useEffect(() => { if (liveStatus === 'success' || liveStatus === 'partial') lastRefreshRef.current = Date.now() }, [liveStatus])
+
   useEffect(() => {
     if (!rows.length) return undefined
-    const id = window.setInterval(() => {
-      if (liveStatus !== 'loading') refreshRowsWithLivePrices(rows, { previousAccounts: accounts })
-    }, AUTO_PRICE_REFRESH_MS)
-    return () => window.clearInterval(id)
+    const CHECK_MS = 30_000
+    const tryRefresh = () => {
+      if (liveStatus === 'loading') return
+      if (Date.now() - lastRefreshRef.current >= AUTO_PRICE_REFRESH_MS) {
+        refreshRowsWithLivePrices(rows, { previousAccounts: accounts })
+      }
+    }
+    const id = window.setInterval(tryRefresh, CHECK_MS)
+    const onVisible = () => { if (document.visibilityState === 'visible') tryRefresh() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { window.clearInterval(id); document.removeEventListener('visibilitychange', onVisible) }
   }, [accounts, rows, liveStatus, refreshRowsWithLivePrices])
 
   const handleFile = async (file) => {

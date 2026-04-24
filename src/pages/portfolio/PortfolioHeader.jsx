@@ -3,7 +3,7 @@ export default function PortfolioHeader({ fileName, hasData, lastUpdatedAt }) {
     <header className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
       <div>
         <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-text-muted">Dashboard</p>
-        <h1 className="text-[28px] font-bold tracking-tight text-text-primary">Portfolio</h1>
+        <h1 className="font-display text-[28px] font-semibold tracking-tight text-text-primary">Portfolio</h1>
         <p className="mt-1.5 text-sm text-text-muted">AI-parsed holdings · live market prices</p>
         {hasData && (
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">

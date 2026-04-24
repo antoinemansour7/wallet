@@ -3,10 +3,16 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 const BENEFITS = [
-  'Saved portfolio reloads instantly on return.',
+  'Portfolio syncs across all your devices.',
   'CDR-aware pricing — Canadian listings stay in CAD.',
   'Live FX conversion for USD stocks in CAD accounts.',
-  'Prices refreshed every 5 min via Yahoo Finance.',
+  'Prices auto-refresh every 5 minutes.',
+]
+
+const FEATURE_CHIPS = [
+  { color: '#00a87e', label: 'Live market prices' },
+  { color: '#494fdf', label: 'AI-parsed holdings' },
+  { color: 'rgba(255,255,255,0.4)', label: 'CDR · CAD · FX support' },
 ]
 
 function getSignInErrorMessage(err) {
@@ -31,7 +37,7 @@ function getSignInErrorMessage(err) {
 export default function Login() {
   const { user, signInWithGoogle } = useAuth()
   const navigate = useNavigate()
-  const [error, setError]         = useState('')
+  const [error, setError]           = useState('')
   const [isSigningIn, setSigningIn] = useState(false)
 
   useEffect(() => {
@@ -52,98 +58,95 @@ export default function Login() {
   }
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-surface">
-      <div className="pointer-events-none absolute -top-32 left-1/3 h-[480px] w-[480px] rounded-full bg-brand/[0.03] blur-[100px]" />
-      <div className="pointer-events-none absolute -bottom-20 right-0 h-[400px] w-[400px] rounded-full bg-brand-light/80 blur-[90px]" />
+    <main className="relative min-h-screen overflow-hidden bg-wall-bg">
+      {/* Background glow — Revolut blue accent */}
+      <div className="pointer-events-none absolute -top-40 left-1/4 h-[700px] w-[700px] rounded-full bg-[#494fdf]/[0.12] blur-[160px]" />
+      <div className="pointer-events-none absolute bottom-0 right-1/4 h-[400px] w-[400px] rounded-full bg-[#00a87e]/[0.06] blur-[120px]" />
 
-      <div className="relative mx-auto max-w-7xl px-5 py-10 lg:px-10">
-        <nav className="mb-14 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand shadow-sm">
-              <LogoMark />
-            </div>
-            <div className="leading-none">
-              <p className="text-sm font-bold tracking-tight text-text-primary">WallAI</p>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">Portfolio OS</p>
-            </div>
+      {/* Nav */}
+      <nav className="relative z-10 mx-auto flex max-w-7xl items-center justify-between px-8 py-6">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10">
+            <LogoMark />
           </div>
-          <span className="rounded-full border border-border bg-brand-light px-3 py-1 text-xs font-semibold text-text-secondary">
-            Private beta
-          </span>
-        </nav>
+          <span className="font-display text-base font-semibold text-white">WallAI</span>
+        </div>
+        <span className="rounded-full border border-white/10 bg-white/[0.06] px-3.5 py-1.5 text-xs font-medium text-white/50">
+          Private beta
+        </span>
+      </nav>
 
-        <div className="grid items-start gap-12 lg:grid-cols-[1fr_400px] lg:gap-16">
-          <div className="animate-fade-in">
-            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-border bg-card px-3.5 py-1.5 text-xs font-semibold text-text-muted shadow-sm">
-              <span className="h-1.5 w-1.5 rounded-full bg-brand" />
-              Your brokerage spreadsheet, turned into a living dashboard.
-            </div>
+      {/* Main content */}
+      <div className="relative z-10 mx-auto grid max-w-7xl items-center gap-16 px-8 pb-20 pt-16 lg:grid-cols-[1fr_420px]">
 
-            <h1 className="mb-5 font-serif text-[clamp(2.8rem,5.5vw,5.2rem)] font-semibold leading-[0.92] tracking-[-0.05em] text-text-primary">
-              See what your<br />portfolio is really doing.
-            </h1>
+        {/* Left — hero */}
+        <div className="animate-fade-in">
+          <h1 className="mb-6 font-display text-[clamp(3rem,6vw,5.5rem)] font-semibold leading-[1.0] tracking-[-0.03em] text-white">
+            See what your<br />portfolio is<br />really doing.
+          </h1>
 
-            <p className="mb-10 max-w-md text-[1.05rem] leading-relaxed text-text-muted">
-              Upload holdings once, sign back in anytime. WallAI maps your broker's columns, fetches live prices, and gives you clean P&L with account-level context.
-            </p>
-          </div>
+          <p className="mb-10 max-w-md text-lg leading-relaxed text-white/45">
+            Upload holdings from any broker, sign back in anytime. WallAI maps your columns, fetches live prices, and gives you clean P&amp;L with account-level context.
+          </p>
 
-          <div className="lg:sticky lg:top-10">
-            <div className="relative overflow-hidden rounded-[2rem] border border-border bg-card p-8 shadow-[0_20px_70px_rgba(28,28,28,0.06)]">
-              <div className="pointer-events-none absolute right-0 top-0 h-28 w-28 rounded-bl-[2rem] bg-brand-light opacity-70" />
-
-              <div className="relative">
-                <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.22em] text-brand">Sign in</p>
-                <h2 className="mb-2 text-2xl font-bold tracking-[-0.03em] text-text-primary">
-                  Continue to your workspace.
-                </h2>
-                <p className="mb-7 text-sm leading-relaxed text-text-muted">
-                  Your portfolio, saved uploads, and refreshed quote cache are tied to your Google account.
-                </p>
-
-                <button
-                  type="button"
-                  onClick={handleSignIn}
-                  disabled={isSigningIn}
-                  className="flex w-full items-center justify-center gap-3 rounded-2xl bg-brand px-4 py-[14px] text-sm font-bold text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
-                >
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white">
-                    <GoogleIcon />
-                  </span>
-                  {isSigningIn ? 'Opening Google…' : 'Continue with Google'}
-                </button>
-
-                {error && (
-                  <div className="mt-4 rounded-xl border border-loss/20 bg-loss-bg px-4 py-3 text-sm text-loss">
-                    {error}
-                  </div>
-                )}
-
-                <div className="mt-7 space-y-3 border-t border-border pt-6">
-                  {BENEFITS.map((b) => (
-                    <div key={b} className="flex items-start gap-2.5">
-                      <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-gain-bg text-gain">
-                        <CheckIcon />
-                      </span>
-                      <span className="text-sm leading-snug text-text-secondary">{b}</span>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-6 flex items-start gap-2.5 rounded-xl bg-brand-light px-3.5 py-3">
-                  <span className="mt-px shrink-0 text-text-muted"><LockIcon /></span>
-                  <p className="text-xs leading-relaxed text-text-muted">
-                    Authentication via Firebase. API keys and market data providers stay server-side only.
-                  </p>
-                </div>
+          <div className="flex flex-wrap gap-3">
+            {FEATURE_CHIPS.map(({ color, label }) => (
+              <div key={label} className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-4 py-2">
+                <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
+                <span className="text-sm text-white/60">{label}</span>
               </div>
-            </div>
-
-            <p className="mt-4 text-center text-xs leading-relaxed text-text-muted">
-              By continuing, you agree to use WallAI for tracking only — not financial advice.
-            </p>
+            ))}
           </div>
         </div>
+
+        {/* Right — sign-in card */}
+        <div className="rounded-card border border-white/10 bg-wall-surface p-8">
+          <h2 className="mb-1.5 font-display text-2xl font-semibold leading-tight text-white">
+            Continue to<br />your workspace.
+          </h2>
+          <p className="mb-8 text-sm leading-relaxed text-white/40">
+            Your portfolio, saved uploads, and price cache are tied to your Google account.
+          </p>
+
+          <button
+            type="button"
+            onClick={handleSignIn}
+            disabled={isSigningIn}
+            className="flex w-full items-center justify-center gap-3 rounded-full bg-white px-4 py-[14px] text-sm font-semibold text-brand transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <GoogleIcon />
+            {isSigningIn ? 'Opening Google…' : 'Continue with Google'}
+          </button>
+
+          {error && (
+            <div className="mt-4 rounded-xl border border-loss/30 bg-loss/10 px-4 py-3 text-sm text-loss">
+              {error}
+            </div>
+          )}
+
+          <div className="mt-7 space-y-3 border-t border-white/[0.08] pt-6">
+            {BENEFITS.map((b) => (
+              <div key={b} className="flex items-start gap-3">
+                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-gain/20 text-gain">
+                  <CheckIcon />
+                </span>
+                <span className="text-sm leading-snug text-white/50">{b}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-6 flex items-start gap-2.5 rounded-xl border border-white/[0.06] bg-white/[0.04] px-3.5 py-3">
+            <span className="mt-px shrink-0 text-white/30"><LockIcon /></span>
+            <p className="text-xs leading-relaxed text-white/30">
+              Auth via Firebase. API keys and market data providers stay server-side only.
+            </p>
+          </div>
+
+          <p className="mt-4 text-center text-[11px] leading-relaxed text-white/20">
+            For portfolio tracking only — not financial advice.
+          </p>
+        </div>
+
       </div>
     </main>
   )
