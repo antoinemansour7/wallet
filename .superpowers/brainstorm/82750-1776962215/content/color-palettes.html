@@ -1,0 +1,159 @@
+<h2>Color Direction</h2>
+<p class="subtitle">Same clean layout — different accent palette. Which feels most like a real wealth platform?</p>
+
+<div class="cards" style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+
+  <!-- A: Navy + Slate -->
+  <div class="card" data-choice="navy-slate" onclick="toggleSelect(this)" style="padding:0;overflow:hidden;">
+    <div style="background:#fafbfc;padding:28px 24px 20px;border-radius:8px 8px 0 0;border-bottom:1px solid #e5e7eb;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;">
+        <div style="width:24px;height:24px;background:#1e3a5f;border-radius:6px;"></div>
+        <span style="color:#1e3a5f;font-size:10px;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;">Portfolio</span>
+      </div>
+      <div style="color:#111827;font-size:26px;font-weight:700;letter-spacing:-0.02em;">$247,832.41</div>
+      <div style="color:#1e6b4f;font-size:12px;margin-top:6px;">+$3,241.18 (+1.32%)</div>
+      <div style="display:flex;gap:12px;margin-top:18px;">
+        <div style="flex:1;background:white;border:1px solid #e2e8f0;border-radius:10px;padding:12px;">
+          <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">Total Value</div>
+          <div style="color:#0f172a;font-size:15px;font-weight:600;margin-top:4px;">$247,832</div>
+        </div>
+        <div style="flex:1;background:white;border:1px solid #e2e8f0;border-radius:10px;padding:12px;">
+          <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">Day Change</div>
+          <div style="color:#1e6b4f;font-size:15px;font-weight:600;margin-top:4px;">+$3,241</div>
+        </div>
+      </div>
+      <div style="margin-top:14px;display:flex;gap:6px;">
+        <div style="height:3px;flex:3;background:#1e3a5f;border-radius:4px;"></div>
+        <div style="height:3px;flex:2;background:#3b6a9b;border-radius:4px;"></div>
+        <div style="height:3px;flex:1;background:#cbd5e1;border-radius:4px;"></div>
+      </div>
+      <!-- Swatches -->
+      <div style="display:flex;gap:6px;margin-top:14px;">
+        <div style="width:20px;height:20px;background:#1e3a5f;border-radius:4px;" title="Primary"></div>
+        <div style="width:20px;height:20px;background:#3b6a9b;border-radius:4px;" title="Secondary"></div>
+        <div style="width:20px;height:20px;background:#1e6b4f;border-radius:4px;" title="Gain"></div>
+        <div style="width:20px;height:20px;background:#b91c1c;border-radius:4px;" title="Loss"></div>
+        <div style="width:20px;height:20px;background:#f8fafc;border-radius:4px;border:1px solid #e2e8f0;" title="Background"></div>
+      </div>
+    </div>
+    <div class="card-body" style="text-align:center;">
+      <h3>A — Navy + Slate</h3>
+      <p>JP Morgan / Goldman feel. Deep navy accent, slate grays, muted greens for gains. Classic institutional.</p>
+    </div>
+  </div>
+
+  <!-- B: Charcoal + Teal -->
+  <div class="card" data-choice="charcoal-teal" onclick="toggleSelect(this)" style="padding:0;overflow:hidden;">
+    <div style="background:#fafbfc;padding:28px 24px 20px;border-radius:8px 8px 0 0;border-bottom:1px solid #e5e7eb;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;">
+        <div style="width:24px;height:24px;background:#1c1c1c;border-radius:6px;"></div>
+        <span style="color:#1c1c1c;font-size:10px;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;">Portfolio</span>
+      </div>
+      <div style="color:#111827;font-size:26px;font-weight:700;letter-spacing:-0.02em;">$247,832.41</div>
+      <div style="color:#0d9488;font-size:12px;margin-top:6px;">+$3,241.18 (+1.32%)</div>
+      <div style="display:flex;gap:12px;margin-top:18px;">
+        <div style="flex:1;background:white;border:1px solid #e5e7eb;border-radius:10px;padding:12px;">
+          <div style="color:#71717a;font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">Total Value</div>
+          <div style="color:#18181b;font-size:15px;font-weight:600;margin-top:4px;">$247,832</div>
+        </div>
+        <div style="flex:1;background:white;border:1px solid #e5e7eb;border-radius:10px;padding:12px;">
+          <div style="color:#71717a;font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">Day Change</div>
+          <div style="color:#0d9488;font-size:15px;font-weight:600;margin-top:4px;">+$3,241</div>
+        </div>
+      </div>
+      <div style="margin-top:14px;display:flex;gap:6px;">
+        <div style="height:3px;flex:3;background:#1c1c1c;border-radius:4px;"></div>
+        <div style="height:3px;flex:2;background:#525252;border-radius:4px;"></div>
+        <div style="height:3px;flex:1;background:#d4d4d8;border-radius:4px;"></div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:14px;">
+        <div style="width:20px;height:20px;background:#1c1c1c;border-radius:4px;" title="Primary"></div>
+        <div style="width:20px;height:20px;background:#525252;border-radius:4px;" title="Secondary"></div>
+        <div style="width:20px;height:20px;background:#0d9488;border-radius:4px;" title="Gain"></div>
+        <div style="width:20px;height:20px;background:#dc2626;border-radius:4px;" title="Loss"></div>
+        <div style="width:20px;height:20px;background:#fafbfc;border-radius:4px;border:1px solid #e5e7eb;" title="Background"></div>
+      </div>
+    </div>
+    <div class="card-body" style="text-align:center;">
+      <h3>B — Charcoal + Teal</h3>
+      <p>Wealthsimple vibes. Neutral charcoal anchors, teal for positive. Modern and restrained.</p>
+    </div>
+  </div>
+
+  <!-- C: Indigo + Warm Gray -->
+  <div class="card" data-choice="indigo-warm" onclick="toggleSelect(this)" style="padding:0;overflow:hidden;">
+    <div style="background:#fbfaf9;padding:28px 24px 20px;border-radius:8px 8px 0 0;border-bottom:1px solid #e7e5e4;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;">
+        <div style="width:24px;height:24px;background:#4338ca;border-radius:6px;"></div>
+        <span style="color:#4338ca;font-size:10px;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;">Portfolio</span>
+      </div>
+      <div style="color:#1c1917;font-size:26px;font-weight:700;letter-spacing:-0.02em;">$247,832.41</div>
+      <div style="color:#16a34a;font-size:12px;margin-top:6px;">+$3,241.18 (+1.32%)</div>
+      <div style="display:flex;gap:12px;margin-top:18px;">
+        <div style="flex:1;background:white;border:1px solid #e7e5e4;border-radius:10px;padding:12px;">
+          <div style="color:#a8a29e;font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">Total Value</div>
+          <div style="color:#1c1917;font-size:15px;font-weight:600;margin-top:4px;">$247,832</div>
+        </div>
+        <div style="flex:1;background:white;border:1px solid #e7e5e4;border-radius:10px;padding:12px;">
+          <div style="color:#a8a29e;font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">Day Change</div>
+          <div style="color:#16a34a;font-size:15px;font-weight:600;margin-top:4px;">+$3,241</div>
+        </div>
+      </div>
+      <div style="margin-top:14px;display:flex;gap:6px;">
+        <div style="height:3px;flex:3;background:#4338ca;border-radius:4px;"></div>
+        <div style="height:3px;flex:2;background:#6366f1;border-radius:4px;"></div>
+        <div style="height:3px;flex:1;background:#e0e7ff;border-radius:4px;"></div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:14px;">
+        <div style="width:20px;height:20px;background:#4338ca;border-radius:4px;" title="Primary"></div>
+        <div style="width:20px;height:20px;background:#6366f1;border-radius:4px;" title="Secondary"></div>
+        <div style="width:20px;height:20px;background:#16a34a;border-radius:4px;" title="Gain"></div>
+        <div style="width:20px;height:20px;background:#dc2626;border-radius:4px;" title="Loss"></div>
+        <div style="width:20px;height:20px;background:#fbfaf9;border-radius:4px;border:1px solid #e7e5e4;" title="Background"></div>
+      </div>
+    </div>
+    <div class="card-body" style="text-align:center;">
+      <h3>C — Indigo + Warm Gray</h3>
+      <p>Stripe/Plaid influence. Indigo accent on warm stone, standard green/red for P&L. Contemporary but serious.</p>
+    </div>
+  </div>
+
+  <!-- D: Pure Slate -->
+  <div class="card" data-choice="pure-slate" onclick="toggleSelect(this)" style="padding:0;overflow:hidden;">
+    <div style="background:#f8fafc;padding:28px 24px 20px;border-radius:8px 8px 0 0;border-bottom:1px solid #e2e8f0;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;">
+        <div style="width:24px;height:24px;background:#0f172a;border-radius:6px;"></div>
+        <span style="color:#0f172a;font-size:10px;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;">Portfolio</span>
+      </div>
+      <div style="color:#0f172a;font-size:26px;font-weight:700;letter-spacing:-0.02em;">$247,832.41</div>
+      <div style="color:#059669;font-size:12px;margin-top:6px;">+$3,241.18 (+1.32%)</div>
+      <div style="display:flex;gap:12px;margin-top:18px;">
+        <div style="flex:1;background:white;border:1px solid #e2e8f0;border-radius:10px;padding:12px;">
+          <div style="color:#94a3b8;font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">Total Value</div>
+          <div style="color:#0f172a;font-size:15px;font-weight:600;margin-top:4px;">$247,832</div>
+        </div>
+        <div style="flex:1;background:white;border:1px solid #e2e8f0;border-radius:10px;padding:12px;">
+          <div style="color:#94a3b8;font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">Day Change</div>
+          <div style="color:#059669;font-size:15px;font-weight:600;margin-top:4px;">+$3,241</div>
+        </div>
+      </div>
+      <div style="margin-top:14px;display:flex;gap:6px;">
+        <div style="height:3px;flex:3;background:#0f172a;border-radius:4px;"></div>
+        <div style="height:3px;flex:2;background:#334155;border-radius:4px;"></div>
+        <div style="height:3px;flex:1;background:#cbd5e1;border-radius:4px;"></div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:14px;">
+        <div style="width:20px;height:20px;background:#0f172a;border-radius:4px;" title="Primary"></div>
+        <div style="width:20px;height:20px;background:#334155;border-radius:4px;" title="Secondary"></div>
+        <div style="width:20px;height:20px;background:#059669;border-radius:4px;" title="Gain"></div>
+        <div style="width:20px;height:20px;background:#dc2626;border-radius:4px;" title="Loss"></div>
+        <div style="width:20px;height:20px;background:#f8fafc;border-radius:4px;border:1px solid #e2e8f0;" title="Background"></div>
+      </div>
+    </div>
+    <div class="card-body" style="text-align:center;">
+      <h3>D — Pure Slate</h3>
+      <p>No color accent at all. Near-black text, cool grays, only green/red speak. Maximum restraint — Schwab/Vanguard energy.</p>
+    </div>
+  </div>
+
+</div>

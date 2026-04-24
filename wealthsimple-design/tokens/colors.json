@@ -1,0 +1,106 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "core": {
+    "background": {
+      "value": "#32302f",
+      "role": "background",
+      "name": "color-text"
+    },
+    "text-primary": {
+      "value": "#ffffff",
+      "role": "text-primary",
+      "name": "color-text-button-primary"
+    },
+    "text-muted": {
+      "value": "#753323",
+      "role": "text-muted",
+      "name": "color-text-error-secondary"
+    },
+    "surface": {
+      "value": "#000000",
+      "role": "surface",
+      "name": "blobs-background-color"
+    },
+    "border": {
+      "value": "#564c47",
+      "role": "border",
+      "name": "color-hover-border-media-controls"
+    },
+    "accent": {
+      "value": "#ff8a71",
+      "role": "accent",
+      "name": "color-text-error"
+    }
+  },
+  "status": {
+    "success": {
+      "value": "#486635",
+      "role": "success",
+      "name": "color-text-success"
+    },
+    "danger": {
+      "value": "#a43d12",
+      "role": "danger",
+      "name": "color-text-error"
+    },
+    "warning": {
+      "value": "#e3b94d",
+      "role": "warning"
+    }
+  },
+  "extended": {
+    "color-scrollbar-track": {
+      "value": "#f5f3ef",
+      "role": "unknown",
+      "name": "color-scrollbar-track"
+    },
+    "nav-border-color": {
+      "value": "#e4e2e1",
+      "role": "unknown",
+      "name": "nav-border-color"
+    },
+    "ws-color-midnight": {
+      "value": "#09090a",
+      "role": "unknown",
+      "name": "ws-color-midnight"
+    },
+    "color-text-light": {
+      "value": "#c9c6c4",
+      "role": "unknown",
+      "name": "color-text-light"
+    },
+    "color-scrollbar-thumb": {
+      "value": "#afaaa7",
+      "role": "unknown",
+      "name": "color-scrollbar-thumb"
+    },
+    "ws-color-slate-60": {
+      "value": "#9a9694",
+      "role": "unknown",
+      "name": "ws-color-slate-60"
+    },
+    "color-text-success": {
+      "value": "#99b56e",
+      "role": "unknown",
+      "name": "color-text-success"
+    },
+    "ws-color-slate-10": {
+      "value": "#1c1b1b",
+      "role": "unknown",
+      "name": "ws-color-slate-10"
+    },
+    "color-f6edd0": {
+      "value": "#f6edd0",
+      "role": "unknown"
+    },
+    "calculator-slider-button-bg-color": {
+      "value": "#e4e9d3",
+      "role": "unknown",
+      "name": "calculator-slider-button-bg-color"
+    }
+  },
+  "meta": {
+    "theme": "dark",
+    "extracted": "2026-04-23"
+  }
+}

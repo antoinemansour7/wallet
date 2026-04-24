@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Color Palettes — Full Dashboard Mockups</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #111; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #e2e8f0; padding: 32px; }
+  h1 { text-align: center; font-size: 18px; font-weight: 600; color: #94a3b8; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
+  .subtitle { text-align: center; color: #64748b; font-size: 13px; margin-bottom: 40px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; max-width: 1400px; margin: 0 auto; }
+  .mockup-wrap { border-radius: 16px; overflow: hidden; border: 2px solid transparent; cursor: pointer; transition: border-color 0.2s, transform 0.2s; }
+  .mockup-wrap:hover { transform: translateY(-2px); }
+  .mockup-wrap.selected { border-color: #6366f1; }
+  .mockup-label { text-align: center; padding: 14px; background: #1a1a2e; font-size: 13px; font-weight: 600; color: #cbd5e1; }
+  .mockup-label span { color: #94a3b8; font-weight: 400; font-size: 12px; display: block; margin-top: 4px; }
+
+  /* Shared dashboard structure */
+  .dash { padding: 24px; min-height: 420px; }
+  .dash-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
+  .dash-header .brand { font-size: 9px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; margin-bottom: 6px; }
+  .dash-header .value { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
+  .dash-header .change { font-size: 11px; margin-top: 4px; }
+  .dash-header .badge { font-size: 10px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
+  .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+  .kpi { border-radius: 10px; padding: 14px; }
+  .kpi .kpi-label { font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 5px; }
+  .kpi .kpi-val { font-size: 16px; font-weight: 700; }
+  .kpi .kpi-sub { font-size: 10px; margin-top: 3px; }
+  .alloc-bar { display: flex; gap: 3px; height: 6px; border-radius: 6px; overflow: hidden; margin-bottom: 16px; }
+  .holdings { border-radius: 10px; overflow: hidden; }
+  .holdings .h-header { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; padding: 8px 14px; font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+  .holdings .h-row { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; padding: 10px 14px; font-size: 12px; align-items: center; }
+  .holdings .h-row .sym { font-weight: 700; font-size: 13px; }
+  .holdings .h-row .desc { font-size: 10px; margin-top: 1px; }
+  .tab-bar { display: flex; gap: 2px; margin-bottom: 16px; border-radius: 10px; padding: 3px; }
+  .tab-bar .tab { flex: 1; text-align: center; padding: 7px 0; font-size: 11px; font-weight: 600; border-radius: 8px; }
+
+  /* Selection indicator */
+  .sel-indicator { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #6366f1; color: white; padding: 10px 24px; border-radius: 12px; font-size: 13px; font-weight: 600; display: none; z-index: 100; }
+  .sel-indicator.show { display: block; }
+</style>
+</head>
+<body>
+
+<h1>Pick Your Palette</h1>
+<p class="subtitle">Full dashboard mockups — click to select</p>
+
+<div class="grid">
+
+<!-- ═══ A: Navy + Slate ═══ -->
+<div class="mockup-wrap" onclick="sel(this,'navy-slate')">
+  <div class="dash" style="background:#f8fafc;">
+    <div class="tab-bar" style="background:#eef2f6;">
+      <div class="tab" style="background:#1e3a5f;color:white;">Overview</div>
+      <div class="tab" style="color:#64748b;">Charts</div>
+      <div class="tab" style="color:#64748b;">Holdings</div>
+      <div class="tab" style="color:#64748b;">Upload</div>
+    </div>
+    <div class="dash-header">
+      <div>
+        <div class="brand" style="color:#1e3a5f;">Portfolio</div>
+        <div class="value" style="color:#0f172a;">$247,832.41</div>
+        <div class="change" style="color:#1e6b4f;">+$3,241.18 (+1.32%) today</div>
+      </div>
+      <div class="badge" style="background:#eef2f6;color:#1e3a5f;">3 Accounts</div>
+    </div>
+    <div class="kpi-row">
+      <div class="kpi" style="background:white;border:1px solid #e2e8f0;">
+        <div class="kpi-label" style="color:#94a3b8;">Total Value</div>
+        <div class="kpi-val" style="color:#0f172a;">$247,832</div>
+        <div class="kpi-sub" style="color:#94a3b8;">24 positions</div>
+      </div>
+      <div class="kpi" style="background:white;border:1px solid #e2e8f0;">
+        <div class="kpi-label" style="color:#94a3b8;">Cash</div>
+        <div class="kpi-val" style="color:#1e3a5f;">$12,841</div>
+        <div class="kpi-sub" style="color:#94a3b8;">5.2% of value</div>
+      </div>
+      <div class="kpi" style="background:white;border:1px solid #e2e8f0;">
+        <div class="kpi-label" style="color:#94a3b8;">All-time P&L</div>
+        <div class="kpi-val" style="color:#1e6b4f;">+$18,429</div>
+        <div class="kpi-sub" style="color:#1e6b4f;">+8.03%</div>
+      </div>
+      <div class="kpi" style="background:white;border:1px solid #e2e8f0;">
+        <div class="kpi-label" style="color:#94a3b8;">Today</div>
+        <div class="kpi-val" style="color:#1e6b4f;">+$3,241</div>
+        <div class="kpi-sub" style="color:#1e6b4f;">+1.32%</div>
+      </div>
+    </div>
+    <div class="alloc-bar">
+      <div style="flex:5;background:#1e3a5f;border-radius:4px;"></div>
+      <div style="flex:3;background:#3b6a9b;border-radius:4px;"></div>
+      <div style="flex:2;background:#7da5c9;border-radius:4px;"></div>
+    </div>
+    <div class="holdings" style="background:white;border:1px solid #e2e8f0;">
+      <div class="h-header" style="color:#94a3b8;border-bottom:1px solid #f1f5f9;">
+        <span>Position</span><span style="text-align:right;">Price</span><span style="text-align:right;">Value</span><span style="text-align:right;">P&L</span>
+      </div>
+      <div class="h-row" style="border-bottom:1px solid #f8fafc;">
+        <div><div class="sym" style="color:#0f172a;">NVDA</div><div class="desc" style="color:#94a3b8;">NVIDIA Corp</div></div>
+        <div style="text-align:right;color:#475569;">$131.28</div>
+        <div style="text-align:right;color:#0f172a;font-weight:600;">$52,512</div>
+        <div style="text-align:right;color:#1e6b4f;font-weight:600;">+4.2%</div>
+      </div>
+      <div class="h-row" style="border-bottom:1px solid #f8fafc;">
+        <div><div class="sym" style="color:#0f172a;">RKLB</div><div class="desc" style="color:#94a3b8;">Rocket Lab USA</div></div>
+        <div style="text-align:right;color:#475569;">$24.87</div>
+        <div style="text-align:right;color:#0f172a;font-weight:600;">$29,844</div>
+        <div style="text-align:right;color:#1e6b4f;font-weight:600;">+2.8%</div>
+      </div>
+      <div class="h-row">
+        <div><div class="sym" style="color:#0f172a;">PLTR</div><div class="desc" style="color:#94a3b8;">Palantir Tech</div></div>
+        <div style="text-align:right;color:#475569;">$23.41</div>
+        <div style="text-align:right;color:#0f172a;font-weight:600;">$18,728</div>
+        <div style="text-align:right;color:#b91c1c;font-weight:600;">-1.1%</div>
+      </div>
+    </div>
+  </div>
+  <div class="mockup-label">A — Navy + Slate <span>JP Morgan / Goldman. Classic institutional authority.</span></div>
+</div>
+
+<!-- ═══ B: Charcoal + Teal ═══ -->
+<div class="mockup-wrap" onclick="sel(this,'charcoal-teal')">
+  <div class="dash" style="background:#fafbfc;">
+    <div class="tab-bar" style="background:#f4f4f5;">
+      <div class="tab" style="background:#1c1c1c;color:white;">Overview</div>
+      <div class="tab" style="color:#a1a1aa;">Charts</div>
+      <div class="tab" style="color:#a1a1aa;">Holdings</div>
+      <div class="tab" style="color:#a1a1aa;">Upload</div>
+    </div>
+    <div class="dash-header">
+      <div>
+        <div class="brand" style="color:#71717a;">Portfolio</div>
+        <div class="value" style="color:#18181b;">$247,832.41</div>
+        <div class="change" style="color:#0d9488;">+$3,241.18 (+1.32%) today</div>
+      </div>
+      <div class="badge" style="background:#f4f4f5;color:#52525b;">3 Accounts</div>
+    </div>
+    <div class="kpi-row">
+      <div class="kpi" style="background:white;border:1px solid #e4e4e7;">
+        <div class="kpi-label" style="color:#a1a1aa;">Total Value</div>
+        <div class="kpi-val" style="color:#18181b;">$247,832</div>
+        <div class="kpi-sub" style="color:#a1a1aa;">24 positions</div>
+      </div>
+      <div class="kpi" style="background:white;border:1px solid #e4e4e7;">
+        <div class="kpi-label" style="color:#a1a1aa;">Cash</div>
+        <div class="kpi-val" style="color:#18181b;">$12,841</div>
+        <div class="kpi-sub" style="color:#a1a1aa;">5.2% of value</div>
+      </div>
+      <div class="kpi" style="background:white;border:1px solid #e4e4e7;">
+        <div class="kpi-label" style="color:#a1a1aa;">All-time P&L</div>
+        <div class="kpi-val" style="color:#0d9488;">+$18,429</div>
+        <div class="kpi-sub" style="color:#0d9488;">+8.03%</div>
+      </div>
+      <div class="kpi" style="background:white;border:1px solid #e4e4e7;">
+        <div class="kpi-label" style="color:#a1a1aa;">Today</div>
+        <div class="kpi-val" style="color:#0d9488;">+$3,241</div>
+        <div class="kpi-sub" style="color:#0d9488;">+1.32%</div>
+      </div>
+    </div>
+    <div class="alloc-bar">
+      <div style="flex:5;background:#1c1c1c;border-radius:4px;"></div>
+      <div style="flex:3;background:#525252;border-radius:4px;"></div>
+      <div style="flex:2;background:#a1a1aa;border-radius:4px;"></div>
+    </div>
+    <div class="holdings" style="background:white;border:1px solid #e4e4e7;">
+      <div class="h-header" style="color:#a1a1aa;border-bottom:1px solid #f4f4f5;">
+        <span>Position</span><span style="text-align:right;">Price</span><span style="text-align:right;">Value</span><span style="text-align:right;">P&L</span>
+      </div>
+      <div class="h-row" style="border-bottom:1px solid #fafafa;">
+        <div><div class="sym" style="color:#18181b;">NVDA</div><div class="desc" style="color:#a1a1aa;">NVIDIA Corp</div></div>
+        <div style="text-align:right;color:#52525b;">$131.28</div>
+        <div style="text-align:right;color:#18181b;font-weight:600;">$52,512</div>
+        <div style="text-align:right;color:#0d9488;font-weight:600;">+4.2%</div>
+      </div>
+      <div class="h-row" style="border-bottom:1px solid #fafafa;">
+        <div><div class="sym" style="color:#18181b;">RKLB</div><div class="desc" style="color:#a1a1aa;">Rocket Lab USA</div></div>
+        <div style="text-align:right;color:#52525b;">$24.87</div>
+        <div style="text-align:right;color:#18181b;font-weight:600;">$29,844</div>
+        <div style="text-align:right;color:#0d9488;font-weight:600;">+2.8%</div>
+      </div>
+      <div class="h-row">
+        <div><div class="sym" style="color:#18181b;">PLTR</div><div class="desc" style="color:#a1a1aa;">Palantir Tech</div></div>
+        <div style="text-align:right;color:#52525b;">$23.41</div>
+        <div style="text-align:right;color:#18181b;font-weight:600;">$18,728</div>
+        <div style="text-align:right;color:#dc2626;font-weight:600;">-1.1%</div>
+      </div>
+    </div>
+  </div>
+  <div class="mockup-label">B — Charcoal + Teal <span>Wealthsimple. Neutral, modern, restrained.</span></div>
+</div>
+
+<!-- ═══ C: Indigo + Warm Gray ═══ -->
+<div class="mockup-wrap" onclick="sel(this,'indigo-warm')">
+  <div class="dash" style="background:#fbfaf9;">
+    <div class="tab-bar" style="background:#f5f5f4;">
+      <div class="tab" style="background:#4338ca;color:white;">Overview</div>
+      <div class="tab" style="color:#a8a29e;">Charts</div>
+      <div class="tab" style="color:#a8a29e;">Holdings</div>
+      <div class="tab" style="color:#a8a29e;">Upload</div>
+    </div>
+    <div class="dash-header">
+      <div>
+        <div class="brand" style="color:#4338ca;">Portfolio</div>
+        <div class="value" style="color:#1c1917;">$247,832.41</div>
+        <div class="change" style="color:#16a34a;">+$3,241.18 (+1.32%) today</div>
+      </div>
+      <div class="badge" style="background:#eef2ff;color:#4338ca;">3 Accounts</div>
+    </div>
+    <div class="kpi-row">
+      <div class="kpi" style="background:white;border:1px solid #e7e5e4;">
+        <div class="kpi-label" style="color:#a8a29e;">Total Value</div>
+        <div class="kpi-val" style="color:#1c1917;">$247,832</div>
+        <div class="kpi-sub" style="color:#a8a29e;">24 positions</div>
+      </div>
+      <div class="kpi" style="background:white;border:1px solid #e7e5e4;">
+        <div class="kpi-label" style="color:#a8a29e;">Cash</div>
+        <div class="kpi-val" style="color:#4338ca;">$12,841</div>
+        <div class="kpi-sub" style="color:#a8a29e;">5.2% of value</div>
+      </div>
+      <div class="kpi" style="background:white;border:1px solid #e7e5e4;">
+        <div class="kpi-label" style="color:#a8a29e;">All-time P&L</div>
+        <div class="kpi-val" style="color:#16a34a;">+$18,429</div>
+        <div class="kpi-sub" style="color:#16a34a;">+8.03%</div>
+      </div>
+      <div class="kpi" style="background:white;border:1px solid #e7e5e4;">
+        <div class="kpi-label" style="color:#a8a29e;">Today</div>
+        <div class="kpi-val" style="color:#16a34a;">+$3,241</div>
+        <div class="kpi-sub" style="color:#16a34a;">+1.32%</div>
+      </div>
+    </div>
+    <div class="alloc-bar">
+      <div style="flex:5;background:#4338ca;border-radius:4px;"></div>
+      <div style="flex:3;background:#6366f1;border-radius:4px;"></div>
+      <div style="flex:2;background:#c7d2fe;border-radius:4px;"></div>
+    </div>
+    <div class="holdings" style="background:white;border:1px solid #e7e5e4;">
+      <div class="h-header" style="color:#a8a29e;border-bottom:1px solid #f5f5f4;">
+        <span>Position</span><span style="text-align:right;">Price</span><span style="text-align:right;">Value</span><span style="text-align:right;">P&L</span>
+      </div>
+      <div class="h-row" style="border-bottom:1px solid #fafaf9;">
+        <div><div class="sym" style="color:#1c1917;">NVDA</div><div class="desc" style="color:#a8a29e;">NVIDIA Corp</div></div>
+        <div style="text-align:right;color:#57534e;">$131.28</div>
+        <div style="text-align:right;color:#1c1917;font-weight:600;">$52,512</div>
+        <div style="text-align:right;color:#16a34a;font-weight:600;">+4.2%</div>
+      </div>
+      <div class="h-row" style="border-bottom:1px solid #fafaf9;">
+        <div><div class="sym" style="color:#1c1917;">RKLB</div><div class="desc" style="color:#a8a29e;">Rocket Lab USA</div></div>
+        <div style="text-align:right;color:#57534e;">$24.87</div>
+        <div style="text-align:right;color:#1c1917;font-weight:600;">$29,844</div>
+        <div style="text-align:right;color:#16a34a;font-weight:600;">+2.8%</div>
+      </div>
+      <div class="h-row">
+        <div><div class="sym" style="color:#1c1917;">PLTR</div><div class="desc" style="color:#a8a29e;">Palantir Tech</div></div>
+        <div style="text-align:right;color:#57534e;">$23.41</div>
+        <div style="text-align:right;color:#1c1917;font-weight:600;">$18,728</div>
+        <div style="text-align:right;color:#dc2626;font-weight:600;">-1.1%</div>
+      </div>
+    </div>
+  </div>
+  <div class="mockup-label">C — Indigo + Warm Gray <span>Stripe / Plaid. Contemporary, serious, vibrant accent.</span></div>
+</div>
+
+<!-- ═══ D: Pure Slate ═══ -->
+<div class="mockup-wrap" onclick="sel(this,'pure-slate')">
+  <div class="dash" style="background:#f8fafc;">
+    <div class="tab-bar" style="background:#f1f5f9;">
+      <div class="tab" style="background:#0f172a;color:white;">Overview</div>
+      <div class="tab" style="color:#94a3b8;">Charts</div>
+      <div class="tab" style="color:#94a3b8;">Holdings</div>
+      <div class="tab" style="color:#94a3b8;">Upload</div>
+    </div>
+    <div class="dash-header">
+      <div>
+        <div class="brand" style="color:#64748b;">Portfolio</div>
+        <div class="value" style="color:#0f172a;">$247,832.41</div>
+        <div class="change" style="color:#059669;">+$3,241.18 (+1.32%) today</div>
+      </div>
+      <div class="badge" style="background:#f1f5f9;color:#475569;">3 Accounts</div>
+    </div>
+    <div class="kpi-row">
+      <div class="kpi" style="background:white;border:1px solid #e2e8f0;">
+        <div class="kpi-label" style="color:#94a3b8;">Total Value</div>
+        <div class="kpi-val" style="color:#0f172a;">$247,832</div>
+        <div class="kpi-sub" style="color:#94a3b8;">24 positions</div>
+      </div>
+      <div class="kpi" style="background:white;border:1px solid #e2e8f0;">
+        <div class="kpi-label" style="color:#94a3b8;">Cash</div>
+        <div class="kpi-val" style="color:#0f172a;">$12,841</div>
+        <div class="kpi-sub" style="color:#94a3b8;">5.2% of value</div>
+      </div>
+      <div class="kpi" style="background:white;border:1px solid #e2e8f0;">
+        <div class="kpi-label" style="color:#94a3b8;">All-time P&L</div>
+        <div class="kpi-val" style="color:#059669;">+$18,429</div>
+        <div class="kpi-sub" style="color:#059669;">+8.03%</div>
+      </div>
+      <div class="kpi" style="background:white;border:1px solid #e2e8f0;">
+        <div class="kpi-label" style="color:#94a3b8;">Today</div>
+        <div class="kpi-val" style="color:#059669;">+$3,241</div>
+        <div class="kpi-sub" style="color:#059669;">+1.32%</div>
+      </div>
+    </div>
+    <div class="alloc-bar">
+      <div style="flex:5;background:#0f172a;border-radius:4px;"></div>
+      <div style="flex:3;background:#334155;border-radius:4px;"></div>
+      <div style="flex:2;background:#94a3b8;border-radius:4px;"></div>
+    </div>
+    <div class="holdings" style="background:white;border:1px solid #e2e8f0;">
+      <div class="h-header" style="color:#94a3b8;border-bottom:1px solid #f1f5f9;">
+        <span>Position</span><span style="text-align:right;">Price</span><span style="text-align:right;">Value</span><span style="text-align:right;">P&L</span>
+      </div>
+      <div class="h-row" style="border-bottom:1px solid #f8fafc;">
+        <div><div class="sym" style="color:#0f172a;">NVDA</div><div class="desc" style="color:#94a3b8;">NVIDIA Corp</div></div>
+        <div style="text-align:right;color:#475569;">$131.28</div>
+        <div style="text-align:right;color:#0f172a;font-weight:600;">$52,512</div>
+        <div style="text-align:right;color:#059669;font-weight:600;">+4.2%</div>
+      </div>
+      <div class="h-row" style="border-bottom:1px solid #f8fafc;">
+        <div><div class="sym" style="color:#0f172a;">RKLB</div><div class="desc" style="color:#94a3b8;">Rocket Lab USA</div></div>
+        <div style="text-align:right;color:#475569;">$24.87</div>
+        <div style="text-align:right;color:#0f172a;font-weight:600;">$29,844</div>
+        <div style="text-align:right;color:#059669;font-weight:600;">+2.8%</div>
+      </div>
+      <div class="h-row">
+        <div><div class="sym" style="color:#0f172a;">PLTR</div><div class="desc" style="color:#94a3b8;">Palantir Tech</div></div>
+        <div style="text-align:right;color:#475569;">$23.41</div>
+        <div style="text-align:right;color:#0f172a;font-weight:600;">$18,728</div>
+        <div style="text-align:right;color:#dc2626;font-weight:600;">-1.1%</div>
+      </div>
+    </div>
+  </div>
+  <div class="mockup-label">D — Pure Slate <span>Schwab / Vanguard. Zero color accent, maximum restraint.</span></div>
+</div>
+
+</div>
+
+<div class="sel-indicator" id="indicator"></div>
+
+<script>
+function sel(el, choice) {
+  document.querySelectorAll('.mockup-wrap').forEach(w => w.classList.remove('selected'));
+  el.classList.add('selected');
+  const ind = document.getElementById('indicator');
+  ind.textContent = 'Selected: ' + choice;
+  ind.classList.add('show');
+  // Report to Claude
+  if (window.__reportChoice) window.__reportChoice(choice, el.querySelector('.mockup-label').textContent);
+  fetch('/api/event', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({type:'click', choice, text: el.querySelector('.mockup-label').textContent})
+  }).catch(() => {});
+}
+</script>
+
+</body>
+</html>

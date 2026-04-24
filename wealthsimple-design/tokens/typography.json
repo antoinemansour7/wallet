@@ -1,0 +1,124 @@
+{
+  "families": [
+    "tiempos",
+    "the-future"
+  ],
+  "scale": {
+    "heading-1": {
+      "fontFamily": "tiempos",
+      "fontSize": "12.5rem",
+      "fontWeight": "700",
+      "lineHeight": null,
+      "source": "css"
+    },
+    "heading-2": {
+      "fontFamily": "tiempos",
+      "fontSize": "8rem",
+      "fontWeight": "700",
+      "lineHeight": null,
+      "source": "css"
+    },
+    "heading-3": {
+      "fontFamily": "tiempos",
+      "fontSize": "clamp(8rem,6.77vw + 6.68rem,12.5rem)",
+      "fontWeight": "700",
+      "lineHeight": null,
+      "source": "css"
+    },
+    "body": {
+      "fontFamily": "the-future",
+      "fontSize": "1.125rem",
+      "fontWeight": "400",
+      "lineHeight": null,
+      "source": "css"
+    },
+    "caption": {
+      "fontFamily": "the-future",
+      "fontSize": "1.25rem",
+      "fontWeight": "400",
+      "lineHeight": null,
+      "source": "css"
+    }
+  },
+  "fontFaces": [
+    {
+      "family": "the-future",
+      "src": "https://www.wealthsimple.com/build-assets/_next/static/media/TheFuture-Regular.203e2aa9.woff2",
+      "format": "woff2",
+      "weight": "400"
+    },
+    {
+      "family": "the-future",
+      "src": "https://www.wealthsimple.com/build-assets/_next/static/media/TheFuture-RegularItalic.91e7ab88.woff2",
+      "format": "woff2",
+      "weight": "400"
+    },
+    {
+      "family": "the-future",
+      "src": "https://www.wealthsimple.com/build-assets/_next/static/media/TheFuture-Medium.27d141e1.woff2",
+      "format": "woff2",
+      "weight": "500"
+    },
+    {
+      "family": "the-future",
+      "src": "https://www.wealthsimple.com/build-assets/_next/static/media/TheFuture-MediumItalic.d551751d.woff2",
+      "format": "woff2",
+      "weight": "500"
+    },
+    {
+      "family": "tiempos",
+      "src": "https://www.wealthsimple.com/build-assets/_next/static/media/TiemposText-Medium.7ce7fdf6.woff2",
+      "format": "woff2",
+      "weight": "500"
+    },
+    {
+      "family": "tiempos",
+      "src": "https://www.wealthsimple.com/build-assets/_next/static/media/TiemposText-MediumItalic.6649f298.woff2",
+      "format": "woff2",
+      "weight": "500"
+    },
+    {
+      "family": "tiempos",
+      "src": "https://www.wealthsimple.com/build-assets/_next/static/media/TiemposText-Regular.6952ffd4.woff2",
+      "format": "woff2",
+      "weight": "400"
+    },
+    {
+      "family": "tiempos",
+      "src": "https://www.wealthsimple.com/build-assets/_next/static/media/TiemposText-RegularItalic.c78af5ea.woff2",
+      "format": "woff2",
+      "weight": "400"
+    },
+    {
+      "family": "futura-pt-condensed",
+      "src": "https://www.wealthsimple.com/build-assets/_next/static/media/futura-extrabold-condensed-webfont.4211d5d7.woff2",
+      "format": "woff2",
+      "weight": "800"
+    },
+    {
+      "family": "futura-pt-light",
+      "src": "https://www.wealthsimple.com/build-assets/_next/static/media/futura-pt-light-latin.7d793766.woff2",
+      "format": "woff2",
+      "weight": "200"
+    },
+    {
+      "family": "wealthsimple-sans",
+      "src": "https://www.wealthsimple.com/build-assets/_next/static/media/Wealthsimple-Sans-Text-Regular.89e81080.woff2",
+      "format": "woff2",
+      "weight": "500"
+    },
+    {
+      "family": "wealthsimple-display-sans",
+      "src": "https://www.wealthsimple.com/build-assets/_next/static/media/Wealthsimple-Sans-Display-Regular.d321b1f1.woff2",
+      "format": "woff2",
+      "weight": "400"
+    }
+  ],
+  "rules": {
+    "maxSizesPerScreen": 4,
+    "headingWeightRange": "600-700",
+    "bodyWeight": 400,
+    "lineHeightBody": 1.5,
+    "lineHeightHeading": 1.2
+  }
+}
