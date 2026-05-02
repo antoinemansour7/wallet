@@ -73,102 +73,363 @@ function fmtPct(val) {
 function convictionColor(score) {
   if (score >= 8) return 'text-gain'
   if (score >= 6) return 'text-amber-400'
-  return 'text-slate-400'
+  return 'text-white/40'
 }
 
 function convictionBarColor(score) {
   if (score >= 8) return 'bg-gain'
   if (score >= 6) return 'bg-amber-500'
-  return 'bg-slate-500'
+  return 'bg-white/20'
 }
 
-// Pull "Overall Buy Score: 8/10" out of the Perplexity markdown
+function convictionBadgeBg(score) {
+  if (score >= 8) return 'border-gain/20 bg-gain/10 text-gain'
+  if (score >= 6) return 'border-amber-400/20 bg-amber-400/10 text-amber-400'
+  return 'border-white/10 bg-white/[0.06] text-white/40'
+}
+
 function parseBuyScore(report) {
   if (!report) return null
   const m = report.match(/overall buy score[^\d]*(\d+)\s*\/\s*10/i)
   return m ? Number(m[1]) : null
 }
 
+function decodeEntities(text) {
+  if (!text) return text
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+}
+
+function domainFromUrl(url) {
+  try { return new URL(url).hostname.replace(/^www\./, '') } catch { return url }
+}
+
+// ─── Markdown renderer ────────────────────────────────────────────────────────
+
+function RenderMarkdown({ text }) {
+  if (!text) return null
+
+  const lines = text.split('\n')
+  const elements = []
+  let i = 0
+
+  while (i < lines.length) {
+    const line = lines[i]
+
+    // Table detection
+    if (line.includes('|') && i + 1 < lines.length && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
+      const tableLines = []
+      let j = i
+      while (j < lines.length && lines[j].includes('|')) {
+        tableLines.push(lines[j])
+        j++
+      }
+      elements.push(<MarkdownTable key={i} lines={tableLines} />)
+      i = j
+      continue
+    }
+
+    // Heading
+    if (/^#{1,3}\s/.test(line)) {
+      const level = line.match(/^(#+)/)[1].length
+      const content = line.replace(/^#+\s*/, '').replace(/\*\*/g, '')
+      const cls = level === 1
+        ? 'text-base font-bold text-white mt-6 mb-2'
+        : level === 2
+        ? 'text-sm font-bold text-white mt-5 mb-2'
+        : 'text-sm font-semibold text-white/80 mt-4 mb-1.5'
+      elements.push(<p key={i} className={cls}>{content}</p>)
+      i++
+      continue
+    }
+
+    // Bullet
+    if (/^\s*[-*]\s/.test(line)) {
+      const bullets = []
+      let j = i
+      while (j < lines.length && /^\s*[-*]\s/.test(lines[j])) {
+        bullets.push(lines[j].replace(/^\s*[-*]\s+/, ''))
+        j++
+      }
+      elements.push(
+        <ul key={i} className="space-y-1.5 my-2 ml-1">
+          {bullets.map((b, bi) => (
+            <li key={bi} className="flex gap-2 text-[13px] leading-relaxed text-white/60">
+              <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-white/20" />
+              <span><InlineMarkdown text={b} /></span>
+            </li>
+          ))}
+        </ul>
+      )
+      i = j
+      continue
+    }
+
+    // Empty line
+    if (!line.trim()) {
+      i++
+      continue
+    }
+
+    // Paragraph
+    elements.push(
+      <p key={i} className="text-[13px] leading-relaxed text-white/60 my-1.5">
+        <InlineMarkdown text={line} />
+      </p>
+    )
+    i++
+  }
+
+  return <div>{elements}</div>
+}
+
+function InlineMarkdown({ text }) {
+  // Process **bold**, [links](url)
+  const parts = []
+  let remaining = text
+  let key = 0
+
+  while (remaining.length > 0) {
+    // Bold
+    const boldMatch = remaining.match(/\*\*(.+?)\*\*/)
+    // Link
+    const linkMatch = remaining.match(/\[([^\]]+)\]\(([^)]+)\)/)
+
+    const boldIdx = boldMatch ? remaining.indexOf(boldMatch[0]) : Infinity
+    const linkIdx = linkMatch ? remaining.indexOf(linkMatch[0]) : Infinity
+
+    if (boldIdx === Infinity && linkIdx === Infinity) {
+      parts.push(<span key={key++}>{remaining}</span>)
+      break
+    }
+
+    if (boldIdx <= linkIdx && boldMatch) {
+      if (boldIdx > 0) parts.push(<span key={key++}>{remaining.slice(0, boldIdx)}</span>)
+      parts.push(<strong key={key++} className="font-semibold text-white">{boldMatch[1]}</strong>)
+      remaining = remaining.slice(boldIdx + boldMatch[0].length)
+    } else if (linkMatch) {
+      if (linkIdx > 0) parts.push(<span key={key++}>{remaining.slice(0, linkIdx)}</span>)
+      parts.push(
+        <a key={key++} href={linkMatch[2]} target="_blank" rel="noopener noreferrer" className="text-gain hover:underline underline-offset-2">
+          {linkMatch[1]}
+        </a>
+      )
+      remaining = remaining.slice(linkIdx + linkMatch[0].length)
+    }
+  }
+
+  return <>{parts}</>
+}
+
+function MarkdownTable({ lines }) {
+  const parseRow = (line) => line.split('|').map((c) => c.trim()).filter(Boolean)
+  const headers = parseRow(lines[0])
+  const rows = lines.slice(2).map(parseRow)
+
+  return (
+    <div className="my-4 overflow-x-auto rounded-lg border border-white/[0.06]">
+      <table className="w-full text-[12px]">
+        <thead>
+          <tr className="border-b border-white/[0.06] bg-white/[0.03]">
+            {headers.map((h, i) => (
+              <th key={i} className="px-3 py-2 text-left font-semibold text-white/60">{h.replace(/\*\*/g, '')}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/[0.04]">
+          {rows.map((row, ri) => (
+            <tr key={ri} className="hover:bg-white/[0.02] transition-colors">
+              {row.map((cell, ci) => (
+                <td key={ci} className="px-3 py-2 text-white/40 font-mono tabular">{cell.replace(/\*\*/g, '')}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 // ─── Sub-components ────────────────────────────────────────────────────────────
+
+function MarketCard({ symbol, quote, loading }) {
+  const label = MARKET_LABELS[symbol]
+  const chg = quote?.changePercent ?? quote?.regularMarketChangePercent
+  const price = quote?.price ?? quote?.regularMarketPrice
+  const isPos = chg != null && Number(chg) >= 0
+
+  return (
+    <div className="rounded-card border border-white/[0.06] bg-wall-surface p-3">
+      <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/40">{label}</p>
+      {loading && !quote ? (
+        <div className="mt-2 h-5 w-16 animate-pulse rounded bg-white/[0.06]" />
+      ) : (
+        <>
+          <p className="mt-1.5 font-mono text-sm font-semibold tabular text-white">{fmtPrice(price)}</p>
+          <p className={`mt-0.5 font-mono text-xs tabular ${isPos ? 'text-gain' : 'text-loss'}`}>
+            {fmtPct(chg)}
+          </p>
+        </>
+      )}
+    </div>
+  )
+}
 
 function PickCard({ pick, expanded, onToggle }) {
   const { ticker, conviction, reason, report, citations, error } = pick
   const buyScore = parseBuyScore(report)
-  // Show buy score if available, otherwise fall back to Groq conviction
   const displayScore = buyScore ?? conviction
   const barWidth = `${(displayScore / 10) * 100}%`
 
+  // Extract highlights from report
+  const highlights = []
+  if (report) {
+    const hlMatch = report.match(/## Highlights:?\s*\n([\s\S]*?)(?=\n##|\n$|$)/i)
+    if (hlMatch) {
+      const hlLines = hlMatch[1].split('\n').filter((l) => l.trim().startsWith('-'))
+      for (const line of hlLines) {
+        const linkMatch = line.match(/\[([^\]]+)\]\(([^)]+)\)/)
+        if (linkMatch) {
+          const dateMatch = line.match(/Published on (.+)$/)
+          highlights.push({ title: linkMatch[1], url: linkMatch[2], date: dateMatch?.[1] ?? '' })
+        }
+      }
+    }
+  }
+
+  // Strip highlights section from the report body
+  const reportBody = report?.replace(/## Highlights:?\s*\n[\s\S]*$/i, '').trim()
+
   return (
-    <div className="bg-wall-surface border border-white/[0.06] rounded-xl overflow-hidden">
+    <div className="overflow-hidden rounded-card border border-white/[0.06] bg-wall-surface transition-all duration-200 hover:border-white/[0.12]">
       <button
         onClick={onToggle}
-        className="w-full px-5 py-4 flex items-center gap-4 hover:bg-white/[0.02] transition-colors text-left"
+        className="flex w-full items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-white/[0.02]"
       >
-        {/* Ticker badge */}
-        <span className="shrink-0 text-slate-100 font-semibold text-sm font-mono bg-white/[0.06] px-2.5 py-1 rounded-lg min-w-[4rem] text-center">
-          {ticker}
-        </span>
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-base font-bold text-white">
+          {ticker?.[0] ?? '?'}
+        </div>
 
-        {/* Buy Score */}
-        <div className="shrink-0 w-28">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-slate-500 text-[10px]">{buyScore != null ? 'Buy Score' : 'Signal'}</span>
-            <span className={`text-[11px] font-semibold font-mono ${convictionColor(displayScore)}`}>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-sm font-bold text-white">{ticker}</span>
+            <span className={`rounded-full border px-2.5 py-0.5 font-mono text-[11px] font-semibold ${convictionBadgeBg(displayScore)}`}>
               {displayScore}/10
             </span>
           </div>
-          <div className="h-1 bg-white/[0.06] rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all ${convictionBarColor(displayScore)}`}
-              style={{ width: barWidth }}
-            />
-          </div>
+          <p className="mt-1 truncate text-xs text-white/40">{reason}</p>
         </div>
 
-        {/* Reason */}
-        <p className="flex-1 text-slate-400 text-sm truncate">{reason}</p>
-
-        {/* Toggle button */}
-        <span className="shrink-0 text-slate-600 text-xs border border-white/[0.08] px-2.5 py-1 rounded-lg hover:border-white/[0.15] transition-colors">
+        <span className="shrink-0 rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-white/40 transition-colors hover:border-white/20 hover:text-white/60">
           {expanded ? 'Collapse' : 'Full Report'}
         </span>
       </button>
 
+      {/* Conviction bar */}
+      <div className="px-5 pb-4">
+        <div className="h-1 overflow-hidden rounded-full bg-white/[0.06]">
+          <div
+            className={`h-full rounded-full transition-all duration-700 ${convictionBarColor(displayScore)}`}
+            style={{ width: barWidth }}
+          />
+        </div>
+      </div>
+
       {expanded && (
-        <div className="border-t border-white/[0.06] px-5 py-4">
+        <div className="border-t border-white/[0.06] px-5 py-5">
           {error ? (
-            <p className="text-loss text-sm">Report generation failed: {error}</p>
+            <p className="text-sm text-loss">Report generation failed: {error}</p>
           ) : report ? (
             <>
-              <div className="prose-sm text-slate-300 whitespace-pre-wrap leading-relaxed text-[13px]">
-                {report}
-              </div>
-              {citations && citations.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-white/[0.06]">
-                  <p className="text-slate-500 text-xs font-medium mb-2">Sources</p>
-                  <ul className="space-y-1">
-                    {citations.map((url, i) => (
-                      <li key={i}>
-                        <a
-                          href={url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-slate-500 hover:text-slate-300 text-xs truncate block transition-colors"
-                        >
-                          {url}
-                        </a>
-                      </li>
+              <RenderMarkdown text={reportBody} />
+
+              {highlights.length > 0 && (
+                <div className="mt-5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+                  <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-white/40">Highlights</p>
+                  <div className="space-y-2">
+                    {highlights.map((h, i) => (
+                      <a
+                        key={i}
+                        href={h.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-start gap-2.5 rounded-lg p-2 transition-colors hover:bg-white/[0.04]"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0 text-gain">
+                          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
+                        </svg>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium leading-snug text-white/60">{decodeEntities(h.title)}</p>
+                          {h.date && <p className="mt-0.5 text-[11px] text-white/20">{h.date}</p>}
+                        </div>
+                      </a>
                     ))}
-                  </ul>
+                  </div>
+                </div>
+              )}
+
+              {citations && citations.length > 0 && (
+                <div className="mt-4 border-t border-white/[0.06] pt-4">
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-white/30">Sources</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {citations.map((url, i) => (
+                      <a
+                        key={i}
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-full border border-white/[0.06] bg-white/[0.03] px-2.5 py-1 text-[11px] text-white/30 transition-colors hover:border-white/10 hover:text-white/50"
+                      >
+                        {domainFromUrl(url)}
+                      </a>
+                    ))}
+                  </div>
                 </div>
               )}
             </>
           ) : (
-            <p className="text-slate-500 text-sm">No report available.</p>
+            <p className="text-sm text-white/40">No report available.</p>
           )}
         </div>
       )}
     </div>
+  )
+}
+
+function NewsCard({ article }) {
+  const tag = deriveTag(article.title)
+  const tagClass = TAG_COLORS[tag] ?? 'text-white/40 bg-white/[0.06] border-white/10'
+  const timeLabel = formatRelative(article.pubDate)
+
+  return (
+    <a
+      href={article.link || undefined}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group flex flex-col rounded-card border border-white/[0.06] bg-wall-surface p-4 transition-all duration-200 hover:border-white/[0.12] hover:bg-white/[0.02]"
+    >
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <p className="text-sm font-medium leading-snug text-white/80 group-hover:text-white transition-colors">
+          {decodeEntities(article.title)}
+        </p>
+        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium ${tagClass}`}>
+          {tag}
+        </span>
+      </div>
+      <div className="mt-auto flex items-center gap-2">
+        <span className="text-[11px] text-white/30">{article.source}</span>
+        {timeLabel && (
+          <>
+            <span className="h-1 w-1 rounded-full bg-white/10" />
+            <span className="text-[11px] text-white/30">{timeLabel}</span>
+          </>
+        )}
+      </div>
+    </a>
   )
 }
 
@@ -227,89 +488,71 @@ export default function Research() {
     return () => clearInterval(marketTimerRef.current)
   }, [])
 
-  const picks    = research?.picks    ?? []
+  const picks    = (research?.picks ?? []).filter((p) => p.conviction >= 6)
   const articles = research?.articles ?? []
   const signalCount = research?.signalCount ?? research?.tweetCount ?? 0
   const generatedAtLabel = formatGeneratedAt(research?.generatedAt)
 
   return (
     <div className="min-h-screen bg-wall-bg">
-      <div className="max-w-6xl mx-auto px-6 py-8">
+      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
 
         {/* Header */}
-        <div className="flex items-start justify-between mb-8">
+        <div className="mb-8 flex items-start justify-between">
           <div>
-            <h1 className="text-xl font-semibold text-slate-100 mb-1">Research</h1>
-            <p className="text-slate-500 text-sm">
+            <h1 className="text-xl font-semibold text-white">Research</h1>
+            <p className="mt-1 text-sm text-white/40">
               AI-curated picks, live market data, and finance news.
             </p>
           </div>
           {generatedAtLabel ? (
-            <span className="flex items-center gap-1.5 text-xs text-gain bg-gain/10 border border-gain/20 px-2.5 py-1 rounded-full mt-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-gain" />
+            <span className="flex items-center gap-1.5 rounded-full border border-gain/20 bg-gain/10 px-2.5 py-1 text-xs text-gain">
+              <span className="h-1.5 w-1.5 rounded-full bg-gain" />
               Updated {generatedAtLabel}
             </span>
           ) : (
-            <span className="flex items-center gap-1.5 text-xs text-amber-400 bg-amber-400/10 border border-amber-400/20 px-2.5 py-1 rounded-full mt-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse-slow" />
+            <span className="flex items-center gap-1.5 rounded-full border border-amber-400/20 bg-amber-400/10 px-2.5 py-1 text-xs text-amber-400">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
               Runs at 3 AM UTC
             </span>
           )}
         </div>
 
-        {/* Market snapshot bar */}
-        <div className="bg-wall-surface border border-white/[0.06] rounded-xl px-5 py-3.5 mb-8 flex flex-wrap gap-x-8 gap-y-2">
-          {MARKET_SYMBOLS.map((sym) => {
-            const q = marketQuotes[sym]
-            const chg = q?.changePercent ?? q?.regularMarketChangePercent
-            const isPos = chg != null && Number(chg) >= 0
-            const isNeg = chg != null && Number(chg) < 0
-            return (
-              <div key={sym} className="flex items-center gap-2">
-                <span className="text-slate-600 text-xs">{MARKET_LABELS[sym]}</span>
-                {loadingMarket && !q ? (
-                  <span className="text-slate-700 text-xs font-mono tabular">—</span>
-                ) : (
-                  <>
-                    <span className="text-slate-300 text-xs font-mono tabular">
-                      {fmtPrice(q?.price ?? q?.regularMarketPrice)}
-                    </span>
-                    <span className={`text-xs font-mono tabular ${isPos ? 'text-gain' : isNeg ? 'text-loss' : 'text-slate-500'}`}>
-                      {fmtPct(chg)}
-                    </span>
-                  </>
-                )}
-              </div>
-            )
-          })}
+        {/* Market snapshot grid */}
+        <div className="mb-8 grid grid-cols-3 gap-3 lg:grid-cols-6">
+          {MARKET_SYMBOLS.map((sym) => (
+            <MarketCard key={sym} symbol={sym} quote={marketQuotes[sym]} loading={loadingMarket} />
+          ))}
         </div>
 
         {/* AI Picks section */}
         <section className="mb-8">
-          <div className="flex items-center gap-2 mb-4">
-            <SparkleIcon />
-            <h2 className="text-slate-300 text-sm font-medium">Nightly Picks</h2>
-            <span className="text-slate-600 text-xs ml-1">— AI-curated from X-first discovery, with Yahoo RSS as secondary context</span>
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <SparkleIcon />
+              <h2 className="text-sm font-semibold text-white">Nightly Picks</h2>
+              <span className="text-xs text-white/30">AI-curated from X signals</span>
+            </div>
             {signalCount > 0 && (
-              <span className="text-slate-700 text-[10px] bg-white/[0.04] px-1.5 py-0.5 rounded ml-auto">
-                {signalCount} X signals analyzed
+              <span className="rounded-full border border-white/[0.06] bg-white/[0.04] px-2.5 py-1 font-mono text-[10px] text-white/30">
+                {signalCount} signals
               </span>
             )}
           </div>
 
           {loadingResearch ? (
-            <div className="space-y-2">
+            <div className="space-y-3">
               {[...Array(3)].map((_, i) => (
-                <div key={i} className="bg-wall-surface border border-white/[0.06] rounded-xl h-16 animate-pulse" />
+                <div key={i} className="h-20 animate-pulse rounded-card border border-white/[0.06] bg-wall-surface" />
               ))}
             </div>
           ) : picks.length === 0 ? (
-            <div className="bg-wall-surface border border-white/[0.06] rounded-xl px-5 py-8 text-center">
-              <p className="text-slate-500 text-sm">No picks available yet.</p>
-              <p className="text-slate-700 text-xs mt-1">The pipeline runs nightly at 3 AM UTC.</p>
+            <div className="rounded-card border border-dashed border-white/[0.06] px-5 py-12 text-center">
+              <p className="text-sm text-white/40">No picks available yet.</p>
+              <p className="mt-1 text-xs text-white/20">The pipeline runs nightly at 3 AM UTC.</p>
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-3">
               {picks.map((pick) => (
                 <PickCard
                   key={pick.ticker}
@@ -324,63 +567,27 @@ export default function Research() {
 
         {/* News feed */}
         <section>
-          <div className="flex items-center gap-2 mb-4">
+          <div className="mb-4 flex items-center gap-2">
             <NewsIcon />
-            <h2 className="text-slate-300 text-sm font-medium">Latest News</h2>
-            <span className="text-slate-600 text-xs ml-1">— Yahoo Finance RSS</span>
+            <h2 className="text-sm font-semibold text-white">Latest News</h2>
+            <span className="text-xs text-white/30">Yahoo Finance RSS</span>
           </div>
 
           {loadingResearch ? (
-            <div className="bg-wall-surface border border-white/[0.06] rounded-xl divide-y divide-white/[0.04] overflow-hidden">
-              {[...Array(5)].map((_, i) => (
-                <div key={i} className="px-5 py-4 h-16 animate-pulse" />
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              {[...Array(6)].map((_, i) => (
+                <div key={i} className="h-24 animate-pulse rounded-card border border-white/[0.06] bg-wall-surface" />
               ))}
             </div>
           ) : articles.length === 0 ? (
-            <div className="bg-wall-surface border border-white/[0.06] rounded-xl px-5 py-8 text-center">
-              <p className="text-slate-500 text-sm">No news articles yet.</p>
+            <div className="rounded-card border border-dashed border-white/[0.06] px-5 py-12 text-center">
+              <p className="text-sm text-white/40">No news articles yet.</p>
             </div>
           ) : (
-            <div className="bg-wall-surface border border-white/[0.06] rounded-xl divide-y divide-white/[0.04] overflow-hidden">
-              {articles.slice(0, 20).map((article, i) => {
-                const tag = deriveTag(article.title)
-                const tagClass = TAG_COLORS[tag] ?? 'text-slate-400 bg-slate-400/10 border-slate-400/20'
-                const timeLabel = formatRelative(article.pubDate)
-                return (
-                  <a
-                    key={i}
-                    href={article.link || undefined}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block px-5 py-4 hover:bg-white/[0.02] transition-colors"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-slate-200 text-sm font-medium leading-snug mb-1.5">
-                          {article.title}
-                        </p>
-                        {article.description && (
-                          <p className="text-slate-500 text-xs leading-snug mb-1.5 line-clamp-2">
-                            {article.description}
-                          </p>
-                        )}
-                        <div className="flex items-center gap-2.5">
-                          <span className="text-slate-600 text-xs">{article.source}</span>
-                          {timeLabel && (
-                            <>
-                              <span className="w-1 h-1 rounded-full bg-slate-700" />
-                              <span className="text-slate-600 text-xs">{timeLabel}</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <span className={`shrink-0 text-[10px] font-medium px-2 py-0.5 rounded-full border ${tagClass}`}>
-                        {tag}
-                      </span>
-                    </div>
-                  </a>
-                )
-              })}
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              {articles.slice(0, 12).map((article, i) => (
+                <NewsCard key={i} article={article} />
+              ))}
             </div>
           )}
         </section>
@@ -394,7 +601,7 @@ export default function Research() {
 
 function SparkleIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-500">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/40">
       <path d="M12 3l1.88 5.76a1 1 0 0 0 .95.69h6.07l-4.91 3.57a1 1 0 0 0-.36 1.12L17.41 20 12 16.43 6.59 20l1.88-5.86a1 1 0 0 0-.36-1.12L3.1 9.45h6.07a1 1 0 0 0 .95-.69L12 3z" />
     </svg>
   )
@@ -402,7 +609,7 @@ function SparkleIcon() {
 
 function NewsIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-500">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/40">
       <path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2" />
       <path d="M18 14h-8" />
       <path d="M15 18h-5" />

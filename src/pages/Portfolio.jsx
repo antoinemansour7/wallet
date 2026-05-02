@@ -196,10 +196,28 @@ export default function Portfolio() {
     }
   }
 
+  const handleCashOverride = useCallback((newCashTotal) => {
+    setAccounts((prev) => {
+      const keys = Object.keys(prev)
+      if (keys.length === 0) return prev
+      const next = { ...prev }
+      if (keys.length === 1) {
+        const k = keys[0]
+        next[k] = { ...next[k], cash: newCashTotal, cashSource: 'explicit' }
+      } else {
+        const oldTotal = keys.reduce((sum, k) => sum + (prev[k].cash || 0), 0)
+        const diff = newCashTotal - oldTotal
+        const k = keys[0]
+        next[k] = { ...next[k], cash: Math.round(((next[k].cash || 0) + diff) * 100) / 100, cashSource: 'explicit' }
+      }
+      return next
+    })
+  }, [])
+
   const onDrop = (e) => { e.preventDefault(); setIsDragging(false); handleFile(e.dataTransfer.files[0]) }
 
   return (
-    <div className="min-h-screen bg-surface">
+    <div className="min-h-screen bg-wall-bg">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10">
         <PortfolioHeader fileName={fileName} hasData={hasData} lastUpdatedAt={lastUpdatedAt} />
         <TabNav activeView={visibleView} hasData={hasData} onChange={setActiveView} />
@@ -207,7 +225,7 @@ export default function Portfolio() {
         {visibleView === 'overview' && stats && (
           <>
             <LiveBanner liveStatus={liveStatus} liveMessage={liveMessage} lastUpdatedAt={lastUpdatedAt} />
-            <KpiGrid rows={rows} stats={stats} accounts={accountEntries} />
+            <KpiGrid rows={rows} stats={stats} accounts={accountEntries} onCashOverride={handleCashOverride} />
             <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
               <AccountAllocationChart accounts={accountEntries} />
               <ValueVsBookChart stats={stats} />

@@ -11,7 +11,7 @@ export default function AccountAllocationChart({ accounts, large = false }) {
     <ChartPanel title="Allocation by Account" meta={fmtCurrency(total)} large={large}>
       {items.length === 0 ? <EmptyChart /> : (
         <>
-          <div className="mb-5 flex h-2.5 overflow-hidden rounded-full bg-brand-light">
+          <div className="mb-5 flex h-2.5 overflow-hidden rounded-full bg-white/[0.06]">
             {items.map((item) => (
               <div
                 key={item.account}
@@ -27,16 +27,16 @@ export default function AccountAllocationChart({ accounts, large = false }) {
                 <div className="flex min-w-0 items-center gap-2.5">
                   <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: item.color }} />
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-text-secondary">Account {item.account}</p>
-                    <p className="text-[11px] text-text-muted">
+                    <p className="truncate text-sm font-medium text-white/60">Account {item.account}</p>
+                    <p className="text-[11px] text-white/40">
                       {item.positions} positions
                       {item.cash !== 0 ? ` · ${fmtCurrency(item.cash)} ${item.cashSource === 'explicit' ? 'cash' : 'inferred cash'}` : ''}
                     </p>
                   </div>
                 </div>
                 <div className="shrink-0 text-right">
-                  <p className="font-mono text-sm tabular font-semibold text-text-primary">{fmtCurrency(item.value)}</p>
-                  <p className="font-mono text-[11px] tabular text-text-muted">{pct(item.value, total).toFixed(1)}%</p>
+                  <p className="font-mono text-sm tabular font-semibold text-white">{fmtCurrency(item.value)}</p>
+                  <p className="font-mono text-[11px] tabular text-white/40">{pct(item.value, total).toFixed(1)}%</p>
                 </div>
               </div>
             ))}

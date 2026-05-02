@@ -1,10 +1,10 @@
 export default function ChartPanel({ title, meta, children, large = false }) {
   return (
-    <section className={`rounded-card border border-border bg-card p-5 ${large ? 'min-h-[380px]' : ''}`}>
+    <section className={`rounded-card border border-white/[0.06] bg-wall-surface p-5 ${large ? 'min-h-[380px]' : ''}`}>
       <div className="mb-5 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-text-primary">{title}</h2>
+        <h2 className="text-sm font-semibold text-white">{title}</h2>
         {meta && (
-          <span className="rounded-full border border-border bg-brand-light px-2.5 py-0.5 font-mono text-[10px] tabular text-text-muted">
+          <span className="rounded-full border border-white/[0.06] bg-white/[0.04] px-2.5 py-0.5 font-mono text-[10px] tabular text-white/40">
             {meta}
           </span>
         )}

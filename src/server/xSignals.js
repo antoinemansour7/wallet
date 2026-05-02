@@ -20,6 +20,8 @@ const CURATED_ACCOUNTS = [
   // Technical analysis
   { username: 'NorthmanTrader',  lane: 'technical',    weight: 0.9, role: 'conviction' },
   { username: 'alphatrends',     lane: 'technical',    weight: 0.88, role: 'conviction' },
+  { username: 'MMatters22596',   lane: 'technical',    weight: 1.0, role: 'conviction' },
+  { username: 'Mr_Derivatives',  lane: 'flow',         weight: 1.1, role: 'conviction' },
 ]
 
 const BASE_SEARCH_QUERIES = [
@@ -62,9 +64,9 @@ const THEME_LIBRARY = {
   },
   ai: {
     label: 'AI',
-    keywords: ['ai', 'artificial intelligence', 'llm', 'gpu', 'datacenter', 'semiconductor', 'chip', 'inference'],
+    keywords: ['ai','ai infrastructure', 'artificial intelligence', 'llm', 'gpu', 'datacenter', 'semiconductor', 'chip', 'inference'],
     query: '(#AIstocks OR AI OR GPUs OR semis OR semiconductor OR datacenter) lang:en -is:retweet',
-    weight: 1.02,
+    weight: 1.05,
   },
   crypto: {
     label: 'Crypto',

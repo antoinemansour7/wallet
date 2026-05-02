@@ -64,6 +64,22 @@ const FAILURE_REGEX = /(collapse|collapsed|unwind|unwound|rug|rugged|bloodbath|d
 
 const MEGA_CAP_TICKERS = new Set(['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'GOOG', 'TSLA'])
 
+const TECH_THEMES = new Set(['semiconductor', 'ai', 'software', 'cloud', 'chip', 'gpu', 'cpu', 'saas', 'cyber', 'data', 'tech', 'computing', 'silicon', 'quantum', 'ml', 'automation'])
+
+// Sector ETFs for trend detection — maps themes/keywords to sector ETFs
+const SECTOR_ETF_MAP = {
+  software: 'IGV', saas: 'IGV', cloud: 'IGV',
+  semiconductor: 'SMH', chip: 'SMH', gpu: 'SMH', cpu: 'SMH', silicon: 'SMH',
+  tech: 'XLK', ai: 'XLK', computing: 'XLK', cyber: 'XLK', data: 'XLK',
+  biotech: 'XBI', pharma: 'XBI', fda: 'XBI',
+  energy: 'XLE', oil: 'XLE', solar: 'XLE',
+  finance: 'XLF', bank: 'XLF', fintech: 'XLF',
+  crypto: 'BITO', bitcoin: 'BITO',
+  defense: 'ITA', space: 'ITA', aerospace: 'ITA',
+}
+
+const ALL_SECTOR_ETFS = [...new Set(Object.values(SECTOR_ETF_MAP))]
+
 function unique(items) {
   return [...new Set(items.filter(Boolean))]
 }
@@ -77,7 +93,7 @@ function priceBand(price) {
   if (price < 5) return 'penny-risk'
   if (price < 12) return 'starter'
   if (price <= 80) return 'core-upside'
-  if (price <= 200) return 'established'
+  if (price <= 280) return 'established'
   return 'large'
 }
 
@@ -128,6 +144,7 @@ function buildSignalBoard(signals, articles) {
           convictionMentions: 0,
           contextMentions: 0,
           searchMentions: 0,
+          screenerMentions: 0,
         })
       }
 
@@ -141,6 +158,7 @@ function buildSignalBoard(signals, articles) {
       if (signal.sourceRole === 'context') item.contextMentions += 1
       else item.convictionMentions += 1
       if (signal.sourceType === 'search') item.searchMentions += 1
+      if (signal.sourceType === 'screener') item.screenerMentions += 1
       if (SQUEEZE_REGEX.test(signal.text)) item.squeezeSignals += 1
       if (VOLUME_REGEX.test(signal.text)) item.volumeSignals += 1
       if (BREAKOUT_REGEX.test(signal.text)) item.breakoutSignals += 1
@@ -169,6 +187,7 @@ function buildSignalBoard(signals, articles) {
           convictionMentions: 0,
           contextMentions: 0,
           searchMentions: 0,
+          screenerMentions: 0,
         })
       }
 
@@ -200,7 +219,7 @@ function buildQuoteMap(quotes = []) {
   return map
 }
 
-export function rankHighUpsideBoard(signalBoard, quotesByTicker = new Map()) {
+export function rankHighUpsideBoard(signalBoard, quotesByTicker = new Map(), sectorTrends = new Map()) {
   return signalBoard
     .map((item) => {
       const quote = quotesByTicker.get(item.ticker)
@@ -219,20 +238,44 @@ export function rankHighUpsideBoard(signalBoard, quotesByTicker = new Map()) {
       let archetypeScore = (item.signalCount * 1.65)
         + (item.sources.length * 1.35)
         + (item.maxScore * 0.42)
-        + (item.squeezeSignals * 1.2)
-        + (item.volumeSignals * 1.0)
-        + (item.breakoutSignals * 1.1)
+        + (item.squeezeSignals * 2.4)
+        + (item.volumeSignals * 1.8)
+        + (item.breakoutSignals * 2.2)
         + (item.catalystSignals * 0.9)
         + (item.accountMentions * 0.5)
         + (item.convictionMentions * 0.75)
         + (item.searchMentions * 0.35)
+        + (item.screenerMentions * 2.5)
         + (Math.min(item.articleCount, 2) * 0.22)
-        + (repeatedAttention ? 1.35 : -1.25)
+        + (repeatedAttention ? 2.0 : -1.25)
         + pricePreferenceScore(price)
 
       if (pennyStockRisk) archetypeScore -= 3.25
       if (!quoteVerified) archetypeScore -= 6
       if (contextHeavy) archetypeScore -= 2.4
+
+      // Tech sector preference (~62.5% tech target)
+      const itemThemes = [...(item.themes || [])]
+      const hasTechTheme = itemThemes.some((t) => TECH_THEMES.has(t.toLowerCase()))
+      if (hasTechTheme) archetypeScore += 1.5
+
+      // Sector downtrend penalty — penalize stocks in sectors with declining ETFs
+      let sectorPenalty = 0
+      for (const theme of itemThemes) {
+        const etf = SECTOR_ETF_MAP[theme.toLowerCase()]
+        if (etf && sectorTrends.has(etf)) {
+          const etfChg = sectorTrends.get(etf)
+          if (etfChg <= -3) sectorPenalty = Math.max(sectorPenalty, 3.0)
+          else if (etfChg <= -1.5) sectorPenalty = Math.max(sectorPenalty, 1.5)
+          else if (etfChg <= -0.5) sectorPenalty = Math.max(sectorPenalty, 0.5)
+        }
+      }
+      if (sectorPenalty > 0) archetypeScore -= sectorPenalty
+
+      // Signal volume alone shouldn't dominate — cap signal count contribution
+      if (item.signalCount > 4 && item.sources.length <= 1) archetypeScore -= 2.0
+      if (item.signalCount > 3 && !item.catalystSignals && !item.squeezeSignals && !item.breakoutSignals) archetypeScore -= 1.5
+
       if (item.negativeSignals > 0) archetypeScore -= item.negativeSignals * 1.8
       if (hugeDownDay) archetypeScore -= 5.5
       if (quoteChangePercent !== null && quoteChangePercent <= -8 && !hugeDownDay) archetypeScore -= 2.25
@@ -285,17 +328,31 @@ async function getRankedSignalBoard(signals, articles) {
   const baseBoard = buildSignalBoard(signals, articles)
   const candidateTickers = baseBoard.slice(0, 30).map((item) => item.ticker)
   let quotesByTicker = new Map()
+  let sectorTrends = new Map()
 
   if (candidateTickers.length > 0) {
     try {
-      const quoteResult = await fetchMarketQuotes(candidateTickers)
+      const quoteResult = await fetchMarketQuotes([...candidateTickers, ...ALL_SECTOR_ETFS])
       quotesByTicker = buildQuoteMap(quoteResult.quotes)
+
+      // Build sector trend map from ETF performance
+      for (const etf of ALL_SECTOR_ETFS) {
+        const quote = quotesByTicker.get(etf)
+        if (quote) {
+          const chg = Number(quote.changePercent ?? quote.regularMarketChangePercent ?? 0)
+          sectorTrends.set(etf, chg)
+          // Remove ETFs from ticker map so they don't appear as picks
+          quotesByTicker.delete(etf)
+        }
+      }
+      console.log('[researchEngine] sector trends:', Object.fromEntries(sectorTrends))
     } catch (err) {
       console.error('[researchEngine] ticker quote enrichment failed:', err.message)
     }
   }
 
-  return rankHighUpsideBoard(baseBoard, quotesByTicker)
+  const ranked = rankHighUpsideBoard(baseBoard, quotesByTicker, sectorTrends)
+  return { board: ranked, sectorTrends }
 }
 
 function sanitizeSignalText(text) {
@@ -330,6 +387,7 @@ export function summarizeSignalsForPrompt(signals, articles, options = {}) {
     breakout: item.breakoutSignals,
     catalyst: item.catalystSignals,
     negative: item.negativeSignals,
+    screener: item.screenerMentions,
     sample: sanitizeSignalText(item.snippets[0]).slice(0, 140),
   }))
   const boardText = JSON.stringify(boardJson, null, 2)
@@ -348,44 +406,69 @@ export function summarizeSignalsForPrompt(signals, articles, options = {}) {
   return { signalBoard, boardText, signalText }
 }
 
-const TICKER_SYSTEM_PROMPT = `You are an elite stock signal analyst focused on finding medium-known, high-upside stocks that are in good buying positions — not just what is trending today.
+const TICKER_SYSTEM_PROMPT = `You are an elite stock signal analyst. Your job is to find high-conviction buying opportunities — stocks with asymmetric risk/reward where multiple factors align. You think critically, not reactively.
 
-You are receiving signals from the last 72 hours of curated X accounts, adaptive search results, and Yahoo Finance RSS. Multi-day signal persistence (a ticker showing up across several days) is a strong positive — it means sustained attention, not a one-day spike.
+## Your Decision Framework
 
-Some account sources are context-only. They are useful for information and framing, but they should not create conviction on their own.
+Signal volume (mentions, chatter) is a CLUE, not a CONCLUSION. A stock mentioned 10 times by the same person is noise. A stock mentioned independently by 3 different traders with specific catalyst language is signal. You must distinguish between:
+- "Attention because it's setting up" → potential buy
+- "Attention because it's crashing/controversial" → avoid
+- "Attention from repetition/spam" → discount heavily
 
-Use an approximate 70/30 weighting:
-- 70% X signals and repeated trader discovery
-- 30% news validation and context
+For each candidate, evaluate these dimensions:
+1. CATALYST QUALITY — Is there a specific, time-bound event? (earnings date, FDA ruling, contract announcement, product launch) A vague "bullish vibes" thesis is worth far less than "reports Q2 earnings May 8 with whisper numbers 20% above consensus"
+2. TECHNICAL SETUP — Is the chart constructive? (tight consolidation, volume building, near resistance with momentum) Or is it extended, broken, or in freefall?
+3. SECTOR CONDITIONS — Check the sector ETF trends provided. A stock in a sector that's declining -3%+ needs an exceptionally strong idiosyncratic catalyst to overcome headwinds. Don't fight the trend without cause.
+4. RISK/REWARD — What's the downside if wrong vs upside if right? A stock at $5 support with $8 target is 60% upside / 20% downside. That's asymmetry. A stock already up 40% in 2 weeks with no floor? That's risk.
+5. SOURCE INDEPENDENCE — Are multiple independent traders/sources flagging this? Or is it one loud account tweeting 5 times? Check sourceCount and contextMentions vs convictionMentions.
 
+## What Makes a Great Pick
+- Multiple independent sources with conviction language (not just context)
+- Specific catalyst with a date or timeline
+- Technical setup showing consolidation/breakout, not extension
+- Sector tailwinds OR idiosyncratic story strong enough to override headwinds
+- Screener confirmation (sourceType=screener = price action validated)
+- Repeated attention across multiple days (repeatedAttention=true)
+
+## What to Reject
+- High signal count but all from one source or one day → noise
+- "Momentum" with no specific catalyst → could reverse any day
+- Sector in decline with no stock-specific reason to outperform
+- Already extended 50%+ monthly → late entry, UNLESS there is an exceptional upcoming catalyst (earnings date, FDA ruling, major contract) with strong multi-source independent conviction. If a stock already ripped, you need a very specific reason it continues — not just "it's been going up"
+- Penny stocks / sub-$5 unless exceptional multi-source + catalyst + screener overlap
+- Broken charts (down 15%+) where attention is about damage, not recovery setup
+- Mega-caps unless a very specific near-term catalyst + strong X setup exists
+
+## Output Format
 Return ONLY a valid JSON array, no markdown fences, no explanation:
-[{"ticker":"RKLB","conviction":9,"reason":"Repeated squeeze and breakout chatter with catalyst"},...]
+[{"ticker":"RKLB","conviction":9,"reason":"Repeated squeeze + NASA contract announcement May 12"},...]
 
-Strict rules:
-- conviction is 1–10 (10 = strongest fit)
-- reason is ≤15 words and must name the specific setup or catalyst
-- Sort by conviction descending, max 5 tickers
-- PRIORITIZE: medium-known stocks with repeated X attention, unusual volume, breakout language, squeeze potential, and specific catalysts
-- LOOK FOR buying opportunities: a stock down 3-8% with strong positive signals and a specific catalyst is a potential dip buy — score it higher than a flat stock with weaker signals
-- AVOID free-falls: a stock down 15%+ or with collapsing fundamentals is NOT a dip buy, it is a broken chart
-- Strongly avoid penny stocks, sub-$5 names, OTC-style low-liquidity setups, or obscure microcaps
-- Only allow a sub-$5 name if the setup is exceptional: repeated independent attention, strong catalyst specificity, and aggressive breakout/squeeze behavior
-- Do not recommend failed squeeze unwinds, post-crash names, broken charts, or tickers where the attention is mostly about collapse or damage
-- Only consider quote-verified, tradable tickers from the board
-- PREFER names in the board marked with band=starter or band=core-upside
-- PREFER repeated=true and xMentions >= 2 over generic news-only coverage
-- AVOID: broad ETFs (SPY, QQQ, IWM, IGV) entirely
-- AVOID: mega-cap crowd favorites unless there is a very specific near-term catalyst and strong X setup
-- News should confirm or sharpen the X-led thesis, not create the thesis on its own
-- Use the ticker board first to identify the best setup archetypes, then use the raw X signals for nuance`
+Rules:
+- conviction 1–10 (10 = strongest). Be honest — a 7 with clear reasoning beats an inflated 9
+- reason ≤15 words, must name the SPECIFIC catalyst or setup (not "bullish signals")
+- Max 5 tickers, sorted by conviction descending
+- Only quote-verified, tradable tickers from the board
+- PREFER band=starter or band=core-upside
+- TARGET sector allocation: ~62.5% tech/semiconductor/software, ~37.5% other sectors
+- If equal setups, prefer the tech stock
+- AVOID: broad ETFs (SPY, QQQ, IWM, IGV)
+- Use the ticker board first for setup quality, then X signals for nuance and catalyst specificity`
 
-function buildTickerUserMessage(signals, articles, signalBoard) {
+function buildTickerUserMessage(signals, articles, signalBoard, sectorTrends = new Map()) {
   const { boardText, signalText } = summarizeSignalsForPrompt(signals, articles, { signalBoard })
   const articleTexts = articles.slice(0, 25).map((a) => `${a.title} — ${a.description}`).join('\n')
 
+  let sectorBlock = ''
+  if (sectorTrends.size > 0) {
+    const lines = [...sectorTrends.entries()]
+      .sort((a, b) => a[1] - b[1])
+      .map(([etf, chg]) => `  ${etf}: ${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`)
+    sectorBlock = `\n=== SECTOR ETF TRENDS (5-day) ===\n${lines.join('\n')}\nETFs in decline signal broad sector headwinds — picks from those sectors need extra-strong catalysts to justify.\n`
+  }
+
   return `=== HIGH-UPSIDE TICKER BOARD ===
 ${boardText}
-
+${sectorBlock}
 === X SIGNALS (${signals.length} total, showing top matches) ===
 ${signalText}
 
@@ -456,30 +539,36 @@ export async function extractTickers(signals, articles) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
 
-  const signalBoard = await getRankedSignalBoard(signals, articles)
+  const { board: signalBoard, sectorTrends } = await getRankedSignalBoard(signals, articles)
   const client = new Anthropic({ apiKey })
-  const userContent = buildTickerUserMessage(signals, articles, signalBoard)
+  const userContent = buildTickerUserMessage(signals, articles, signalBoard, sectorTrends)
   const messages = [{ role: 'user', content: userContent }]
 
   let parsed
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const stream = client.messages.stream({
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const response = await client.messages.create({
       model: CLAUDE_MODEL,
-      max_tokens: 1024,
+      max_tokens: 2048,
+      stream: false,
       system: TICKER_SYSTEM_PROMPT,
       messages,
     })
-    const message = await stream.finalMessage()
+    const message = typeof response === 'string' ? JSON.parse(response) : response
 
-    const raw = (message.content?.[0]?.text ?? '').trim()
+    // Find the text block (skip thinking blocks)
+    const textBlock = (message.content || []).find((b) => b.type === 'text')
+    const raw = (textBlock?.text ?? '').trim()
       .replace(/^```json\s*/i, '')
       .replace(/^```\s*/i, '')
       .replace(/\s*```$/, '')
 
+    console.log(`[researchEngine] Claude attempt ${attempt + 1} raw (${raw.length} chars):`, raw.slice(0, 200))
+    if (!raw) console.log('[researchEngine] content blocks:', JSON.stringify((message.content || []).map(b => ({ type: b.type, len: b.text?.length }))))
+
     if (!raw) {
-      if (attempt === 0) {
+      if (attempt < 2) {
         messages.push({ role: 'assistant', content: '[]' })
-        messages.push({ role: 'user', content: 'The response was empty. Return ONLY a valid JSON array of ticker picks.' })
+        messages.push({ role: 'user', content: 'The response was empty. Return ONLY a valid JSON array of ticker picks. No explanation, just the JSON.' })
         continue
       }
       throw new Error(`Claude returned empty response (stop_reason: ${message.stop_reason})`)
@@ -490,7 +579,7 @@ export async function extractTickers(signals, articles) {
       if (Array.isArray(parsed)) break
       throw new Error('Claude did not return a JSON array')
     } catch (err) {
-      if (attempt === 0) {
+      if (attempt < 2) {
         messages.push({ role: 'assistant', content: raw })
         messages.push({ role: 'user', content: 'That was not valid JSON. Return ONLY a valid JSON array, no explanation.' })
         continue
@@ -567,7 +656,10 @@ Based on everything above, give ${ticker} an overall Buy Score out of 10. Break 
 
 export async function generateResearchReports(tickers) {
   const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) throw new Error('OPENAI_API_KEY is not set')
+  if (!apiKey) {
+    console.warn('[researchEngine] OPENAI_API_KEY not set — returning picks without reports')
+    return tickers.map((t) => ({ ...t, report: null, citations: [] }))
+  }
 
   const client = new OpenAI({ apiKey })
   const results = []
@@ -592,7 +684,15 @@ export async function generateResearchReports(tickers) {
       results.push({ ...tickerObj, report, citations })
     } catch (err) {
       console.error(`[researchEngine] report failed for ${tickerObj.ticker}:`, err.message)
-      results.push({ ...tickerObj, error: err.message })
+      if (err.status === 402 || err.status === 429 || err.message?.includes('insufficient_quota')) {
+        console.warn('[researchEngine] OpenAI credits exhausted — returning remaining picks without reports')
+        results.push({ ...tickerObj, report: null, citations: [] })
+        for (const remaining of tickers.slice(tickers.indexOf(tickerObj) + 1)) {
+          results.push({ ...remaining, report: null, citations: [] })
+        }
+        return results
+      }
+      results.push({ ...tickerObj, error: err.message, report: null, citations: [] })
     }
 
     if (tickers.indexOf(tickerObj) < tickers.length - 1) {

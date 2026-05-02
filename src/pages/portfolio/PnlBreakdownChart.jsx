@@ -14,13 +14,13 @@ export default function PnlBreakdownChart({ rows }) {
             <div className="mb-1.5 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full" style={{ backgroundColor: b.gradient[1] }} />
-                <span className="text-sm text-text-secondary">{b.label}</span>
+                <span className="text-sm text-white/60">{b.label}</span>
               </div>
-              <span className="font-mono text-sm tabular font-semibold text-text-primary">
+              <span className="font-mono text-sm tabular font-semibold text-white">
                 {b.count} · {fmtCurrency(b.value)}
               </span>
             </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-brand-light">
+            <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
               <div
                 className="h-full rounded-full transition-all duration-700"
                 style={{

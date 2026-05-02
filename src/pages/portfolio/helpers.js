@@ -2,13 +2,13 @@ import { fmtCurrency, fmtPct, fmtNumber, pnlColor, parseNum } from '../../utils/
 
 export function renderCell(type, val) {
   switch (type) {
-    case 'currency': return { text: fmtCurrency(val), cls: 'text-text-secondary' }
+    case 'currency': return { text: fmtCurrency(val), cls: 'text-white/60' }
     case 'pnl':      return { text: fmtCurrency(val), cls: pnlColor(val) }
     case 'pct':      return { text: fmtPct(val),      cls: pnlColor(val) }
-    case 'number':   return { text: fmtNumber(val),   cls: 'text-text-secondary' }
-    case 'symbol':   return { text: val ?? '—',       cls: 'text-text-primary font-bold' }
-    case 'desc':     return { text: val ?? '—',       cls: 'text-text-muted' }
-    default:         return { text: val ?? '—',       cls: 'text-text-secondary' }
+    case 'number':   return { text: fmtNumber(val),   cls: 'text-white/60' }
+    case 'symbol':   return { text: val ?? '—',       cls: 'text-white font-bold' }
+    case 'desc':     return { text: val ?? '—',       cls: 'text-white/40' }
+    default:         return { text: val ?? '—',       cls: 'text-white/60' }
   }
 }
 

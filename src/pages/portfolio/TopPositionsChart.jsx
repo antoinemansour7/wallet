@@ -20,21 +20,21 @@ export default function TopPositionsChart({ rows, large = false }) {
               <div key={`${item.symbol}-${item.index}`}>
                 <div className="mb-1.5 flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate font-mono text-sm font-bold text-text-primary">{item.symbol}</p>
-                    {item.description && <p className="truncate text-[11px] text-text-muted">{item.description}</p>}
+                    <p className="truncate font-mono text-sm font-bold text-white">{item.symbol}</p>
+                    {item.description && <p className="truncate text-[11px] text-white/40">{item.description}</p>}
                   </div>
                   <div className="shrink-0 text-right">
-                    <p className="font-mono text-sm tabular font-semibold text-text-primary">{fmtCurrency(item.value)}</p>
+                    <p className="font-mono text-sm tabular font-semibold text-white">{fmtCurrency(item.value)}</p>
                     <p className={`font-mono text-[11px] tabular ${isPositive ? 'text-gain' : 'text-loss'}`}>{fmtCurrency(item.pnl)}</p>
                   </div>
                 </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-brand-light">
+                <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
                   <div
                     className="h-full rounded-full transition-all duration-700"
                     style={{ width: barWidth(item.value, max), background: `linear-gradient(90deg, ${c0}90, ${c1})` }}
                   />
                 </div>
-                <p className="mt-1 font-mono text-[10px] tabular text-text-muted">{pct(item.value, total).toFixed(1)}% of portfolio</p>
+                <p className="mt-1 font-mono text-[10px] tabular text-white/40">{pct(item.value, total).toFixed(1)}% of portfolio</p>
               </div>
             )
           })}

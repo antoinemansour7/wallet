@@ -31,7 +31,7 @@ export function pnlColor(val) {
   const n = parseNum(val)
   if (n > 0) return 'text-gain'
   if (n < 0) return 'text-loss'
-  return 'text-text-muted'
+  return 'text-white/40'
 }
 
 export function computeStats(rows, { cashValue = 0, realizedPnl = 0 } = {}) {

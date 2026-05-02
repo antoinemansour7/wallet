@@ -11,60 +11,61 @@ function cardToneClasses(tone) {
       return {
         borderTop: 'bg-gain',
         value: 'text-gain',
-        badge: 'border-gain/20 bg-gain-bg text-gain',
-        detail: 'border-gain/20 bg-gain-bg',
+        badge: 'border-gain/20 bg-gain/10 text-gain',
+        detail: 'border-gain/20 bg-gain/10',
         detailText: 'text-gain',
       }
     case 'negative':
       return {
         borderTop: 'bg-loss',
         value: 'text-loss',
-        badge: 'border-loss/20 bg-loss-bg text-loss',
-        detail: 'border-loss/20 bg-loss-bg',
+        badge: 'border-loss/20 bg-loss/10 text-loss',
+        detail: 'border-loss/20 bg-loss/10',
         detailText: 'text-loss',
       }
     case 'accent':
       return {
-        borderTop: 'bg-brand',
-        value: 'text-brand',
-        badge: 'border-border bg-brand-light text-text-secondary',
-        detail: 'border-border bg-brand-light',
-        detailText: 'text-text-primary',
+        borderTop: 'bg-[#494fdf]',
+        value: 'text-[#494fdf]',
+        badge: 'border-white/[0.06] bg-white/[0.04] text-white/60',
+        detail: 'border-white/[0.06] bg-white/[0.04]',
+        detailText: 'text-white',
       }
     default:
       return {
-        borderTop: 'bg-border',
-        value: 'text-text-primary',
-        badge: 'border-border bg-brand-light text-text-muted',
-        detail: 'border-border bg-brand-light',
-        detailText: 'text-text-secondary',
+        borderTop: 'bg-white/10',
+        value: 'text-white',
+        badge: 'border-white/[0.06] bg-white/[0.04] text-white/40',
+        detail: 'border-white/[0.06] bg-white/[0.04]',
+        detailText: 'text-white/60',
       }
   }
 }
 
-export default function StatCard({ label, value, sub, pnl = 0, tone, badge, breakdown = [] }) {
+export default function StatCard({ label, value, sub, pnl = 0, tone, badge, breakdown = [], action }) {
   const resolvedTone = resolveTone({ tone, pnl })
   const classes      = cardToneClasses(resolvedTone)
 
   return (
-    <div className="relative overflow-hidden rounded-card border border-border bg-card p-5 transition-all duration-200 hover:border-brand/20">
+    <div className="relative overflow-hidden rounded-card border border-white/[0.06] bg-wall-surface p-5 transition-all duration-200 hover:border-white/[0.12]">
       <div className={`absolute inset-x-0 top-0 h-0.5 ${classes.borderTop}`} />
       <div className="mb-3 flex items-start justify-between gap-3">
-        <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-text-muted">{label}</p>
+        <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-white/40">{label}</p>
         {badge && (
           <span className={`rounded-full border px-2.5 py-1 font-mono text-[10px] font-semibold tabular ${classes.badge}`}>
             {badge}
           </span>
         )}
       </div>
-      <p className={`font-mono text-[26px] font-bold tabular leading-none tracking-tight ${value ? classes.value : 'text-text-muted'}`}>
+      <p className={`font-mono text-[26px] font-bold tabular leading-none tracking-tight ${value ? classes.value : 'text-white/40'}`}>
         {value ?? '—'}
       </p>
       {sub && (
-        <p className="mt-2.5 text-xs leading-relaxed text-text-muted">
+        <p className="mt-2.5 text-xs leading-relaxed text-white/40">
           {sub}
         </p>
       )}
+      {action && <div className="mt-3">{action}</div>}
       {breakdown.length > 0 && (
         <div className="mt-4 grid grid-cols-2 gap-2">
           {breakdown.map((item) => {
@@ -72,7 +73,7 @@ export default function StatCard({ label, value, sub, pnl = 0, tone, badge, brea
             const itemClasses = cardToneClasses(itemTone)
             return (
               <div key={item.label} className={`rounded-lg border px-3 py-2 ${itemClasses.detail}`}>
-                <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-text-muted">{item.label}</span>
+                <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/40">{item.label}</span>
                 <p className={`mt-1 font-mono text-xs font-semibold tabular ${itemClasses.detailText}`}>{item.value}</p>
               </div>
             )

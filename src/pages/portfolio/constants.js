@@ -32,9 +32,9 @@ export const CHART_GRADIENTS = [
 export const AUTO_PRICE_REFRESH_MS = 5 * 60 * 1000
 
 export const LIVE_META = {
-  idle:    { label: 'Waiting for upload',   dot: 'bg-text-muted',        cls: 'border-border bg-card text-text-secondary'       },
-  loading: { label: 'Refreshing prices',    dot: 'bg-gain animate-pulse', cls: 'border-gain/20 bg-gain-bg text-gain'            },
-  success: { label: 'Prices up to date',    dot: 'bg-gain',              cls: 'border-gain/20 bg-gain-bg text-gain'             },
-  partial: { label: 'Partial refresh',      dot: 'bg-amber-400',         cls: 'border-amber-200 bg-amber-50 text-amber-700'     },
-  error:   { label: 'Live prices unavail.', dot: 'bg-loss',              cls: 'border-loss/20 bg-loss-bg text-loss'             },
+  idle:    { label: 'Waiting for upload',   dot: 'bg-white/40',             cls: 'border-white/[0.06] bg-wall-surface text-white/60'  },
+  loading: { label: 'Refreshing prices',    dot: 'bg-gain animate-pulse',   cls: 'border-gain/20 bg-gain/10 text-gain'                },
+  success: { label: 'Prices up to date',    dot: 'bg-gain',                 cls: 'border-gain/20 bg-gain/10 text-gain'                },
+  partial: { label: 'Partial refresh',      dot: 'bg-amber-400',            cls: 'border-amber-400/20 bg-amber-400/10 text-amber-400' },
+  error:   { label: 'Live prices unavail.', dot: 'bg-loss',                 cls: 'border-loss/20 bg-loss/10 text-loss'                },
 }

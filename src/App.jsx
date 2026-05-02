@@ -5,6 +5,7 @@ import Navbar from './components/Navbar'
 import Login from './pages/Login'
 import Portfolio from './pages/Portfolio'
 import Research from './pages/Research'
+import History from './pages/History'
 
 function AppLayout({ children }) {
   return (
@@ -37,6 +38,16 @@ export default function App() {
               <ProtectedRoute>
                 <AppLayout>
                   <Research />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/history"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <History />
                 </AppLayout>
               </ProtectedRoute>
             }

@@ -73,7 +73,7 @@ describe('fmtPct', () => {
 describe('pnlColor', () => {
   it('returns gain for positive', () => expect(pnlColor(300)).toBe('text-gain'))
   it('returns loss for negative',  () => expect(pnlColor(-587)).toBe('text-loss'))
-  it('returns muted for zero',     () => expect(pnlColor(0)).toBe('text-text-muted'))
+  it('returns muted for zero',     () => expect(pnlColor(0)).toBe('text-white/40'))
 })
 
 describe('computeStats', () => {

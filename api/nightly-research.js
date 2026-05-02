@@ -5,9 +5,13 @@ import {
   extractTickers,
   generateResearchReports,
 } from '../src/server/researchEngine.js'
+import { fetchBreakoutCandidates, candidatesToSignals } from '../src/server/technicalScreener.js'
 
 const RESEARCH_KEY = 'research:latest'
 const RESEARCH_TTL = 48 * 60 * 60 // 48 hours
+const HISTORY_TTL = 7 * 24 * 60 * 60 // 7 days
+const HISTORY_INDEX_KEY = 'research:history-index'
+const HISTORY_MAX_ENTRIES = 30
 
 function isAuthorized(req) {
   if (!process.env.CRON_SECRET) return false
@@ -62,6 +66,17 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: 'No content available from any source', errors })
   }
 
+  // Step 2.5: technical screener (pre-breakout/squeeze detection)
+  try {
+    const candidates = await fetchBreakoutCandidates()
+    const screenerSignals = candidatesToSignals(candidates)
+    signals = [...signals, ...screenerSignals]
+    console.log(`[nightly-research] screener signals: ${screenerSignals.length}`)
+  } catch (err) {
+    console.error('[nightly-research] technical screener failed:', err.message)
+    errors.push({ step: 'screener', error: err.message })
+  }
+
   // Step 3: extract tickers via Claude
   let tickers = []
   try {
@@ -99,7 +114,15 @@ export default async function handler(req, res) {
   const redis = getRedis()
   if (redis) {
     await redis.set(RESEARCH_KEY, payload, { ex: RESEARCH_TTL })
-    console.log('[nightly-research] stored research:latest in Redis')
+
+    // Store history entry
+    const dateKey = new Date().toISOString().slice(0, 10)
+    const historyKey = `research:history:${dateKey}`
+    await redis.set(historyKey, payload, { ex: HISTORY_TTL })
+    await redis.lpush(HISTORY_INDEX_KEY, dateKey)
+    await redis.ltrim(HISTORY_INDEX_KEY, 0, HISTORY_MAX_ENTRIES - 1)
+
+    console.log('[nightly-research] stored research:latest + history in Redis')
   } else {
     console.warn('[nightly-research] Redis not configured — results not persisted')
   }
