@@ -72,28 +72,28 @@ export default function PlaidLinkButton({ userId, onSuccess, onConnecting }) {
       type="button"
       onClick={() => open()}
       disabled={disabled}
-      className={`group flex items-center gap-2.5 rounded-xl border px-4 py-3 text-left transition-all duration-150 ${
+      className={`group flex w-full items-center gap-3 rounded-xl px-4 py-3.5 text-left transition-all duration-150 ${
         disabled
-          ? 'cursor-not-allowed border-white/[0.04] bg-white/[0.02] opacity-50'
-          : 'border-white/[0.08] bg-white/[0.04] hover:border-white/[0.15] hover:bg-white/[0.06]'
+          ? 'cursor-not-allowed opacity-40'
+          : 'bg-white/[0.03] hover:bg-white/[0.05]'
       }`}
     >
-      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#00a87e]/10">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06]">
         {loading ? (
-          <div className="h-4 w-4 rounded-full border-2 border-[#00a87e] border-t-transparent animate-spin" />
+          <div className="h-3.5 w-3.5 rounded-full border-[1.5px] border-white/50 border-t-transparent animate-spin" />
         ) : (
-          <svg className="h-4 w-4 text-[#00a87e]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+          <svg className="h-3.5 w-3.5 text-white/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
             <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
             <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
           </svg>
         )}
       </div>
       <div>
-        <p className="text-sm font-medium text-white/80 group-hover:text-white">
-          {loading ? 'Connecting…' : 'Connect Brokerage'}
+        <p className="text-[13px] text-white/60 group-hover:text-white/80">
+          {loading ? 'Connecting…' : 'Connect your brokerage'}
         </p>
-        <p className="text-[11px] text-white/40">
-          Wealthsimple, Questrade, and more via Plaid
+        <p className="text-[11px] text-white/25">
+          Wealthsimple, Questrade, and more
         </p>
       </div>
     </button>
