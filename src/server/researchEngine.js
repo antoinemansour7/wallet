@@ -392,9 +392,27 @@ export function summarizeSignalsForPrompt(signals, articles, options = {}) {
   }))
   const boardText = JSON.stringify(boardJson, null, 2)
 
-  const signalText = signals
-    .filter((signal) => (signal.tickers || []).some((t) => topBoardTickers.has(t)))
-    .slice(0, 80)
+  // Ensure each top-15 ticker gets up to 15 signals for Claude to read
+  const MAX_PER_TICKER = 15
+  const signalsByTicker = new Map()
+  for (const ticker of topBoardTickers) signalsByTicker.set(ticker, [])
+
+  for (const signal of signals) {
+    for (const ticker of (signal.tickers || [])) {
+      if (topBoardTickers.has(ticker) && signalsByTicker.get(ticker).length < MAX_PER_TICKER) {
+        signalsByTicker.get(ticker).push(signal)
+      }
+    }
+  }
+
+  const seen = new Set()
+  const dedupedSignals = [...signalsByTicker.values()].flat().filter((s) => {
+    if (seen.has(s.id)) return false
+    seen.add(s.id)
+    return true
+  })
+
+  const signalText = dedupedSignals
     .map((signal) => (
       `[${Number(signal.score || 0).toFixed(2)}] ${signal.sourceType.toUpperCase()} ${signal.sourceLabels?.join(', ') || 'unknown'}`
       + ` | tickers=${signal.tickers?.join(', ') || 'none'}`
@@ -417,7 +435,7 @@ Signal volume (mentions, chatter) is a CLUE, not a CONCLUSION. A stock mentioned
 
 For each candidate, evaluate these dimensions:
 1. CATALYST QUALITY — Is there a specific, time-bound event? (earnings date, FDA ruling, contract announcement, product launch) A vague "bullish vibes" thesis is worth far less than "reports Q2 earnings May 8 with whisper numbers 20% above consensus"
-2. TECHNICAL SETUP — Is the chart constructive? (tight consolidation, volume building, near resistance with momentum) Or is it extended, broken, or in freefall?
+2. TECHNICAL SETUP — Use the per-ticker technical analysis provided (RSI, SMA20/SMA50, MACD, trend label, % from 52-week high, relative volume). Do NOT guess at chart conditions — use the actual numbers. A stock with RSI >70 is overbought. Price below SMA50 is a downtrend. MACD histogram negative = losing momentum. Relative volume >1.5 = unusual interest.
 3. SECTOR CONDITIONS — Check the sector ETF trends provided. A stock in a sector that's declining -3%+ needs an exceptionally strong idiosyncratic catalyst to overcome headwinds. Don't fight the trend without cause.
 4. RISK/REWARD — What's the downside if wrong vs upside if right? A stock at $5 support with $8 target is 60% upside / 20% downside. That's asymmetry. A stock already up 40% in 2 weeks with no floor? That's risk.
 5. SOURCE INDEPENDENCE — Are multiple independent traders/sources flagging this? Or is it one loud account tweeting 5 times? Check sourceCount and contextMentions vs convictionMentions.
@@ -425,7 +443,7 @@ For each candidate, evaluate these dimensions:
 ## What Makes a Great Pick
 - Multiple independent sources with conviction language (not just context)
 - Specific catalyst with a date or timeline
-- Technical setup showing consolidation/breakout, not extension
+- Technical setup showing consolidation/breakout, not extension — confirmed by RSI <70, price above SMA20+SMA50, and positive MACD histogram
 - Sector tailwinds OR idiosyncratic story strong enough to override headwinds
 - Screener confirmation (sourceType=screener = price action validated)
 - Repeated attention across multiple days (repeatedAttention=true)
@@ -441,11 +459,11 @@ For each candidate, evaluate these dimensions:
 
 ## Output Format
 Return ONLY a valid JSON array, no markdown fences, no explanation:
-[{"ticker":"RKLB","conviction":9,"reason":"Repeated squeeze + NASA contract announcement May 12"},...]
+[{"ticker":"RKLB","conviction":9,"reason":"NASA awarded a $150M hypersonic test contract last week, and 3 independent flow traders flagged heavy May call buying. The stock is consolidating at $42 support with a screener-confirmed breakout pattern — classic pre-catalyst coil with asymmetric upside if the contract pipeline accelerates."},...]
 
 Rules:
 - conviction 1–10 (10 = strongest). Be honest — a 7 with clear reasoning beats an inflated 9
-- reason ≤15 words, must name the SPECIFIC catalyst or setup (not "bullish signals")
+- reason: 2-4 sentences (40-80 words). Explain the SPECIFIC catalyst, why the setup is compelling, and what makes the risk/reward asymmetric. Reference concrete details from the signals — dates, price levels, contract values, earnings dates, specific trader observations. Also reference the technical setup (RSI, trend, MACD direction) to validate entry timing. This is the main thing users read, make it insightful and specific, not generic.
 - Max 5 tickers, sorted by conviction descending
 - Only quote-verified, tradable tickers from the board
 - PREFER band=starter or band=core-upside
@@ -454,7 +472,7 @@ Rules:
 - AVOID: broad ETFs (SPY, QQQ, IWM, IGV)
 - Use the ticker board first for setup quality, then X signals for nuance and catalyst specificity`
 
-function buildTickerUserMessage(signals, articles, signalBoard, sectorTrends = new Map()) {
+function buildTickerUserMessage(signals, articles, signalBoard, sectorTrends = new Map(), technicals = new Map()) {
   const { boardText, signalText } = summarizeSignalsForPrompt(signals, articles, { signalBoard })
   const articleTexts = articles.slice(0, 25).map((a) => `${a.title} — ${a.description}`).join('\n')
 
@@ -466,9 +484,31 @@ function buildTickerUserMessage(signals, articles, signalBoard, sectorTrends = n
     sectorBlock = `\n=== SECTOR ETF TRENDS (5-day) ===\n${lines.join('\n')}\nETFs in decline signal broad sector headwinds — picks from those sectors need extra-strong catalysts to justify.\n`
   }
 
+  let techBlock = ''
+  if (technicals.size > 0) {
+    const lines = [...technicals.values()]
+      .filter((t) => t.analyzed)
+      .map((t) => {
+        const parts = [
+          `${t.ticker}: trend=${t.trend}`,
+          t.rsi != null ? `RSI=${t.rsi}` : null,
+          t.sma20 != null ? `SMA20=${t.sma20}` : null,
+          t.sma50 != null ? `SMA50=${t.sma50}` : null,
+          t.price != null ? `price=${t.price}` : null,
+          t.macd ? `MACD=${t.macd.macd} signal=${t.macd.signal} hist=${t.macd.histogram}` : null,
+          t.pctFrom52wHigh != null ? `from52wHigh=${t.pctFrom52wHigh}%` : null,
+          t.relativeVolume != null ? `relVol=${t.relativeVolume}` : null,
+        ].filter(Boolean)
+        return `  ${parts.join(', ')}`
+      })
+    if (lines.length > 0) {
+      techBlock = `\n=== PER-TICKER TECHNICAL ANALYSIS (60-day daily candles) ===\n${lines.join('\n')}\nUse these to validate entry timing. Reject overbought (RSI>70) or downtrend stocks unless the catalyst is exceptional.\n`
+    }
+  }
+
   return `=== HIGH-UPSIDE TICKER BOARD ===
 ${boardText}
-${sectorBlock}
+${sectorBlock}${techBlock}
 === X SIGNALS (${signals.length} total, showing top matches) ===
 ${signalText}
 
@@ -476,13 +516,14 @@ ${signalText}
 ${articleTexts}`
 }
 
-function postProcessCandidates(parsed, signalBoard) {
+function postProcessCandidates(parsed, signalBoard, technicals = new Map()) {
   const boardByTicker = new Map(signalBoard.map((item) => [item.ticker, item]))
   const normalized = parsed
     .filter((t) => t.ticker && typeof t.conviction === 'number')
     .map((tickerObj) => {
       const ticker = normalizeTicker(tickerObj.ticker)
       const summary = boardByTicker.get(ticker)
+      const tech = technicals.get(ticker)
       return {
         ...tickerObj,
         ticker,
@@ -503,6 +544,15 @@ function postProcessCandidates(parsed, signalBoard) {
         mainstreamCrowdFavorite: Boolean(summary?.mainstreamCrowdFavorite),
         convictionMentions: summary?.convictionMentions ?? 0,
         contextMentions: summary?.contextMentions ?? 0,
+        technicals: tech?.analyzed ? {
+          rsi: tech.rsi,
+          sma20: tech.sma20,
+          sma50: tech.sma50,
+          macd: tech.macd,
+          trend: tech.trend,
+          pctFrom52wHigh: tech.pctFrom52wHigh,
+          relativeVolume: tech.relativeVolume,
+        } : null,
       }
     })
 
@@ -540,8 +590,38 @@ export async function extractTickers(signals, articles) {
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
 
   const { board: signalBoard, sectorTrends } = await getRankedSignalBoard(signals, articles)
+
+  // Fetch per-ticker technical analysis for top candidates
+  const { analyzeTickersBatch } = await import('./technicalAnalysis.js')
+  const candidateTickers = signalBoard.slice(0, 15).map((item) => item.ticker)
+  let technicals = new Map()
+  try {
+    technicals = await analyzeTickersBatch(candidateTickers, { concurrency: 3 })
+    const analyzed = [...technicals.values()].filter((t) => t.analyzed).length
+    console.log(`[researchEngine] technical analysis: ${analyzed}/${candidateTickers.length} tickers analyzed`)
+  } catch (err) {
+    console.error('[researchEngine] technical analysis failed:', err.message)
+  }
+
+  // Load historical performance stats for feedback loop
+  let performanceBlock = ''
+  try {
+    const { getWinRateStats, formatStatsForPrompt } = await import('./agents/signalHistoryTools.js')
+    const stats = await getWinRateStats()
+    performanceBlock = formatStatsForPrompt(stats)
+    if (performanceBlock) console.log(`[researchEngine] feedback loop: loaded stats from ${stats.totalPicks} tracked picks`)
+  } catch (err) {
+    console.error('[researchEngine] performance stats load failed:', err.message)
+  }
+
   const client = new Anthropic({ apiKey })
-  const userContent = buildTickerUserMessage(signals, articles, signalBoard, sectorTrends)
+  const userContent = buildTickerUserMessage(signals, articles, signalBoard, sectorTrends, technicals)
+
+  // Inject performance feedback into the system prompt
+  const systemPrompt = performanceBlock
+    ? `${TICKER_SYSTEM_PROMPT}\n\n${performanceBlock}`
+    : TICKER_SYSTEM_PROMPT
+
   const messages = [{ role: 'user', content: userContent }]
 
   let parsed
@@ -550,7 +630,7 @@ export async function extractTickers(signals, articles) {
       model: CLAUDE_MODEL,
       max_tokens: 2048,
       stream: false,
-      system: TICKER_SYSTEM_PROMPT,
+      system: systemPrompt,
       messages,
     })
     const message = typeof response === 'string' ? JSON.parse(response) : response
@@ -588,7 +668,7 @@ export async function extractTickers(signals, articles) {
     }
   }
 
-  return postProcessCandidates(parsed, signalBoard)
+  return postProcessCandidates(parsed, signalBoard, technicals)
 }
 
 // ─── OpenAI: generate research reports (with web search) ─────────────────────

@@ -47,17 +47,17 @@ export default function StatCard({ label, value, sub, pnl = 0, tone, badge, brea
   const classes      = cardToneClasses(resolvedTone)
 
   return (
-    <div className="relative overflow-hidden rounded-card border border-white/[0.06] bg-wall-surface p-5 transition-all duration-200 hover:border-white/[0.12]">
+    <div className="relative overflow-hidden rounded-card border border-white/[0.06] bg-wall-surface p-4 transition-all duration-200 hover:border-white/[0.12] sm:p-5">
       <div className={`absolute inset-x-0 top-0 h-0.5 ${classes.borderTop}`} />
       <div className="mb-3 flex items-start justify-between gap-3">
         <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-white/40">{label}</p>
         {badge && (
-          <span className={`rounded-full border px-2.5 py-1 font-mono text-[10px] font-semibold tabular ${classes.badge}`}>
+          <span className={`rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold tabular sm:px-2.5 sm:py-1 ${classes.badge}`}>
             {badge}
           </span>
         )}
       </div>
-      <p className={`font-mono text-[26px] font-bold tabular leading-none tracking-tight ${value ? classes.value : 'text-white/40'}`}>
+      <p className={`font-mono text-[20px] font-bold tabular leading-none tracking-tight sm:text-[26px] ${value ? classes.value : 'text-white/40'}`}>
         {value ?? '—'}
       </p>
       {sub && (

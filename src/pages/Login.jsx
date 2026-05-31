@@ -24,13 +24,13 @@ function getSignInErrorMessage(err) {
       return 'Firebase API key is missing or invalid in Vercel environment variables.'
     case 'auth/configuration-not-found':
     case 'auth/operation-not-allowed':
-      return 'Google sign-in is not enabled for this Firebase project.'
+      return 'This sign-in provider is not enabled for this Firebase project.'
     case 'auth/popup-blocked':
       return 'The Google sign-in popup was blocked by your browser.'
     case 'auth/popup-closed-by-user':
       return 'The Google sign-in popup was closed before sign-in finished.'
     default:
-      return err?.message || 'Could not complete Google sign-in. Please try again.'
+      return err?.message || 'Could not complete sign-in. Please try again.'
   }
 }
 

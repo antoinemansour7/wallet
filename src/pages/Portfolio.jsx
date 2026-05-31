@@ -17,6 +17,7 @@ import PnlBreakdownChart from './portfolio/PnlBreakdownChart'
 import HoldingsView from './portfolio/HoldingsView'
 import UploadView from './portfolio/UploadView'
 import EmptyState from './portfolio/EmptyState'
+import AiAnalysisView from './portfolio/AiAnalysisView'
 
 export default function Portfolio() {
   const [rows, setRows]                   = useState([])
@@ -75,7 +76,7 @@ export default function Portfolio() {
       setFileName(saved.fileName || '')
       const priceTime = saved.lastPriceRefreshAt ? new Date(saved.lastPriceRefreshAt).getTime() : 0
       setLastUpdatedAt(priceTime ? new Date(priceTime) : null)
-      lastRefreshRef.current = priceTime || 0
+      lastRefreshRef.current = 0
       setActiveView('overview')
     }
 
@@ -101,7 +102,8 @@ export default function Portfolio() {
         rows,
         accounts,
         lastPriceRefreshAt: lastUpdatedAt,
-      }).catch(() => {})
+      }).then(() => console.log('[portfolio] saved to Firestore'))
+        .catch((err) => console.error('[portfolio] Firestore save failed:', err.message))
     }, 1000)
     return () => clearTimeout(timer)
   }, [accounts, fileName, hasData, lastUpdatedAt, rows, uid])
@@ -214,6 +216,45 @@ export default function Portfolio() {
     })
   }, [])
 
+  const handlePlaidConnecting = useCallback(() => {
+    setLoading(true)
+    setLoadingMsg('Connecting to your brokerage…')
+  }, [])
+
+  const handlePlaidSuccess = useCallback(async (holdingsData, institutionName, err) => {
+    if (err || !holdingsData) {
+      setError(err?.message || 'Failed to connect brokerage')
+      setLoading(false)
+      setLoadingMsg('')
+      return
+    }
+    try {
+      const plaidRows = holdingsData.rows || []
+      const cashEntries = holdingsData.cashEntries || []
+      if (plaidRows.length === 0 && cashEntries.length === 0) {
+        setError('No holdings found in the connected account.')
+        setLoading(false)
+        setLoadingMsg('')
+        return
+      }
+      const nextAccounts = applyPortfolioRows(plaidRows, { previousAccounts: accounts, cashEntries })
+      setFileName(`${institutionName || 'Plaid'} (connected)`)
+      setActiveView('overview')
+      if (plaidRows.length > 0) {
+        setLoadingMsg('Fetching live prices…')
+        await refreshRowsWithLivePrices(plaidRows, { previousAccounts: nextAccounts, cashEntries })
+      } else {
+        setLiveStatus('success')
+        setLiveMessage('Cash balances imported from connected account.')
+      }
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+      setLoadingMsg('')
+    }
+  }, [accounts, applyPortfolioRows, refreshRowsWithLivePrices])
+
   const onDrop = (e) => { e.preventDefault(); setIsDragging(false); handleFile(e.dataTransfer.files[0]) }
 
   return (
@@ -254,14 +295,20 @@ export default function Portfolio() {
         {visibleView === 'holdings' && (
           <HoldingsView rows={rows} accounts={accountEntries} onUploadClick={() => setActiveView('upload')} />
         )}
+        {visibleView === 'ai' && (
+          <AiAnalysisView rows={rows} />
+        )}
         {visibleView === 'upload' && (
           <UploadView
             error={error} fileName={fileName} hasData={hasData} isDragging={isDragging}
             loading={loading} loadingMsg={loadingMsg} rows={rows} inputRef={inputRef}
+            userId={uid}
             onDrop={onDrop}
             onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
             onDragLeave={() => setIsDragging(false)}
             onFile={handleFile}
+            onPlaidSuccess={handlePlaidSuccess}
+            onPlaidConnecting={handlePlaidConnecting}
           />
         )}
       </div>

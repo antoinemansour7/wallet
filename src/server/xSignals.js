@@ -7,21 +7,23 @@ const CURATED_ACCOUNTS = [
   { username: 'unusualwhales',   lane: 'flow',         weight: 1.35, role: 'conviction' },
   { username: 'GRDecter',        lane: 'flow',         weight: 1.18, role: 'conviction' },
   { username: 'optionshawk',     lane: 'flow',         weight: 1.15, role: 'conviction' },
+  { username: 'DarkPoolAlerts',  lane: 'flow',         weight: 1.12, role: 'conviction' },
   // US equities + growth
-  { username: 'amitisinvesting', lane: 'growth',       weight: 1.05, role: 'conviction' },
-  { username: 'aleabitoreddit',  lane: 'sentiment',    weight: 1.02, role: 'context' },
-  { username: 'StockMKTNewz',    lane: 'news',         weight: 1.02, role: 'context' },
+  { username: 'aleabitoreddit', lane: 'growth',       weight: 1.45, role: 'conviction' },
+  { username: 'amitisinvesting', lane: 'growth',       weight: 1.1, role: 'context' },
   { username: 'TraderLion',      lane: 'growth',       weight: 1.1, role: 'conviction' },
-  // Macro + rates
-  { username: 'ReformedBroker',  lane: 'macro',        weight: 0.92, role: 'context' },
-  { username: 'MrTopStep',       lane: 'macro',        weight: 0.88, role: 'context' },
+  { username: 'IncredibleTrade', lane: 'growth',       weight: 1.08, role: 'conviction' },
+  { username: 'ripaborern',      lane: 'growth',       weight: 1.0, role: 'conviction' },
+  // Macro + rates (top 2 only)
   { username: 'LizAnnSonders',   lane: 'macro',        weight: 0.95, role: 'context' },
-  { username: 'zerohedge',       lane: 'macro',        weight: 0.82, role: 'context' },
+  { username: 'MacroAlf',        lane: 'macro',        weight: 0.94, role: 'context' },
   // Technical analysis
   { username: 'NorthmanTrader',  lane: 'technical',    weight: 0.9, role: 'conviction' },
-  { username: 'alphatrends',     lane: 'technical',    weight: 0.88, role: 'conviction' },
   { username: 'MMatters22596',   lane: 'technical',    weight: 1.0, role: 'conviction' },
-  { username: 'Mr_Derivatives',  lane: 'flow',         weight: 1.1, role: 'conviction' },
+  { username: 'chartaborern',    lane: 'technical',    weight: 0.92, role: 'conviction' },
+  // Catalyst / event-driven
+  { username: 'biaborern',       lane: 'catalyst',     weight: 1.05, role: 'conviction' },
+  { username: 'INArteCarlworx',  lane: 'catalyst',     weight: 0.96, role: 'conviction' },
 ]
 
 const BASE_SEARCH_QUERIES = [
@@ -293,7 +295,7 @@ export function buildAdaptiveQueries(seed = {}) {
     if (!query?.query || seen.has(query.query)) return false
     seen.add(query.query)
     return true
-  }).slice(0, 5)
+  }).slice(0, 10)
 }
 
 async function xApiGet(path, params = {}, token = process.env.X_BEARER_TOKEN) {
@@ -480,7 +482,7 @@ function mergeSignals(existing, incoming) {
   }
 }
 
-async function fetchAccountSignals(token, { perAccount = 8 } = {}) {
+async function fetchAccountSignals(token, { perAccount = 25 } = {}) {
   const users = await lookupUsersByUsername(CURATED_ACCOUNTS.map((account) => account.username), token)
   const signals = []
   const redis = getRedis()
@@ -534,7 +536,7 @@ async function fetchAccountSignals(token, { perAccount = 8 } = {}) {
   return signals
 }
 
-async function fetchSearchSignals(queries, token, { perQuery = 10 } = {}) {
+async function fetchSearchSignals(queries, token, { perQuery = 20 } = {}) {
   const signals = []
   const startTime = new Date(Date.now() - SIGNAL_MAX_AGE_MS).toISOString()
 

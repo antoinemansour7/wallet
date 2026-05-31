@@ -135,16 +135,15 @@ export function applyLivePrices(rows, quotes, usdCadRate = null) {
     const marketValue = effectivePrice * quantity
     const bookValue = parseNum(row['BOOK VALUE'])
 
-    const dayChange = Number.isFinite(quote.change)
-      ? quote.change * fxRate * quantity
-      : Number.isFinite(quote.previousClose)
-        ? (quote.price - quote.previousClose) * fxRate * quantity
-        : null
-    const dayChangePct = Number.isFinite(quote.changePercent)
-      ? quote.changePercent            // percentage is currency-agnostic
-      : Number.isFinite(quote.previousClose) && quote.previousClose > 0
-        ? ((quote.price - quote.previousClose) / quote.previousClose) * 100
-        : null
+    const previousCloseValue = Number.isFinite(quote.previousClose)
+      ? quote.previousClose * fxRate * quantity
+      : null
+    const dayChange = previousCloseValue !== null
+      ? marketValue - previousCloseValue
+      : null
+    const dayChangePct = dayChange !== null && previousCloseValue > 0
+      ? (dayChange / previousCloseValue) * 100
+      : null
     const unrealized = bookValue > 0 ? marketValue - bookValue : null
     const unrealizedPct = bookValue > 0 ? (unrealized / bookValue) * 100 : null
 
@@ -153,8 +152,8 @@ export function applyLivePrices(rows, quotes, usdCadRate = null) {
       'ACCOUNT CURRENCY': row['ACCOUNT CURRENCY'] || quote.currency || '',
       'MARKET PRICE': compactNumber(effectivePrice),
       'MARKET VALUE': compactNumber(marketValue),
-      'DAY CHANGE': dayChange === null ? row['DAY CHANGE'] : compactNumber(dayChange),
-      'DAY CHANGE %': dayChangePct === null ? row['DAY CHANGE %'] : compactPct(dayChangePct),
+      'DAY CHANGE': dayChange === null ? '' : compactNumber(dayChange),
+      'DAY CHANGE %': dayChangePct === null ? '' : compactPct(dayChangePct),
       'UNREALIZED GAIN/LOSS': unrealized === null ? row['UNREALIZED GAIN/LOSS'] : compactNumber(unrealized),
       'UNREALIZED GAIN/LOSS %': unrealizedPct === null ? row['UNREALIZED GAIN/LOSS %'] : compactPct(unrealizedPct),
     }

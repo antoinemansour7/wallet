@@ -6,6 +6,9 @@ import {
   generateResearchReports,
 } from '../src/server/researchEngine.js'
 import { fetchBreakoutCandidates, candidatesToSignals } from '../src/server/technicalScreener.js'
+import { runContrarianAgent } from '../src/server/agents/contrarianAgent.js'
+import { runCatalystAgent } from '../src/server/agents/catalystAgent.js'
+import { sendPickAlerts } from '../src/server/agents/slackAgent.js'
 
 const RESEARCH_KEY = 'research:latest'
 const RESEARCH_TTL = 48 * 60 * 60 // 48 hours
@@ -87,6 +90,30 @@ export default async function handler(req, res) {
     errors.push({ step: 'claude', error: err.message })
   }
 
+  // Step 3.5: Contrarian Agent — stress-test each pick with bear case
+  if (tickers.length > 0) {
+    try {
+      tickers = await runContrarianAgent(tickers)
+      const bearCases = tickers.filter((t) => t.bearCase).length
+      console.log(`[nightly-research] contrarian agent: ${bearCases}/${tickers.length} bear cases generated`)
+    } catch (err) {
+      console.error('[nightly-research] contrarian agent failed:', err.message)
+      errors.push({ step: 'contrarian', error: err.message })
+    }
+  }
+
+  // Step 3.6: Catalyst Agent — verify catalysts via Exa search
+  if (tickers.length > 0) {
+    try {
+      tickers = await runCatalystAgent(tickers)
+      const verified = tickers.filter((t) => t.catalystVerified).length
+      console.log(`[nightly-research] catalyst agent: ${verified}/${tickers.length} catalysts verified`)
+    } catch (err) {
+      console.error('[nightly-research] catalyst agent failed:', err.message)
+      errors.push({ step: 'catalyst', error: err.message })
+    }
+  }
+
   // Step 4: generate Perplexity reports
   let picks = tickers
   if (tickers.length > 0) {
@@ -125,6 +152,16 @@ export default async function handler(req, res) {
     console.log('[nightly-research] stored research:latest + history in Redis')
   } else {
     console.warn('[nightly-research] Redis not configured — results not persisted')
+  }
+
+  // Step 6: Send Slack alerts
+  if (picks.length > 0) {
+    try {
+      await sendPickAlerts(picks)
+    } catch (err) {
+      console.error('[nightly-research] slack alert failed:', err.message)
+      errors.push({ step: 'slack', error: err.message })
+    }
   }
 
   return res.status(200).json({

@@ -1,3 +1,4 @@
+import PlaidLinkButton from '../../components/PlaidLinkButton'
 import UploadIcon from './UploadIcon'
 
 function InfoPanel({ title, icon, children }) {
@@ -11,7 +12,7 @@ function InfoPanel({ title, icon, children }) {
   )
 }
 
-export default function UploadView({ error, fileName, hasData, inputRef, isDragging, loading, loadingMsg, rows, onDragLeave, onDragOver, onDrop, onFile }) {
+export default function UploadView({ error, fileName, hasData, inputRef, isDragging, loading, loadingMsg, rows, userId, onDragLeave, onDragOver, onDrop, onFile, onPlaidSuccess, onPlaidConnecting }) {
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
       <div>
@@ -55,6 +56,15 @@ export default function UploadView({ error, fileName, hasData, inputRef, isDragg
               </div>
             </div>
           )}
+        </div>
+
+        {/* Plaid Connect */}
+        <div className="mt-4 rounded-xl border border-white/[0.06] bg-wall-surface p-4">
+          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-white/40">Or connect directly</p>
+          <PlaidLinkButton userId={userId} onSuccess={onPlaidSuccess} onConnecting={onPlaidConnecting} />
+          <p className="mt-2.5 text-[11px] text-white/30">
+            Supports TFSA, FHSA, RRSP, and non-registered accounts.
+          </p>
         </div>
 
         {error && (

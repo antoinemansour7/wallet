@@ -91,9 +91,12 @@ async function fetchYahooChartQuote(symbol) {
       ].map(Number).find(Number.isFinite) ?? null
     }
 
-    const change        = previousClose !== null ? price - previousClose : null
+    const change        = previousClose !== null ? price - previousClose
+      : Number.isFinite(Number(meta.regularMarketChange)) ? Number(meta.regularMarketChange)
+      : null
     const changePercent = change !== null && previousClose > 0
       ? (change / previousClose) * 100
+      : Number.isFinite(Number(meta.regularMarketChangePercent)) ? Number(meta.regularMarketChangePercent)
       : null
 
     return {
