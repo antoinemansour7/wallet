@@ -1,0 +1,243 @@
+// ─── Plaid API Router ─────────────────────────────────────────────────────────
+// Single serverless function handling all Plaid operations via `action` field.
+// Actions: link-token, exchange-token, holdings, disconnect
+// ────────────────────────────────────────────────────────────────────────────────
+
+import { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } from 'plaid'
+import { initializeApp, cert, getApps } from 'firebase-admin/app'
+import { getFirestore } from 'firebase-admin/firestore'
+
+function getPlaidClient() {
+  const config = new Configuration({
+    basePath: PlaidEnvironments[process.env.PLAID_ENV || 'sandbox'],
+    baseOptions: {
+      headers: {
+        'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID,
+        'PLAID-SECRET': process.env.PLAID_SECRET,
+      },
+    },
+  })
+  return new PlaidApi(config)
+}
+
+function getDb() {
+  if (!getApps().length) {
+    initializeApp({
+      credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}')),
+    })
+  }
+  return getFirestore()
+}
+
+function mapAccountType(account) {
+  const subtype = (account.subtype || '').toLowerCase()
+  const name = (account.officialName || account.name || '').toLowerCase()
+
+  if (name.includes('tfsa') || subtype === 'tfsa') return 'TFSA'
+  if (name.includes('fhsa') || subtype === 'fhsa') return 'FHSA'
+  if (name.includes('rrsp') || subtype === 'rrsp') return 'RRSP'
+  if (name.includes('resp') || subtype === 'resp') return 'RESP'
+  if (name.includes('lira') || subtype === 'lira') return 'LIRA'
+  if (subtype === 'rrif') return 'RRIF'
+  if (subtype === '401k') return '401K'
+  if (subtype === 'ira' || subtype === 'roth') return 'IRA'
+  return account.type === 'investment' ? 'Non-Registered' : (account.subtype || 'Investment').toUpperCase()
+}
+
+// ─── Link Token ───────────────────────────────────────────────────────────────
+
+async function handleLinkToken(req, res) {
+  const { userId } = req.body
+  if (!userId) return res.status(400).json({ error: 'userId is required' })
+
+  const client = getPlaidClient()
+  const response = await client.linkTokenCreate({
+    user: { client_user_id: userId },
+    client_name: 'WallAI',
+    products: [Products.Investments],
+    country_codes: [CountryCode.Ca, CountryCode.Us],
+    language: 'en',
+  })
+
+  return res.status(200).json({ link_token: response.data.link_token })
+}
+
+// ─── Exchange Token ───────────────────────────────────────────────────────────
+
+async function handleExchangeToken(req, res) {
+  const { publicToken, userId, institutionName } = req.body
+  if (!publicToken || !userId) {
+    return res.status(400).json({ error: 'publicToken and userId are required' })
+  }
+
+  const client = getPlaidClient()
+  const exchangeResponse = await client.itemPublicTokenExchange({ public_token: publicToken })
+  const accessToken = exchangeResponse.data.access_token
+  const itemId = exchangeResponse.data.item_id
+
+  const accountsResponse = await client.accountsGet({ access_token: accessToken })
+  const accounts = accountsResponse.data.accounts.map((a) => ({
+    id: a.account_id,
+    name: a.name,
+    officialName: a.official_name,
+    type: a.type,
+    subtype: a.subtype,
+    mask: a.mask,
+  }))
+
+  const db = getDb()
+  await db.collection('users').doc(userId).collection('plaid').doc(itemId).set({
+    accessToken,
+    itemId,
+    accounts,
+    institution: institutionName || null,
+    connectedAt: new Date().toISOString(),
+  })
+
+  return res.status(200).json({ success: true, itemId, accounts })
+}
+
+// ─── Holdings ─────────────────────────────────────────────────────────────────
+
+async function handleHoldings(req, res) {
+  const { userId } = req.body
+  if (!userId) return res.status(400).json({ error: 'userId is required' })
+
+  const db = getDb()
+  const plaidDocs = await db.collection('users').doc(userId).collection('plaid').get()
+
+  if (plaidDocs.empty) {
+    return res.status(200).json({ rows: [], accounts: [], cashEntries: [] })
+  }
+
+  const client = getPlaidClient()
+  const allRows = []
+  const allCashEntries = []
+  const connectedAccounts = []
+
+  for (const doc of plaidDocs.docs) {
+    const { accessToken, accounts: storedAccounts, institution } = doc.data()
+
+    try {
+      const holdingsResponse = await client.investmentsHoldingsGet({ access_token: accessToken })
+      const { holdings, securities, accounts } = holdingsResponse.data
+
+      const securityMap = new Map(securities.map((s) => [s.security_id, s]))
+      const accountMap = new Map(accounts.map((a) => [a.account_id, a]))
+
+      for (const holding of holdings) {
+        const security = securityMap.get(holding.security_id)
+        const account = accountMap.get(holding.account_id)
+        if (!security) continue
+
+        if (security.type === 'cash' || security.ticker_symbol === 'CUR:CAD' || security.ticker_symbol === 'CUR:USD') {
+          allCashEntries.push({
+            account: mapAccountType(account),
+            accountNumber: account?.mask || account?.account_id?.slice(-4) || '',
+            currency: security.iso_currency_code || 'CAD',
+            value: holding.institution_value || 0,
+          })
+          continue
+        }
+
+        const ticker = security.ticker_symbol || security.name || 'UNKNOWN'
+        const quantity = holding.quantity || 0
+        const price = holding.institution_price || security.close_price || 0
+        const marketValue = holding.institution_value || quantity * price
+        const costBasis = holding.cost_basis || 0
+        const unrealizedPnl = marketValue - costBasis
+        const unrealizedPnlPct = costBasis > 0 ? ((unrealizedPnl / costBasis) * 100) : 0
+
+        const storedAccount = storedAccounts?.find((a) => a.id === holding.account_id)
+
+        allRows.push({
+          'SYMBOL': ticker,
+          'DESCRIPTION': security.name || ticker,
+          'QUANTITY': quantity,
+          'MARKET PRICE': price,
+          'MARKET VALUE': marketValue,
+          'BOOK VALUE': costBasis,
+          'UNREALIZED GAIN/LOSS': unrealizedPnl,
+          'UNREALIZED GAIN/LOSS %': unrealizedPnlPct,
+          'ACCOUNT TYPE': mapAccountType(storedAccount || account),
+          'ACCOUNT NUMBER': account?.mask || account?.account_id?.slice(-4) || '',
+          'CURRENCY': security.iso_currency_code || 'CAD',
+          '_source': 'plaid',
+          '_institution': institution || 'Connected',
+        })
+      }
+
+      for (const account of accounts) {
+        connectedAccounts.push({
+          id: account.account_id,
+          name: account.official_name || account.name,
+          type: mapAccountType(account),
+          institution: institution || 'Connected',
+          mask: account.mask,
+        })
+      }
+    } catch (err) {
+      console.error(`[plaid] holdings failed for item ${doc.id}:`, err.response?.data || err.message)
+    }
+  }
+
+  return res.status(200).json({ rows: allRows, cashEntries: allCashEntries, connectedAccounts })
+}
+
+// ─── Disconnect ───────────────────────────────────────────────────────────────
+
+async function handleDisconnect(req, res) {
+  const { userId, itemId } = req.body
+  if (!userId || !itemId) return res.status(400).json({ error: 'userId and itemId are required' })
+
+  const db = getDb()
+  const docRef = db.collection('users').doc(userId).collection('plaid').doc(itemId)
+  const docSnap = await docRef.get()
+
+  if (!docSnap.exists) {
+    return res.status(404).json({ error: 'Plaid connection not found' })
+  }
+
+  const { accessToken } = docSnap.data()
+  if (accessToken) {
+    try {
+      const client = getPlaidClient()
+      await client.itemRemove({ access_token: accessToken })
+    } catch (err) {
+      console.warn('[plaid] itemRemove failed (may already be removed):', err.message)
+    }
+  }
+
+  await docRef.delete()
+  return res.status(200).json({ success: true })
+}
+
+// ─── Router ───────────────────────────────────────────────────────────────────
+
+const ACTIONS = {
+  'link-token': handleLinkToken,
+  'exchange-token': handleExchangeToken,
+  'holdings': handleHoldings,
+  'disconnect': handleDisconnect,
+}
+
+export default async function handler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+
+  if (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_SECRET) {
+    return res.status(500).json({ error: 'Plaid credentials not configured' })
+  }
+
+  const { action } = req.body || {}
+  const actionHandler = ACTIONS[action]
+  if (!actionHandler) {
+    return res.status(400).json({ error: `Invalid action. Use: ${Object.keys(ACTIONS).join(', ')}` })
+  }
+
+  try {
+    return await actionHandler(req, res)
+  } catch (err) {
+    console.error(`[plaid:${action}] error:`, err.response?.data || err.message)
+    return res.status(500).json({ error: `Plaid ${action} failed` })
+  }
+}

@@ -10,10 +10,10 @@ export default function PlaidLinkButton({ userId, onSuccess, onConnecting }) {
     if (!userId) return
     let cancelled = false
 
-    fetch('/api/plaid-link-token', {
+    fetch('/api/plaid', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId }),
+      body: JSON.stringify({ action: 'link-token', userId }),
     })
       .then((r) => r.json())
       .then((data) => {
@@ -29,10 +29,11 @@ export default function PlaidLinkButton({ userId, onSuccess, onConnecting }) {
     onConnecting?.()
     try {
       // Exchange public token
-      const exchangeRes = await fetch('/api/plaid-exchange-token', {
+      const exchangeRes = await fetch('/api/plaid', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          action: 'exchange-token',
           publicToken,
           userId,
           institutionName: metadata.institution?.name || null,
@@ -42,10 +43,10 @@ export default function PlaidLinkButton({ userId, onSuccess, onConnecting }) {
       if (!exchangeRes.ok) throw new Error(exchangeData.error || 'Exchange failed')
 
       // Fetch holdings
-      const holdingsRes = await fetch('/api/plaid-holdings', {
+      const holdingsRes = await fetch('/api/plaid', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId }),
+        body: JSON.stringify({ action: 'holdings', userId }),
       })
       const holdingsData = await holdingsRes.json()
       if (!holdingsRes.ok) throw new Error(holdingsData.error || 'Holdings fetch failed')
