@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { parseSpreadsheet } from '../utils/parseSpreadsheet'
 import { enrichRowsWithLivePrices } from '../utils/livePrices'
 import { loadLocalPortfolio, loadSavedPortfolioWithTimeout, savePortfolio } from '../utils/portfolioStorage'
+import { saveDailySnapshot } from '../utils/portfolioHistory'
 import { useAuth } from '../context/AuthContext'
 import { buildAccountPortfolio, getAccountEntries, hasAccountPortfolio } from '../utils/accountPortfolio'
 import { computeStats } from '../utils/portfolioStats'
@@ -14,6 +15,8 @@ import AccountAllocationChart from './portfolio/AccountAllocationChart'
 import TopPositionsChart from './portfolio/TopPositionsChart'
 import ValueVsBookChart from './portfolio/ValueVsBookChart'
 import PnlBreakdownChart from './portfolio/PnlBreakdownChart'
+import PerformanceChart from './portfolio/PerformanceChart'
+import AllocationDonut from './portfolio/AllocationDonut'
 import HoldingsView from './portfolio/HoldingsView'
 import UploadView from './portfolio/UploadView'
 import EmptyState from './portfolio/EmptyState'
@@ -107,6 +110,12 @@ export default function Portfolio() {
     }, 1000)
     return () => clearTimeout(timer)
   }, [accounts, fileName, hasData, lastUpdatedAt, rows, uid])
+
+  // Record daily snapshot for performance chart
+  useEffect(() => {
+    if (!uid || !stats) return
+    saveDailySnapshot(uid, stats).catch(() => {})
+  }, [uid, stats])
 
   const refreshRowsWithLivePrices = useCallback(async (sourceRows, options = {}) => {
     if (!sourceRows.length) {
@@ -283,9 +292,9 @@ export default function Portfolio() {
           <>
             <LiveBanner liveStatus={liveStatus} liveMessage={liveMessage} lastUpdatedAt={lastUpdatedAt} />
             <div className="grid gap-4 lg:grid-cols-2">
+              <PerformanceChart stats={stats} />
+              <AllocationDonut rows={rows} />
               <TopPositionsChart rows={rows} large />
-              <AccountAllocationChart accounts={accountEntries} large />
-              <ValueVsBookChart stats={stats} />
               <PnlBreakdownChart rows={rows} />
             </div>
           </>
