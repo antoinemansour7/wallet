@@ -165,33 +165,6 @@ export default function AllocationDonut({ rows, stats }) {
               )
             })}
           </div>
-
-          {/* Detail card when clicked */}
-          {clicked !== null && segments[clicked] && (
-            <div className="mt-4 rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3">
-              <div className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-full" style={{ backgroundColor: segments[clicked].color }} />
-                <span className="text-[14px] font-semibold text-white">{segments[clicked].symbol}</span>
-              </div>
-              {segments[clicked].description && <p className="mt-0.5 text-[11px] text-white/35">{segments[clicked].description}</p>}
-              <div className="mt-3 grid grid-cols-3 gap-3 text-[11px]">
-                <div>
-                  <p className="text-white/30">Value</p>
-                  <p className="mt-0.5 tabular font-medium text-white/70">{fmtCurrency(segments[clicked].value)}</p>
-                </div>
-                <div>
-                  <p className="text-white/30">Weight</p>
-                  <p className="mt-0.5 tabular font-medium text-white/70">{segments[clicked].pct.toFixed(1)}%</p>
-                </div>
-                <div>
-                  <p className="text-white/30">Day</p>
-                  <p className={`mt-0.5 tabular font-medium ${segments[clicked].dayChange >= 0 ? 'text-[#5eead4]' : 'text-[#fca5a5]'}`}>
-                    {segments[clicked].dayChange >= 0 ? '+' : ''}{fmtCurrency(segments[clicked].dayChange)}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>
