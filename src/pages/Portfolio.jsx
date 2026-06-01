@@ -293,9 +293,10 @@ export default function Portfolio() {
             <LiveBanner liveStatus={liveStatus} liveMessage={liveMessage} lastUpdatedAt={lastUpdatedAt} />
             <div className="grid gap-4 lg:grid-cols-2">
               <PerformanceChart stats={stats} />
-              <AllocationDonut rows={rows} stats={stats} />
               <TopPositionsChart rows={rows} large />
-              <PnlBreakdownChart rows={rows} />
+            </div>
+            <div className="mt-6">
+              <AllocationDonut rows={rows} stats={stats} />
             </div>
           </>
         )}
