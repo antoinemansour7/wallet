@@ -93,14 +93,14 @@ export default function AllocationDonut({ rows, stats }) {
               return (
                 <path
                   key={i}
-                  d={arcPath(cx, cy, r, seg.start, seg.end)}
+                  d={arcPath(cx, cy, isActive ? r + 3 : r, seg.start, seg.end)}
                   fill="none"
                   stroke={seg.color}
-                  strokeWidth={isActive ? strokeW + 6 : strokeW}
+                  strokeWidth={isActive ? strokeW + 4 : strokeW}
                   strokeLinecap="round"
                   opacity={dimmed ? 0.25 : isActive ? 1 : 0.8}
                   filter={isActive ? 'url(#arc-glow)' : undefined}
-                  className="cursor-pointer transition-all duration-200"
+                  style={{ cursor: 'pointer', transition: 'opacity 0.2s, stroke-width 0.2s' }}
                   onClick={() => handleClick(i)}
                   onMouseEnter={() => setHovered(i)}
                   onMouseLeave={() => setHovered(null)}

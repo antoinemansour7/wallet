@@ -291,9 +291,9 @@ export default function Portfolio() {
         {visibleView === 'charts' && stats && (
           <>
             <LiveBanner liveStatus={liveStatus} liveMessage={liveMessage} lastUpdatedAt={lastUpdatedAt} />
-            <PerformanceChart stats={stats} />
+            <AllocationDonut rows={rows} stats={stats} />
             <div className="mt-8">
-              <AllocationDonut rows={rows} stats={stats} />
+              <PerformanceChart stats={stats} />
             </div>
           </>
         )}
