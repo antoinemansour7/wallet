@@ -22,7 +22,9 @@ function arcPath(cx, cy, r, startDeg, endDeg) {
 }
 
 export default function AllocationDonut({ rows, stats }) {
-  const [selected, setSelected] = useState(null)
+  const [hovered, setHovered] = useState(null)
+  const [clicked, setClicked] = useState(null)
+  const active = clicked ?? hovered
 
   const items = rows
     .map((row) => ({
@@ -65,11 +67,11 @@ export default function AllocationDonut({ rows, stats }) {
   const strokeW = 28
   const badgeR = r + 46
 
-  const handleSelect = (i) => setSelected(selected === i ? null : i)
+  const handleClick = (i) => setClicked(clicked === i ? null : i)
 
   return (
     <section className="rounded-2xl border border-white/[0.05] bg-wall-surface p-6 sm:p-8">
-      <div className="flex flex-col items-center gap-8 lg:flex-row lg:items-center lg:gap-12">
+      <div className="flex flex-col items-center gap-8 lg:flex-row lg:items-center lg:justify-center lg:gap-12">
         {/* Ring with badges */}
         <div className="relative shrink-0" style={{ width: 360, height: 360 }}>
           <svg viewBox="0 0 360 360" className="h-full w-full">
@@ -85,8 +87,8 @@ export default function AllocationDonut({ rows, stats }) {
 
             {/* Arc segments */}
             {segments.map((seg, i) => {
-              const isActive = selected === i
-              const dimmed = selected !== null && !isActive
+              const isActive = active === i
+              const dimmed = active !== null && !isActive
               return (
                 <path
                   key={i}
@@ -98,9 +100,9 @@ export default function AllocationDonut({ rows, stats }) {
                   opacity={dimmed ? 0.25 : isActive ? 1 : 0.8}
                   filter={isActive ? 'url(#arc-glow)' : undefined}
                   className="cursor-pointer transition-all duration-200"
-                  onClick={() => handleSelect(i)}
-                  onMouseEnter={() => selected === null && setSelected(i)}
-                  onMouseLeave={() => selected === i && setSelected(null)}
+                  onClick={() => handleClick(i)}
+                  onMouseEnter={() => setHovered(i)}
+                  onMouseLeave={() => setHovered(null)}
                 />
               )
             })}
@@ -117,23 +119,22 @@ export default function AllocationDonut({ rows, stats }) {
             </text>
           </svg>
 
-          {/* Outside badges */}
+          {/* Outside badges — pointer-events-none to prevent hover glitches */}
           {segments.map((seg, i) => {
             const pos = polarToCartesian(cx, cy, badgeR, seg.midAngle)
-            const isActive = selected === i
-            const dimmed = selected !== null && !isActive
+            const isActive = active === i
+            const dimmed = active !== null && !isActive
             return (
               <div
                 key={i}
-                className={`absolute flex items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-medium transition-all duration-200 cursor-pointer ${
+                className={`pointer-events-none absolute flex items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-medium transition-all duration-200 ${
                   isActive
-                    ? 'border-white/20 bg-white/10 text-white shadow-lg scale-110'
+                    ? 'border-white/20 bg-white/10 text-white shadow-lg scale-105'
                     : dimmed
                     ? 'border-white/[0.04] bg-wall-surface/80 text-white/25'
-                    : 'border-white/[0.06] bg-wall-surface text-white/60 hover:border-white/10 hover:text-white/80'
+                    : 'border-white/[0.06] bg-wall-surface text-white/60'
                 }`}
                 style={{ left: pos.x, top: pos.y, transform: 'translate(-50%, -50%)' }}
-                onClick={() => handleSelect(i)}
               >
                 <span className="h-2 w-2 rounded-full" style={{ backgroundColor: seg.color, opacity: dimmed ? 0.3 : 1 }} />
                 <span>{seg.symbol}</span>
@@ -148,15 +149,15 @@ export default function AllocationDonut({ rows, stats }) {
           <h3 className="mb-4 text-[11px] font-medium uppercase tracking-wider text-white/30">Holdings</h3>
           <div className="space-y-0">
             {segments.map((seg, i) => {
-              const isActive = selected === i
-              const dimmed = selected !== null && !isActive
+              const isActive = active === i
+              const dimmed = active !== null && !isActive
               return (
                 <div
                   key={i}
                   className={`flex items-center gap-3 border-b border-white/[0.04] px-3 py-3 transition-all duration-150 last:border-0 cursor-pointer rounded-lg ${
                     isActive ? 'bg-white/[0.06]' : dimmed ? 'opacity-40' : 'hover:bg-white/[0.03]'
                   }`}
-                  onClick={() => handleSelect(i)}
+                  onClick={() => handleClick(i)}
                 >
                   <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: seg.color }} />
                   <div className="min-w-0 flex-1">
@@ -172,27 +173,27 @@ export default function AllocationDonut({ rows, stats }) {
             })}
           </div>
 
-          {/* Detail card when selected */}
-          {selected !== null && segments[selected] && (
+          {/* Detail card when clicked */}
+          {clicked !== null && segments[clicked] && (
             <div className="mt-4 rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3">
               <div className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-full" style={{ backgroundColor: segments[selected].color }} />
-                <span className="text-[14px] font-semibold text-white">{segments[selected].symbol}</span>
+                <span className="h-3 w-3 rounded-full" style={{ backgroundColor: segments[clicked].color }} />
+                <span className="text-[14px] font-semibold text-white">{segments[clicked].symbol}</span>
               </div>
-              {segments[selected].description && <p className="mt-0.5 text-[11px] text-white/35">{segments[selected].description}</p>}
+              {segments[clicked].description && <p className="mt-0.5 text-[11px] text-white/35">{segments[clicked].description}</p>}
               <div className="mt-3 grid grid-cols-3 gap-3 text-[11px]">
                 <div>
                   <p className="text-white/30">Value</p>
-                  <p className="mt-0.5 tabular font-medium text-white/70">{fmtCurrency(segments[selected].value)}</p>
+                  <p className="mt-0.5 tabular font-medium text-white/70">{fmtCurrency(segments[clicked].value)}</p>
                 </div>
                 <div>
                   <p className="text-white/30">Weight</p>
-                  <p className="mt-0.5 tabular font-medium text-white/70">{segments[selected].pct.toFixed(1)}%</p>
+                  <p className="mt-0.5 tabular font-medium text-white/70">{segments[clicked].pct.toFixed(1)}%</p>
                 </div>
                 <div>
                   <p className="text-white/30">Day</p>
-                  <p className={`mt-0.5 tabular font-medium ${segments[selected].dayChange >= 0 ? 'text-[#5eead4]' : 'text-[#fca5a5]'}`}>
-                    {segments[selected].dayChange >= 0 ? '+' : ''}{fmtCurrency(segments[selected].dayChange)}
+                  <p className={`mt-0.5 tabular font-medium ${segments[clicked].dayChange >= 0 ? 'text-[#5eead4]' : 'text-[#fca5a5]'}`}>
+                    {segments[clicked].dayChange >= 0 ? '+' : ''}{fmtCurrency(segments[clicked].dayChange)}
                   </p>
                 </div>
               </div>
