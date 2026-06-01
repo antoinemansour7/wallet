@@ -8,6 +8,7 @@ import {
 import { fetchBreakoutCandidates, candidatesToSignals } from '../src/server/technicalScreener.js'
 import { runContrarianAgent } from '../src/server/agents/contrarianAgent.js'
 import { runCatalystAgent } from '../src/server/agents/catalystAgent.js'
+import { runExaDiscovery } from '../src/server/agents/exaDiscoveryAgent.js'
 import { sendPickAlerts } from '../src/server/agents/slackAgent.js'
 
 const RESEARCH_KEY = 'research:latest'
@@ -78,6 +79,20 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error('[nightly-research] technical screener failed:', err.message)
     errors.push({ step: 'screener', error: err.message })
+  }
+
+  // Step 2.7: Exa discovery (find stocks from financial media, not just X)
+  let exaSignalCount = 0
+  try {
+    const { deriveAdaptiveSeed } = await import('../src/server/xSignals.js')
+    const seed = deriveAdaptiveSeed({ baseSignals: signals })
+    const exaSignals = await runExaDiscovery(seed)
+    signals = [...signals, ...exaSignals]
+    exaSignalCount = exaSignals.length
+    console.log(`[nightly-research] exa discovery: ${exaSignals.length} signals`)
+  } catch (err) {
+    console.error('[nightly-research] exa discovery failed:', err.message)
+    errors.push({ step: 'exa-discovery', error: err.message })
   }
 
   // Step 3: extract tickers via Claude
@@ -171,6 +186,7 @@ export default async function handler(req, res) {
     tweetCount: signals.length,
     queryCount: queries.length,
     articles: articles.length,
+    exaSignals: exaSignalCount,
     tickers: tickers.map((t) => t.ticker),
     errors,
   })
