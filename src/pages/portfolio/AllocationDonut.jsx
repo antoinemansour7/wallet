@@ -1,8 +1,8 @@
-import { parseNum, fmtCurrency } from '../../utils/portfolioStats'
+import { parseNum } from '../../utils/portfolioStats'
 import ChartPanel from './ChartPanel'
 import { EmptyChart } from './EmptyState'
 
-const COLORS = ['#ffffff', '#a1a1aa', '#71717a', '#52525b', '#3f3f46', '#27272a']
+const COLORS = ['#ffffff', '#a1a1aa', '#6b7280', '#4b5563', '#374151']
 
 function polarToCartesian(cx, cy, r, angleDeg) {
   const rad = ((angleDeg - 90) * Math.PI) / 180
@@ -30,11 +30,10 @@ export default function AllocationDonut({ rows }) {
     .filter((item) => item.value > 0)
     .sort((a, b) => b.value - a.value)
 
-  // Top 5 only, rest grouped
   const top = items.slice(0, 5)
   const rest = items.slice(5)
   if (rest.length > 0) {
-    top.push({ symbol: 'Other', value: rest.reduce((s, i) => s + i.value, 0) })
+    top.push({ symbol: `+${rest.length} others`, value: rest.reduce((s, i) => s + i.value, 0) })
   }
 
   const total = top.reduce((s, i) => s + i.value, 0)
@@ -50,18 +49,20 @@ export default function AllocationDonut({ rows }) {
 
   const cx = 100
   const cy = 100
-  const r = 76
-  const strokeW = 18
-  const gap = 1.2
+  const r = 82
+  const strokeW = 6
+  const gap = 2.5
 
   return (
     <ChartPanel title="Allocation" large>
       {slices.length === 0 ? <EmptyChart /> : (
-        <div className="flex flex-col items-center">
-          {/* Donut */}
-          <svg viewBox="0 0 200 200" className="h-44 w-44">
+        <div className="flex items-center justify-center gap-10">
+          {/* Ring */}
+          <svg viewBox="0 0 200 200" className="h-40 w-40 shrink-0">
+            {/* Background track */}
+            <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth={strokeW} />
             {slices.map((slice, i) => {
-              if (slice.pct < 0.005) return null
+              if (slice.pct < 0.008) return null
               return (
                 <path
                   key={i}
@@ -70,21 +71,24 @@ export default function AllocationDonut({ rows }) {
                   stroke={slice.color}
                   strokeWidth={strokeW}
                   strokeLinecap="round"
-                  opacity={1 - i * 0.12}
+                  opacity={1 - i * 0.15}
                 />
               )
             })}
           </svg>
 
           {/* Legend */}
-          <div className="mt-5 w-full max-w-xs space-y-2">
+          <div className="space-y-3">
             {slices.map((slice, i) => (
-              <div key={i} className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: slice.color, opacity: 1 - i * 0.12 }} />
-                  <span className="text-[12px] text-white/60">{slice.symbol}</span>
-                </div>
-                <span className="font-mono text-[11px] tabular text-white/30">{(slice.pct * 100).toFixed(1)}%</span>
+              <div key={i} className="flex items-center gap-3">
+                <span
+                  className="h-1.5 w-1.5 rounded-full"
+                  style={{ backgroundColor: slice.color, opacity: 1 - i * 0.15 }}
+                />
+                <span className="w-16 text-[12px] text-white/50">{slice.symbol}</span>
+                <span className="font-mono text-[11px] tabular text-white/25">
+                  {(slice.pct * 100).toFixed(0)}%
+                </span>
               </div>
             ))}
           </div>
