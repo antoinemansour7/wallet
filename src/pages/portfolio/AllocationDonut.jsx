@@ -76,13 +76,6 @@ export default function AllocationDonut({ rows, stats }) {
         {/* Ring with badges */}
         <div className="relative shrink-0" style={{ width: viewSize, height: viewSize, overflow: 'visible' }}>
           <svg viewBox={`0 0 ${viewSize} ${viewSize}`} className="h-full w-full" style={{ overflow: 'visible' }}>
-            <defs>
-              <filter id="arc-glow">
-                <feGaussianBlur stdDeviation="3" result="b" />
-                <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
-              </filter>
-            </defs>
-
             {/* Track */}
             <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.035)" strokeWidth={strokeW} />
 
@@ -93,14 +86,13 @@ export default function AllocationDonut({ rows, stats }) {
               return (
                 <path
                   key={i}
-                  d={arcPath(cx, cy, isActive ? r + 3 : r, seg.start, seg.end)}
+                  d={arcPath(cx, cy, isActive ? r + 4 : r, seg.start, seg.end)}
                   fill="none"
-                  stroke={seg.color}
-                  strokeWidth={isActive ? strokeW + 4 : strokeW}
+                  stroke={isActive ? '#ffffff' : seg.color}
+                  strokeWidth={isActive ? strokeW + 6 : strokeW}
                   strokeLinecap="round"
-                  opacity={dimmed ? 0.25 : isActive ? 1 : 0.8}
-                  filter={isActive ? 'url(#arc-glow)' : undefined}
-                  style={{ cursor: 'pointer', transition: 'opacity 0.2s, stroke-width 0.2s' }}
+                  opacity={dimmed ? 0.2 : isActive ? 1 : 0.75}
+                  style={{ cursor: 'pointer', transition: 'opacity 0.2s' }}
                   onClick={() => handleClick(i)}
                   onMouseEnter={() => setHovered(i)}
                   onMouseLeave={() => setHovered(null)}
