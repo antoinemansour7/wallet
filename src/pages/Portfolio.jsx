@@ -291,11 +291,8 @@ export default function Portfolio() {
         {visibleView === 'charts' && stats && (
           <>
             <LiveBanner liveStatus={liveStatus} liveMessage={liveMessage} lastUpdatedAt={lastUpdatedAt} />
-            <div className="grid gap-4 lg:grid-cols-2">
-              <PerformanceChart stats={stats} />
-              <TopPositionsChart rows={rows} large />
-            </div>
-            <div className="mt-6">
+            <PerformanceChart stats={stats} />
+            <div className="mt-8">
               <AllocationDonut rows={rows} stats={stats} />
             </div>
           </>

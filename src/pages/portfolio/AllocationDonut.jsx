@@ -61,20 +61,21 @@ export default function AllocationDonut({ rows, stats }) {
     return { ...item, pct: pct * 100, start, end, midAngle, color: segmentColor(item.dayChangePct) }
   })
 
-  const cx = 180
-  const cy = 180
+  const viewSize = 420
+  const cx = viewSize / 2
+  const cy = viewSize / 2
   const r = 120
   const strokeW = 28
-  const badgeR = r + 46
+  const badgeR = r + 50
 
   const handleClick = (i) => setClicked(clicked === i ? null : i)
 
   return (
-    <section className="rounded-2xl border border-white/[0.05] bg-wall-surface p-6 sm:p-8">
+    <div>
       <div className="flex flex-col items-center gap-8 lg:flex-row lg:items-center lg:justify-center lg:gap-12">
         {/* Ring with badges */}
-        <div className="relative shrink-0" style={{ width: 360, height: 360 }}>
-          <svg viewBox="0 0 360 360" className="h-full w-full">
+        <div className="relative shrink-0" style={{ width: viewSize, height: viewSize, overflow: 'visible' }}>
+          <svg viewBox={`0 0 ${viewSize} ${viewSize}`} className="h-full w-full" style={{ overflow: 'visible' }}>
             <defs>
               <filter id="arc-glow">
                 <feGaussianBlur stdDeviation="3" result="b" />
@@ -201,6 +202,6 @@ export default function AllocationDonut({ rows, stats }) {
           )}
         </div>
       </div>
-    </section>
+    </div>
   )
 }
