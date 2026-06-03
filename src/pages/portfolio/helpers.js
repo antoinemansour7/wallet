@@ -23,17 +23,46 @@ export function barWidth(value, max) {
 }
 
 export function getTopPositions(rows, limit = 6) {
-  return rows
-    .map((row, index) => ({
-      index,
-      symbol:      row.SYMBOL || 'Unknown',
-      description: row.DESCRIPTION || '',
-      value:       parseNum(row['MARKET VALUE']),
-      pnl:         parseNum(row['UNREALIZED GAIN/LOSS']),
-    }))
+  return aggregatePositionsBySymbol(rows)
     .filter((item) => item.value > 0)
     .sort((a, b) => b.value - a.value)
     .slice(0, limit)
+}
+
+export function aggregatePositionsBySymbol(rows) {
+  const bySymbol = new Map()
+
+  for (const row of rows) {
+    const symbol = String(row.SYMBOL || 'Unknown').trim().toUpperCase() || 'Unknown'
+    const existing = bySymbol.get(symbol)
+    const value = parseNum(row['MARKET VALUE'])
+    const pnl = parseNum(row['UNREALIZED GAIN/LOSS'])
+    const dayChange = parseNum(row['DAY CHANGE'])
+    const previousValue = value - dayChange
+
+    if (existing) {
+      existing.value += value
+      existing.pnl += pnl
+      existing.dayChange += dayChange
+      existing.previousValue += previousValue
+      if (!existing.description && row.DESCRIPTION) existing.description = row.DESCRIPTION
+    } else {
+      bySymbol.set(symbol, {
+        index: bySymbol.size,
+        symbol,
+        description: row.DESCRIPTION || '',
+        value,
+        pnl,
+        dayChange,
+        previousValue,
+      })
+    }
+  }
+
+  return Array.from(bySymbol.values()).map((item) => ({
+    ...item,
+    dayChangePct: item.previousValue > 0 ? (item.dayChange / item.previousValue) * 100 : 0,
+  }))
 }
 
 export function getAccountBreakdown(accounts) {

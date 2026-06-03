@@ -143,7 +143,7 @@ export default function Portfolio() {
         setLiveStatus('success'); setLiveMessage(`${result.updatedRows} positions loaded from cache.`)
       } else {
         setLiveStatus('success')
-        setLiveMessage(`${result.updatedRows} positions updated · ${cache?.hits ?? 0} from cache.`)
+        setLiveMessage(`${result.updatedRows} positions updated`)
       }
       return nextRows
     } catch (err) {

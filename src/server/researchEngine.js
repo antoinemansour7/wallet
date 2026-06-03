@@ -247,7 +247,7 @@ export function rankHighUpsideBoard(signalBoard, quotesByTicker = new Map(), sec
         + (item.searchMentions * 0.35)
         + (item.screenerMentions * 2.5)
         + (Math.min(item.articleCount, 2) * 0.22)
-        + (repeatedAttention ? 2.0 : -1.25)
+        + (repeatedAttention ? 1.0 : -0.5)
         + pricePreferenceScore(price)
 
       if (pennyStockRisk) archetypeScore -= 3.25

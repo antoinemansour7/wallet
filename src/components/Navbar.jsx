@@ -8,7 +8,7 @@ export default function Navbar() {
 
   return (
     <nav className="sticky top-0 z-50 border-b border-white/[0.04] bg-wall-bg/80 glass">
-      <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4 sm:px-6">
+      <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6 sm:px-8">
         {/* Left: logo + nav */}
         <div className="flex items-center gap-5">
           <NavLink to="/" className="flex items-center gap-2.5">
@@ -66,7 +66,7 @@ export default function Navbar() {
 
       {/* Mobile dropdown */}
       {menuOpen && (
-        <div className="border-t border-white/[0.04] px-5 pb-5 pt-3 sm:hidden">
+        <div className="border-t border-white/[0.04] px-6 pb-5 pt-3 sm:hidden">
           <div className="flex flex-col gap-0.5">
             <MobileNavItem to="/portfolio" onClick={() => setMenuOpen(false)}>Portfolio</MobileNavItem>
             <MobileNavItem to="/research" onClick={() => setMenuOpen(false)}>Research</MobileNavItem>

@@ -10,37 +10,37 @@ const DISCOVERY_QUERIES = [
   {
     id: 'breakout-stocks',
     query: 'stocks breaking out momentum small cap high growth 2026',
-    weight: 1.1,
+    weight: 1.4,
     theme: 'growth',
   },
   {
     id: 'analyst-upgrades',
     query: 'stock analyst upgrade price target raised outperform',
-    weight: 1.05,
+    weight: 1.35,
     theme: 'earnings',
   },
   {
     id: 'unusual-activity',
     query: 'unusual options activity stock sweep large block trade',
-    weight: 1.15,
+    weight: 1.45,
     theme: 'squeeze',
   },
   {
     id: 'catalyst-upcoming',
     query: 'upcoming catalyst FDA approval earnings surprise contract award',
-    weight: 1.1,
+    weight: 1.4,
     theme: 'biotech',
   },
   {
     id: 'emerging-sector',
     query: 'emerging stocks space defense AI semiconductor drone satellite',
-    weight: 1.0,
+    weight: 1.3,
     theme: 'defense',
   },
   {
     id: 'under-radar',
     query: 'under the radar stock pick hidden gem small cap undervalued',
-    weight: 0.95,
+    weight: 1.25,
     theme: 'growth',
   },
 ]
@@ -106,7 +106,7 @@ export async function runExaDiscovery({ topThemes = [], topTickers = [] } = {}) 
     queries.push({
       id: `adaptive:${theme}`,
       query: `${theme} stocks to buy momentum breakout catalyst 2026`,
-      weight: 1.2,
+      weight: 1.45,
       theme,
     })
   }
@@ -116,7 +116,7 @@ export async function runExaDiscovery({ topThemes = [], topTickers = [] } = {}) 
     queries.push({
       id: `ticker-deep:${ticker}`,
       query: `${ticker} stock analysis price target catalyst outlook`,
-      weight: 1.25,
+      weight: 1.5,
       theme: 'growth',
     })
   }
@@ -129,7 +129,7 @@ export async function runExaDiscovery({ topThemes = [], topTickers = [] } = {}) 
         type: 'auto',
         numResults: 8,
         text: { maxCharacters: 600 },
-        startPublishedDate: getDateNDaysAgo(7),
+        startPublishedDate: getDateNDaysAgo(2),
         category: 'news',
       })
       return { query: q, results: result.results || [] }

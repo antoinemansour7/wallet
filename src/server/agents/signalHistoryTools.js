@@ -291,7 +291,7 @@ export function formatStatsForPrompt(stats) {
   }
 
   lines.push('')
-  lines.push('INSTRUCTIONS: Favor setups with high weighted win rates. If recent performance diverges from overall, trust the recent data. Avoid setups with <30% win rate unless catalyst confidence is very high.')
+  lines.push('INSTRUCTIONS: Favor setups with high weighted win rates. If recent performance diverges from overall, trust the recent data. Avoid setups with <30% win rate unless catalyst confidence is very high. IMPORTANT: Prioritize fresh tickers you have NOT picked in the last 2–3 days. Repetition kills alpha — the market already priced in yesterday\'s thesis. Only re-pick a ticker if the catalyst is materially different or stronger today.')
 
   return lines.join('\n')
 }

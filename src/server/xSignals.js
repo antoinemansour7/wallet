@@ -114,10 +114,10 @@ const THEME_LIBRARY = {
   },
 }
 
-const SIGNAL_MAX_AGE_MS = 72 * 60 * 60 * 1000
+const SIGNAL_MAX_AGE_MS = 30 * 60 * 60 * 1000
 const USER_ID_CACHE_KEY = 'research:x:user_ids'
 const USER_ID_CACHE_TTL = 7 * 24 * 60 * 60 // 7 days — account IDs never change
-const TIMELINE_CACHE_TTL = 6 * 60 * 60 // 6 hours — avoid re-fetching same tweets
+const TIMELINE_CACHE_TTL = 4 * 60 * 60 // 4 hours — refresh more frequently for fresher signals
 
 const TICKER_STOPWORDS = new Set([
   'A', 'AI', 'ALL', 'AMD', 'AM', 'API', 'ARE', 'AS', 'AT', 'ATH', 'BE', 'BEAT', 'BLS', 'BULL', 'BEAR', 'BUY', 'BY',
@@ -414,8 +414,9 @@ export function scoreSignal(signal) {
   const sourceCount = unique(signal.sourceLabels || []).length
   const themeCount = (signal.themes || []).length
   const tickerCount = (signal.tickers || []).length
+  const isExa = (signal.sourceLabels || []).includes('exa-discovery')
 
-  let score = signal.sourceType === 'account' ? 3.7 : 2.5
+  let score = signal.sourceType === 'account' ? 3.7 : isExa ? 3.5 : 2.5
   if (signal.sourceRole === 'context') score -= 1.05
   score += (signal.sourceWeight || 1) * 1.4
   score += Math.min(themeCount, 2) * 0.55

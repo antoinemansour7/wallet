@@ -1,12 +1,22 @@
 import { useState } from 'react'
-import { parseNum, fmtCurrency } from '../../utils/portfolioStats'
+import { fmtCurrency } from '../../utils/portfolioStats'
+import { aggregatePositionsBySymbol } from './helpers'
 
-function segmentColor(dayChangePct) {
-  if (dayChangePct > 1) return '#5eead4'
-  if (dayChangePct > 0) return '#99f6e4'
-  if (dayChangePct < -1) return '#fca5a5'
-  if (dayChangePct < 0) return '#fecaca'
-  return '#cbd5e1'
+const SEGMENT_COLORS = [
+  '#5eead4',
+  '#60a5fa',
+  '#a78bfa',
+  '#f472b6',
+  '#f59e0b',
+  '#34d399',
+  '#f87171',
+  '#38bdf8',
+  '#c084fc',
+  '#facc15',
+]
+
+function segmentColor(index) {
+  return SEGMENT_COLORS[index % SEGMENT_COLORS.length]
 }
 
 function polarToCartesian(cx, cy, r, deg) {
@@ -26,14 +36,7 @@ export default function AllocationDonut({ rows, stats }) {
   const [clicked, setClicked] = useState(null)
   const active = clicked ?? hovered
 
-  const items = rows
-    .map((row) => ({
-      symbol: row.SYMBOL || '?',
-      description: row.DESCRIPTION || '',
-      value: parseNum(row['MARKET VALUE']),
-      dayChange: parseNum(row['DAY CHANGE']),
-      dayChangePct: parseNum(row['DAY CHANGE %']),
-    }))
+  const items = aggregatePositionsBySymbol(rows)
     .filter((item) => item.value > 0)
     .sort((a, b) => b.value - a.value)
     .slice(0, 10)
@@ -51,14 +54,14 @@ export default function AllocationDonut({ rows, stats }) {
   const usable = 360 - totalGap
 
   let cursor = 0
-  const segments = items.map((item) => {
+  const segments = items.map((item, index) => {
     const pct = total > 0 ? item.value / total : 0
     const sweep = usable * pct
     const start = cursor
     const end = cursor + sweep
     cursor = end + GAP
     const midAngle = (start + end) / 2
-    return { ...item, pct: pct * 100, start, end, midAngle, color: segmentColor(item.dayChangePct) }
+    return { ...item, pct: pct * 100, start, end, midAngle, color: segmentColor(index) }
   })
 
   const viewSize = 420
