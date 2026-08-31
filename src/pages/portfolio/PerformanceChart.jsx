@@ -166,7 +166,8 @@ export default function PerformanceChart({ stats, rows = [], hero = false }) {
   const { user } = useAuth()
   const [snapshots, setSnapshots] = useState([])
   const [series, setSeries] = useState([])
-  const [range, setRange] = useState('3M')
+  // Today first — the question you open the page to answer.
+  const [range, setRange] = useState('1D')
   const [loading, setLoading] = useState(true)
   const [hoverIdx, setHoverIdx] = useState(null)
   const svgRef = useRef(null)
