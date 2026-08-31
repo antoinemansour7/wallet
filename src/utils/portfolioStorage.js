@@ -6,6 +6,7 @@ import {
   hasAccountPortfolio,
   normalizeStoredAccounts,
 } from './accountPortfolio'
+import { IS_PREVIEW, PREVIEW_PORTFOLIO } from '../preview/mockMode'
 
 function localStorageKey(uid) {
   return `wallai:portfolio:${uid}`
@@ -47,6 +48,9 @@ export function normalizeStoredPortfolio(data) {
 
 export function loadLocalPortfolio(uid) {
   if (!uid) return null
+  // Seeded rather than empty: a UI reviewed against blank states hides
+  // every problem that only appears with real content in it.
+  if (IS_PREVIEW) return normalizeStoredPortfolio(PREVIEW_PORTFOLIO)
   if (typeof window === 'undefined') return null
 
   try {
@@ -61,6 +65,9 @@ export function loadLocalPortfolio(uid) {
 }
 
 export function saveLocalPortfolio(uid, portfolio) {
+  // Preview data is a fixture. Persisting it would leave sample holdings
+  // in a real browser profile that outlive the preview session.
+  if (IS_PREVIEW) return
   if (!uid || !portfolio) return
   if (typeof window === 'undefined') return
 
@@ -87,6 +94,9 @@ export function saveLocalPortfolio(uid, portfolio) {
 
 export async function loadSavedPortfolio(uid) {
   if (!uid) return null
+  // The mock user has no Firestore document, and asking for one would fail
+  // on rules before it failed on absence.
+  if (IS_PREVIEW) return normalizeStoredPortfolio(PREVIEW_PORTFOLIO)
 
   const snapshot = await getDoc(portfolioDoc(uid))
   if (!snapshot.exists()) return null
@@ -112,6 +122,9 @@ export async function savePortfolio(uid, {
   lastPriceRefreshAt = null,
   markUploaded = false,
 }) {
+  // Never write the fixture to a real account. The mock uid is not a real
+  // user, but the write would still hit Firestore under whoever is signed in.
+  if (IS_PREVIEW) return
   if (!uid) return
 
   const normalizedAccounts = normalizeStoredAccounts(accounts)
