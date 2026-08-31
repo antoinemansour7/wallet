@@ -33,10 +33,13 @@ export const CHART_GRADIENTS = [
 
 export const AUTO_PRICE_REFRESH_MS = 5 * 60 * 1000
 
+// Labels are what the reader sees, so they say what happened rather than naming
+// the internal state. "Partial refresh" described our process; the person
+// holding the portfolio wants to know that some prices are missing.
 export const LIVE_META = {
-  idle:    { label: 'Waiting for upload',   dot: 'bg-white/40',             cls: 'border-white/[0.06] bg-wall-surface text-white/60'  },
-  loading: { label: 'Refreshing prices',    dot: 'bg-gain animate-pulse',   cls: 'border-gain/20 bg-gain/10 text-gain'                },
-  success: { label: 'Prices up to date',    dot: 'bg-gain',                 cls: 'border-gain/20 bg-gain/10 text-gain'                },
-  partial: { label: 'Partial refresh',      dot: 'bg-warning',              cls: 'border-warning/20 bg-warning/10 text-warning' },
-  error:   { label: 'Live prices unavail.', dot: 'bg-loss',                 cls: 'border-loss/20 bg-loss/10 text-loss'                },
+  idle:    { label: 'Waiting for upload',       dot: 'bg-white/40',           cls: 'border-white/[0.06] bg-wall-surface text-white/60' },
+  loading: { label: 'Updating prices',          dot: 'bg-gain animate-pulse', cls: 'border-gain/20 bg-gain/10 text-gain'               },
+  success: { label: 'Prices up to date',        dot: 'bg-gain',               cls: 'border-gain/20 bg-gain/10 text-gain'               },
+  partial: { label: 'Some prices unavailable',  dot: 'bg-warning',            cls: 'border-warning/20 bg-warning/10 text-warning'      },
+  error:   { label: 'Could not update prices',  dot: 'bg-loss',               cls: 'border-loss/20 bg-loss/10 text-loss'               },
 }

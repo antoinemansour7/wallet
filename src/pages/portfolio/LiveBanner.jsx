@@ -16,15 +16,16 @@ export default function LiveBanner({ liveStatus, liveMessage, lastUpdatedAt }) {
   const isProblem = liveStatus === 'error' || liveStatus === 'partial'
 
   if (!isProblem) {
+    // "Prices as of 1:51 PM" — one fact, phrased the way a person would say it.
+    // It used to read "Prices up to date · 1:51 PM", which is the same fact
+    // asserted twice, the second time in a way you have to parse.
+    const time = lastUpdatedAt?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     return (
       <div className="mb-3 flex items-center justify-end gap-2 text-[11px] text-white/30">
         <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
-        <span>{meta.label}</span>
-        {lastUpdatedAt && (
-          <span className="tabular">
-            · {lastUpdatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </span>
-        )}
+        <span className="tabular">
+          {liveStatus === 'success' && time ? `Prices as of ${time}` : meta.label}
+        </span>
       </div>
     )
   }

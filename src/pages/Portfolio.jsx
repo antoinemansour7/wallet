@@ -8,7 +8,6 @@ import Reveal from '../components/Reveal'
 import { buildAccountPortfolio, getAccountEntries, hasAccountPortfolio } from '../utils/accountPortfolio'
 import { computeStats } from '../utils/portfolioStats'
 import { AUTO_PRICE_REFRESH_MS } from './portfolio/constants'
-import PortfolioHeader from './portfolio/PortfolioHeader'
 import TabNav from './portfolio/TabNav'
 import KpiGrid from './portfolio/KpiGrid'
 import LiveBanner from './portfolio/LiveBanner'
@@ -144,19 +143,26 @@ export default function Portfolio() {
       const nextRows = result.rows
       applyPortfolioRows(nextRows, options)
       if (result.updatedRows > 0) setLastUpdatedAt(new Date())
-      const cache = result.cache
+      // Only warn about something a person can act on: a holding with no price.
+      // This used to escalate on `errors.length` too, so a recoverable provider
+      // hiccup that cost nothing raised a warning banner reading "14 positions
+      // refreshed; 0 symbols not found" — an announcement that nothing happened.
       if (result.updatedRows === 0 && result.errors?.length > 0) {
         setLiveStatus('error'); setLiveMessage(result.errors[0].error)
       } else if (result.updatedRows === 0) {
-        setLiveStatus('partial'); setLiveMessage('No market quotes matched the uploaded symbols.')
-      } else if (result.missing.length > 0 || result.errors?.length > 0) {
+        setLiveStatus('partial'); setLiveMessage('No market data matched your holdings.')
+      } else if (result.missing.length > 0) {
+        // Name them — "2 symbols not found" is not actionable, "SHOP.TO" is.
+        const shown = result.missing.slice(0, 4).join(', ')
+        const rest = result.missing.length - 4
         setLiveStatus('partial')
-        setLiveMessage(`${result.updatedRows} positions refreshed; ${result.missing.length} symbols not found by market providers.`)
-      } else if (cache?.refreshed === 0 && cache?.hits > 0) {
-        setLiveStatus('success'); setLiveMessage(`${result.updatedRows} positions loaded from cache.`)
+        setLiveMessage(
+          `No price for ${shown}${rest > 0 ? ` and ${rest} more` : ''}. `
+          + 'Those positions show their last saved value; everything else is current.',
+        )
       } else {
-        setLiveStatus('success')
-        setLiveMessage(`${result.updatedRows} positions updated`)
+        // Nothing to report. The quiet timestamp line carries it from here.
+        setLiveStatus('success'); setLiveMessage('')
       }
       return nextRows
     } catch (err) {
@@ -283,7 +289,6 @@ export default function Portfolio() {
     <div className="relative min-h-screen overflow-hidden bg-wall-bg">
       <div className="glow-orb blob-drift absolute -top-64 left-1/3 h-[560px] w-[560px]" />
       <div className="relative mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10">
-        <PortfolioHeader />
         <TabNav activeView={visibleView} hasData={hasData} onChange={setActiveView} />
 
         {visibleView === 'overview' && stats && (
