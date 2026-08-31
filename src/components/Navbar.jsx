@@ -31,7 +31,7 @@ const NAV_ITEMS = [
 
 function Avatar({ user, size = 32 }) {
   if (user?.photoURL) {
-    return <img src={user.photoURL} alt="" style={{ width: size, height: size }} className="shrink-0 rounded-full ring-1 ring-white/10" />
+    return <img src={user.photoURL} alt="" style={{ width: size, height: size }} className="shrink-0 rounded-full ring-1 ring-ink/10" />
   }
   return (
     <div
@@ -70,18 +70,18 @@ function AccountMenu({ user, onSignOut }) {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Account menu"
-        className={`flex items-center gap-2 rounded-full py-1 pl-1 pr-2 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 ${
-          open ? 'bg-white/[0.08]' : 'hover:bg-white/[0.05]'
+        className={`flex items-center gap-2 rounded-full py-1 pl-1 pr-2 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30 ${
+          open ? 'bg-ink/[0.08]' : 'hover:bg-ink/[0.05]'
         }`}
       >
         <Avatar user={user} size={28} />
-        <span className="hidden text-[13px] font-medium text-white/70 sm:block">
+        <span className="hidden text-[13px] font-medium text-ink/70 sm:block">
           {user.displayName?.split(' ')[0]}
         </span>
         <svg
           width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"
-          className={`text-white/35 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+          className={`text-ink/35 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
         >
           <polyline points="6 9 12 15 18 9" />
         </svg>
@@ -90,20 +90,20 @@ function AccountMenu({ user, onSignOut }) {
       {open && (
         <div
           role="menu"
-          className="animate-fade-in absolute right-0 top-[calc(100%+8px)] z-50 w-60 overflow-hidden rounded-xl border border-white/10 bg-wall-elevated shadow-card"
+          className="animate-fade-in absolute right-0 top-[calc(100%+8px)] z-50 w-60 overflow-hidden rounded-xl border border-ink/10 bg-wall-elevated shadow-card"
         >
-          <div className="flex items-center gap-3 border-b border-white/[0.06] px-3.5 py-3">
+          <div className="flex items-center gap-3 border-b border-ink/[0.06] px-3.5 py-3">
             <Avatar user={user} size={34} />
             <div className="min-w-0">
-              <p className="truncate text-[13px] font-medium text-white/90">{user.displayName}</p>
-              <p className="truncate text-[11px] text-white/35">{user.email}</p>
+              <p className="truncate text-[13px] font-medium text-ink/90">{user.displayName}</p>
+              <p className="truncate text-[11px] text-ink/35">{user.email}</p>
             </div>
           </div>
           <button
             type="button"
             role="menuitem"
             onClick={() => { setOpen(false); onSignOut() }}
-            className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] text-white/60 transition-colors hover:bg-white/[0.05] hover:text-white focus-visible:outline-none focus-visible:bg-white/[0.05]"
+            className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] text-ink/60 transition-colors hover:bg-ink/[0.05] hover:text-ink focus-visible:outline-none focus-visible:bg-ink/[0.05]"
           >
             <SignOutIcon />
             Sign out
@@ -122,12 +122,12 @@ export default function Navbar() {
 
   return (
     <>
-      <header className="glass sticky top-0 z-40 border-b border-white/[0.06]">
+      <header className="glass sticky top-0 z-40 border-b border-ink/[0.06]">
         <div className="mx-auto flex h-16 max-w-7xl items-center gap-6 px-4 sm:px-6">
           <NavLink
             to="/portfolio"
             aria-label="WallAI home"
-            className="shrink-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+            className="shrink-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
           >
             <Logo />
           </NavLink>
@@ -140,10 +140,10 @@ export default function Navbar() {
                 key={to}
                 to={to}
                 className={({ isActive }) =>
-                  `rounded-lg px-3.5 py-2 text-[13.5px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 ${
+                  `rounded-lg px-3.5 py-2 text-[13.5px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30 ${
                     isActive
-                      ? 'bg-white/[0.08] text-white'
-                      : 'text-white/50 hover:bg-white/[0.04] hover:text-white/90'
+                      ? 'bg-ink/[0.08] text-ink'
+                      : 'text-ink/50 hover:bg-ink/[0.04] hover:text-ink/90'
                   }`
                 }
               >
@@ -159,7 +159,7 @@ export default function Navbar() {
       </header>
 
       {/* ── Mobile bottom tab bar ────────────────────────────────────── */}
-      <nav className="glass fixed inset-x-0 bottom-0 z-50 border-t border-white/[0.06] pb-[env(safe-area-inset-bottom)] lg:hidden">
+      <nav className="glass fixed inset-x-0 bottom-0 z-50 border-t border-ink/[0.06] pb-[env(safe-area-inset-bottom)] lg:hidden">
         <div className="grid grid-cols-3">
           {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
             <NavLink
@@ -167,7 +167,7 @@ export default function Navbar() {
               to={to}
               className={({ isActive }) =>
                 `relative flex flex-col items-center gap-1.5 py-2.5 text-[10px] font-medium transition-colors duration-150 ${
-                  isActive ? 'text-accent' : 'text-white/40'
+                  isActive ? 'text-accent' : 'text-ink/40'
                 }`
               }
             >

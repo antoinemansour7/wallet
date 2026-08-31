@@ -41,13 +41,13 @@ function ReturnPill({ pct }) {
 }
 
 function StatPill({ label, value, sub, highlight }) {
-  const border = highlight ? 'border-gain/20' : 'border-white/[0.06]'
+  const border = highlight ? 'border-gain/20' : 'border-ink/[0.06]'
   const bg = highlight ? 'bg-gain/[0.05]' : 'bg-wall-surface'
   return (
     <div className={`rounded-xl border ${border} ${bg} px-4 py-3`}>
-      <p className={`text-[10px] font-bold uppercase tracking-wider ${highlight ? 'text-gain/70' : 'text-white/30'}`}>{label}</p>
-      <p className={`mt-0.5 font-mono text-base font-bold ${highlight ? 'text-gain' : 'text-white'}`}>{value}</p>
-      {sub && <p className="mt-0.5 text-[10px] text-white/20">{sub}</p>}
+      <p className={`text-[10px] font-bold uppercase tracking-wider ${highlight ? 'text-gain/70' : 'text-ink/30'}`}>{label}</p>
+      <p className={`mt-0.5 font-mono text-base font-bold ${highlight ? 'text-gain' : 'text-ink'}`}>{value}</p>
+      {sub && <p className="mt-0.5 text-[10px] text-ink/20">{sub}</p>}
     </div>
   )
 }
@@ -104,22 +104,22 @@ function PickRow({ pick, currentPrice }) {
   const conviction = Number(pick.conviction || pick.report || 0)
 
   return (
-    <div className="group flex items-center gap-2 py-2.5 border-b border-white/[0.04] last:border-0 sm:gap-3">
+    <div className="group flex items-center gap-2 py-2.5 border-b border-ink/[0.04] last:border-0 sm:gap-3">
       {/* Ticker */}
       <CompanyLogo symbol={pick.ticker} size={24} className="hidden sm:flex" />
-      <span className="w-12 shrink-0 font-mono text-[13px] font-bold text-white sm:w-14 sm:text-sm">{pick.ticker}</span>
+      <span className="w-12 shrink-0 font-mono text-[13px] font-bold text-ink sm:w-14 sm:text-sm">{pick.ticker}</span>
 
       {/* Conviction dot */}
       <div className="hidden items-center gap-1 sm:flex">
-        <div className={`h-1.5 w-1.5 rounded-full ${conviction >= 8 ? 'bg-gain' : conviction >= 6 ? 'bg-warning' : 'bg-white/20'}`} />
-        <span className="font-mono text-[10px] text-white/30">{conviction}</span>
+        <div className={`h-1.5 w-1.5 rounded-full ${conviction >= 8 ? 'bg-gain' : conviction >= 6 ? 'bg-warning' : 'bg-ink/20'}`} />
+        <span className="font-mono text-[10px] text-ink/30">{conviction}</span>
       </div>
 
       {/* Reason */}
-      <p className="min-w-0 flex-1 truncate text-[11px] text-white/40 group-hover:text-white/60 transition-colors sm:text-xs">{pick.reason}</p>
+      <p className="min-w-0 flex-1 truncate text-[11px] text-ink/40 group-hover:text-ink/60 transition-colors sm:text-xs">{pick.reason}</p>
 
       {/* Prices */}
-      <div className="hidden sm:flex items-center gap-1.5 text-white/20">
+      <div className="hidden sm:flex items-center gap-1.5 text-ink/20">
         {pickPrice && <span className="font-mono text-[10px]">${pickPrice.toFixed(0)}</span>}
         {pickPrice && currentPrice && <span className="text-[10px]">→</span>}
         {currentPrice && <span className="font-mono text-[10px]">${currentPrice.toFixed(0)}</span>}
@@ -173,21 +173,21 @@ export default function History() {
       <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-lg font-semibold text-white">Pick History</h1>
-          <p className="mt-0.5 text-xs text-white/30">Engine performance tracked since pick date</p>
+          <h1 className="text-lg font-semibold text-ink">Pick History</h1>
+          <p className="mt-0.5 text-xs text-ink/30">Engine performance tracked since pick date</p>
         </div>
 
         {loading ? (
           <div className="space-y-3">
             {[...Array(3)].map((_, i) => (
-              <div key={i} className="h-24 animate-pulse rounded-xl border border-white/[0.04] bg-wall-surface" />
+              <div key={i} className="h-24 animate-pulse rounded-xl border border-ink/[0.04] bg-wall-surface" />
             ))}
           </div>
         ) : entries.length === 0 ? (
-          <div className="flex flex-col items-center rounded-xl border border-dashed border-white/[0.06] py-14 text-center">
+          <div className="flex flex-col items-center rounded-xl border border-dashed border-ink/[0.06] py-14 text-center">
             <HistorySpot />
-            <p className="mt-3 text-sm text-white/40">No history yet.</p>
-            <p className="mt-1 text-xs text-white/20">Recorded after each nightly pipeline run.</p>
+            <p className="mt-3 text-sm text-ink/40">No history yet.</p>
+            <p className="mt-1 text-xs text-ink/20">Recorded after each nightly pipeline run.</p>
           </div>
         ) : (
           <>
@@ -197,14 +197,14 @@ export default function History() {
             <div className="space-y-3">
               {entries.filter((entry) => entry.picks.some((p) => p.conviction >= 6)).map((entry, entryIndex) => (
                 <Reveal key={entry.date} delay={Math.min(entryIndex, 4) * 70}>
-                <div className="rounded-xl border border-white/[0.06] bg-wall-surface overflow-hidden">
+                <div className="rounded-xl border border-ink/[0.06] bg-wall-surface overflow-hidden">
                   {/* Day header */}
-                  <div className="flex items-center justify-between border-b border-white/[0.04] px-4 py-3 sm:px-5">
+                  <div className="flex items-center justify-between border-b border-ink/[0.04] px-4 py-3 sm:px-5">
                     <div className="flex items-center gap-2">
-                      <h3 className="text-xs font-semibold text-white">{formatDate(entry.date)}</h3>
-                      <span className="text-[10px] text-white/20">{daysAgo(entry.date)}</span>
+                      <h3 className="text-xs font-semibold text-ink">{formatDate(entry.date)}</h3>
+                      <span className="text-[10px] text-ink/20">{daysAgo(entry.date)}</span>
                     </div>
-                    <span className="rounded-full bg-white/[0.04] px-2.5 py-0.5 text-[10px] font-medium text-white/30">
+                    <span className="rounded-full bg-ink/[0.04] px-2.5 py-0.5 text-[10px] font-medium text-ink/30">
                       {entry.signalCount} signals
                     </span>
                   </div>
