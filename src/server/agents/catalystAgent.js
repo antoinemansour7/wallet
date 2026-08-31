@@ -6,7 +6,7 @@
 import Exa from 'exa-js'
 import Anthropic from '@anthropic-ai/sdk'
 
-const CLAUDE_MODEL = 'claude-sonnet-4-6'
+const CLAUDE_MODEL = 'claude-sonnet-5'
 
 const CATALYST_VERIFICATION_PROMPT = `You are a catalyst verification specialist. Given search results about a stock ticker, determine:
 1. Is there a REAL, SPECIFIC upcoming catalyst? (earnings date, FDA date, contract, product launch)

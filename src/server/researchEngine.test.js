@@ -8,6 +8,7 @@ import {
   setupPerformanceAdjustment,
   sourcePerformanceAdjustment,
   finalizePicks,
+  buildMacroContextBlock,
 } from './researchEngine'
 
 // fetchAllYahooNews tests
@@ -424,5 +425,83 @@ describe('CATALYST_REGEX', () => {
     'Contract manufacturers are seeing margin pressure',
   ])('does not fire on generic vocabulary in: %s', (text) => {
     expect(CATALYST_REGEX.test(text)).toBe(false)
+  })
+})
+
+describe('buildMacroContextBlock', () => {
+  const post = (username, minutesAgo, text) => ({
+    username,
+    text,
+    sourceRole: 'context',
+    sourceType: 'account',
+    createdAt: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
+  })
+
+  it('returns nothing when there are no context-role account posts', () => {
+    expect(buildMacroContextBlock([])).toBe('')
+    expect(buildMacroContextBlock([
+      { ...post('a', 5, 'x'), sourceRole: 'conviction' },
+      { ...post('b', 5, 'x'), sourceType: 'search' },
+    ])).toBe('')
+  })
+
+  // The whole reason for round-robin selection: one desk posts every ~18
+  // minutes and the others a few times a day, so newest-first handed the loud
+  // desk 11 of 14 slots and dropped the considered macro reads entirely.
+  it('does not let the highest-frequency desk crowd out the others', () => {
+    const signals = [
+      ...Array.from({ length: 30 }, (_, i) => post('loud', i * 18, `loud ${i}`)),
+      ...Array.from({ length: 5 }, (_, i) => post('slow', i * 600, `slow ${i}`)),
+    ]
+
+    const block = buildMacroContextBlock(signals)
+    const slots = (name) => block.split("[@" + name + ",").length - 1
+
+    expect(slots('slow')).toBe(5)
+    expect(slots('loud')).toBeLessThanOrEqual(9)
+    expect(slots('loud') + slots('slow')).toBe(14)
+  })
+
+  it('keeps a slow desk represented even when every rival post is newer', () => {
+    const signals = [
+      ...Array.from({ length: 20 }, (_, i) => post('loud', i, `loud ${i}`)),
+      post('slow', 4000, 'the only macro read that matters'),
+    ]
+    expect(buildMacroContextBlock(signals)).toContain('the only macro read that matters')
+  })
+
+  it('drops self-promotion and TV scheduling but keeps real macro', () => {
+    const block = buildMacroContextBlock([
+      post('desk', 1, 'The Labor Day sale has begun. Get 20% off on all site.'),
+      post('desk', 2, 'Looking forward to joining @SchwabNetwork around 10:20am ET'),
+      post('desk', 3, 'Our live trading show is live now! Join to see how traders use it'),
+      post('desk', 4, '10-year treasury yield hits a new 52 week high'),
+    ])
+    expect(block).toContain('10-year treasury yield')
+    expect(block).not.toContain('20% off')
+    expect(block).not.toContain('Looking forward to joining')
+    expect(block).not.toContain('is live now')
+  })
+
+  // Narrow by design: a discount or a scheduled Fed speaker is real macro, and
+  // an over-eager filter here silently deletes the signal it exists to carry.
+  it('does not mistake genuine macro for housekeeping', () => {
+    const block = buildMacroContextBlock([
+      post('desk', 1, 'Retailers are discounting aggressively into the holiday, per WSJ'),
+      post('desk', 2, 'Powell speaks Thursday; market is pricing a hold'),
+    ])
+    expect(block).toContain('discounting aggressively')
+    expect(block).toContain('Powell speaks Thursday')
+  })
+
+  it('labels each post with its author and age', () => {
+    const block = buildMacroContextBlock([post('macrodesk', 90, 'yields backing up')])
+    expect(block).toMatch(/\[@macrodesk, 2h ago\] yields backing up/)
+    expect(block).toContain('regime, not picks')
+  })
+
+  it('renders days rather than hours once a post is over a day old', () => {
+    const block = buildMacroContextBlock([post('macrodesk', 3 * 24 * 60, 'hawkish speech')])
+    expect(block).toMatch(/\[@macrodesk, 3d ago\]/)
   })
 })

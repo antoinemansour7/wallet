@@ -7,7 +7,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import Exa from 'exa-js'
 
-const CLAUDE_MODEL = 'claude-sonnet-4-6'
+const CLAUDE_MODEL = 'claude-sonnet-5'
 
 const CONTRARIAN_SYSTEM_PROMPT = `You are an elite short-seller and risk analyst. Your job is to DESTROY bullish theses. For every stock presented to you, find the strongest possible bear case.
 

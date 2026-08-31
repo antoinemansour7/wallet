@@ -8,7 +8,7 @@
 import { WebClient } from '@slack/web-api'
 import Anthropic from '@anthropic-ai/sdk'
 
-const CLAUDE_MODEL = 'claude-sonnet-4-6'
+const CLAUDE_MODEL = 'claude-sonnet-5'
 
 const AGENT_SYSTEM_PROMPT = `You are WallAI, a stock research assistant living in Slack. You help the user understand their nightly AI picks, portfolio exposure, and market conditions.
 

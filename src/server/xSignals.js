@@ -18,34 +18,74 @@ export function activeProviderName() {
   return activeProvider() ? 'twitterapi.io' : 'x-official'
 }
 
-// Every handle below was verified live on 2026-08-31: the account resolves, and
-// its post timestamps were cross-checked against X's snowflake IDs. Six entries
-// were removed because they were failing silently — four ("ripaborern",
-// "chartaborern", "biaborern", "INArteCarlworx") do not exist as X accounts at
-// all, and two ("DarkPoolAlerts", "NorthmanTrader") resolve to empty shells with
-// zero posts. "unusualwhales" was a typo for "unusual_whales" (5.2M followers);
-// the version without the underscore is a different, empty account, so the
-// highest-weighted flow source had been contributing nothing.
-// Re-verify any time with: node scripts/probe-x-provider.mjs
+// Lanes, weights and depth below are set from measured output rather than from
+// follower count or reputation. Sampled 2026-08-31 across each account's last
+// ~20 original posts (replies and retweets excluded). "tickered" is the share of
+// posts naming at least one non-mega-cap cashtag — $AAPL and $SPY are real, but
+// an account that only ever names them is not feeding a high-upside board.
+//
+//   account            tickered  distinct  medEng  promo  in-30h
+//   aleabitoreddit          75%        44     533     0%      13
+//   MMatters22596           85%        66     214    40%      10
+//   wallstengine            42%        10      70     5%      19
+//   optionshawk             44%        13      10     6%       2
+//   CKCapitalxx             42%        11     110     0%       8
+//   Mr_Derivatives          37%        12     328     5%      19
+//   amitisinvesting         30%        26    1694    20%       2
+//   unusual_whales           0%         0     544    11%      18
+//   LizAnnSonders            0%         0      84     0%       7
+//
+// Four handles were dropped after this sample:
+//   GRDecter, MacroAlf  last original post 399d / 229d ago, confirmed against
+//                       snowflake IDs on both the timeline and search endpoints.
+//   TraderLion          17 posts, zero cashtags — trading psychology and
+//                       interview pull-quotes. Nothing here is tradeable.
+//   IncredibleTrade     half its posts are subscription marketing, median
+//                       engagement of 1, and its "tickers" are $SPX 0DTE
+//                       screenshots plus Solana contract addresses.
+//
+// maxPosts sets how deep to paginate. Depth follows ticker productivity, not
+// volume: unusual_whales fills the window every single run but has produced no
+// cashtag at all, so paying for three pages of it would buy three pages of
+// geopolitics. maxAgeHours widens the window for accounts that post in bursts.
+//
+// Re-measure any time with: node scripts/probe-x-provider.mjs
 export const CURATED_ACCOUNTS = [
-  // Flow / unusual activity
-  { username: 'unusual_whales',  lane: 'flow',         weight: 1.35, role: 'conviction' },
-  { username: 'Mr_Derivatives',  lane: 'flow',         weight: 1.3,  role: 'conviction' },
-  { username: 'GRDecter',        lane: 'flow',         weight: 1.18, role: 'conviction' },
-  { username: 'optionshawk',     lane: 'flow',         weight: 1.15, role: 'conviction' },
-  // US equities + growth
-  { username: 'aleabitoreddit',  lane: 'growth',       weight: 1.45, role: 'conviction' },
-  { username: 'amitisinvesting', lane: 'growth',       weight: 1.1,  role: 'context' },
-  { username: 'TraderLion',      lane: 'growth',       weight: 1.1,  role: 'conviction' },
-  { username: 'IncredibleTrade', lane: 'growth',       weight: 1.08, role: 'conviction' },
-  { username: 'CKCapitalxx',     lane: 'growth',       weight: 1.05, role: 'conviction' },
-  // Macro + rates
-  { username: 'LizAnnSonders',   lane: 'macro',        weight: 0.95, role: 'context' },
-  { username: 'MacroAlf',        lane: 'macro',        weight: 0.94, role: 'context' },
-  // Technical analysis
-  { username: 'MMatters22596',   lane: 'technical',    weight: 1.0,  role: 'conviction' },
-  // Catalyst / event-driven
-  { username: 'wallstengine',    lane: 'catalyst',     weight: 1.1,  role: 'conviction' },
+  // ── Discovery — the highest ticker density in the list, and what the board
+  //    actually runs on. aleabitoreddit named 44 distinct non-mega tickers in
+  //    20 posts with zero promotional content; MMatters22596 named 66.
+  { username: 'aleabitoreddit',  lane: 'growth',    weight: 1.5,  role: 'conviction', maxPosts: 40 },
+  { username: 'MMatters22596',   lane: 'growth',    weight: 1.35, role: 'conviction', maxPosts: 40 },
+  { username: 'CKCapitalxx',     lane: 'growth',    weight: 1.2,  role: 'conviction' },
+
+  // ── Catalyst wire — dated, checkable events (upgrades with price targets,
+  //    earnings prints, partnerships). Posts every ~6min and saturates the
+  //    window, so it is the one account worth paginating deeply.
+  { username: 'wallstengine',    lane: 'catalyst',  weight: 1.28, role: 'conviction', maxPosts: 60 },
+
+  // ── Flow — the only account in the list posting genuine options flow
+  //    ("$NTRA $GH put buys", short puts with strikes and premiums). Engagement
+  //    is low because flow is unglamorous, which is why it is weighted on
+  //    content and not on likes. Bursty, but stale flow is not actionable, so
+  //    it keeps the standard window.
+  { username: 'optionshawk',     lane: 'flow',      weight: 1.28, role: 'conviction' },
+
+  // ── Technical — chart levels on liquid large caps. Reliable but large-cap
+  //    biased, which is the opposite of this board's mandate; weighted to
+  //    corroborate a setup rather than to originate one.
+  { username: 'Mr_Derivatives',  lane: 'technical', weight: 1.1,  role: 'conviction', maxPosts: 40 },
+
+  // ── Macro backdrop — context role, so these shape regime and sizing but
+  //    never carry a pick on their own (see the filter in researchEngine).
+  //    amitisinvesting posts in bursts around events: 68h of silence, then a
+  //    cluster of recaps and Fed reaction. At the standard 30h window he lands
+  //    on the board roughly one run in three, so his window is widened to cover
+  //    the gap. unusual_whales was previously the highest-weighted conviction
+  //    source in this file at 1.35 while producing no cashtags in 18 posts —
+  //    it is a geopolitics and headline wire, and is now priced as one.
+  { username: 'amitisinvesting', lane: 'macro',     weight: 1.2,  role: 'context', maxAgeHours: 96 },
+  { username: 'LizAnnSonders',   lane: 'macro',     weight: 0.9,  role: 'context', maxAgeHours: 48 },
+  { username: 'unusual_whales',  lane: 'macro',     weight: 0.85, role: 'context' },
 ]
 
 const BASE_SEARCH_QUERIES = [
@@ -137,6 +177,17 @@ const THEME_LIBRARY = {
 }
 
 const SIGNAL_MAX_AGE_MS = 30 * 60 * 60 * 1000
+
+// Most accounts post steadily enough that a flat 30h window is right. A few post
+// in bursts around events and go silent for days between; for those the window
+// is not a freshness guarantee so much as a coin flip on whether the run happens
+// to land inside a burst. Accounts declaring maxAgeHours opt out of the flat
+// window. Only context-role accounts do: a macro read from three days ago still
+// describes the regime, whereas a three-day-old options sweep is not tradeable,
+// so every conviction lane keeps the tight window.
+function accountWindowMs(account) {
+  return account.maxAgeHours ? account.maxAgeHours * 60 * 60 * 1000 : SIGNAL_MAX_AGE_MS
+}
 const USER_ID_CACHE_KEY = 'research:x:user_ids'
 const USER_ID_CACHE_TTL = 7 * 24 * 60 * 60 // 7 days — account IDs never change
 const TIMELINE_CACHE_TTL = 4 * 60 * 60 // 4 hours — refresh more frequently for fresher signals
@@ -522,13 +573,13 @@ async function fetchAccountSignals(token, { perAccount = 25, errors = [] } = {})
   // its Redis id cache) is skipped entirely — one fewer billed call per run.
   if (provider) {
     const signals = []
-    const sinceMs = Date.now() - SIGNAL_MAX_AGE_MS
     for (const account of CURATED_ACCOUNTS) {
+      const sinceMs = Date.now() - accountWindowMs(account)
       try {
         const tweets = await provider.fetchUserTweets({
           username: account.username,
           sinceMs,
-          maxPosts: perAccount,
+          maxPosts: account.maxPosts || perAccount,
         })
         if (tweets.length === 0) {
           errors.push({ scope: 'account', username: account.username, error: 'no posts in window' })
@@ -572,7 +623,7 @@ async function fetchAccountSignals(token, { perAccount = 25, errors = [] } = {})
     if (!tweets) {
       try {
         const data = await xApiGet(`/2/users/${user.id}/tweets`, {
-          max_results: perAccount,
+          max_results: Math.min(account.maxPosts || perAccount, 100),
           exclude: 'replies,retweets',
           'tweet.fields': 'created_at,public_metrics,entities,lang',
         }, token)
@@ -589,7 +640,7 @@ async function fetchAccountSignals(token, { perAccount = 25, errors = [] } = {})
     }
 
     for (const tweet of tweets) {
-      if (tweet.created_at && Date.now() - new Date(tweet.created_at).getTime() > SIGNAL_MAX_AGE_MS) continue
+      if (tweet.created_at && Date.now() - new Date(tweet.created_at).getTime() > accountWindowMs(account)) continue
       signals.push(toSignal(tweet, {
         username: user.username,
         sourceType: 'account',
@@ -684,6 +735,10 @@ export async function collectXSignals({ articles = [], useNewsSeed = false } = {
   // why a fully dead X leg went unnoticed for a week.
   const errors = []
 
+  // Module state survives between invocations on a warm container, so the
+  // counters must start from zero or every run after the first over-reports.
+  provider?.resetUsage?.()
+
   const accountSignals = await fetchAccountSignals(token, { errors })
   const seed = deriveAdaptiveSeed({ articles: useNewsSeed ? articles : [], baseSignals: accountSignals })
   const queries = buildAdaptiveQueries(seed)
@@ -693,6 +748,16 @@ export async function collectXSignals({ articles = [], useNewsSeed = false } = {
     errors.push({ scope: 'x', error: `${providerName} returned zero signals across ${CURATED_ACCOUNTS.length} accounts and ${queries.length} queries` })
   }
   console.log(`[xSignals] provider=${providerName} accounts=${accountSignals.length} search=${searchSignals.length} errors=${errors.length}`)
+  if (provider?.getUsage) {
+    const usage = provider.getUsage()
+    // Requests are the billable unit: every observed call cost a flat 300
+    // credits whether it returned 20 posts or 2.
+    const usd = (usage.credits / 100000).toFixed(3)
+    console.log(
+      `[xSignals] provider spend: ${usage.requests} requests, ${usage.posts} posts, `
+      + `${usage.credits} credits (USD ${usd} at 1M credits per USD 10)`,
+    )
+  }
 
   const merged = new Map()
   for (const signal of [...accountSignals, ...searchSignals]) {

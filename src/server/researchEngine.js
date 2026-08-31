@@ -69,7 +69,13 @@ import Anthropic from '@anthropic-ai/sdk'
 import { fetchMarketQuotes } from './marketQuotes.js'
 import { extractTickersFromText } from './xSignals.js'
 
-const CLAUDE_MODEL = 'claude-sonnet-4-6'
+const CLAUDE_MODEL = 'claude-sonnet-5'
+
+// Sonnet 5 controls thinking with an effort level, not a token budget: the
+// older { type: 'enabled', budget_tokens } shape is rejected outright with a
+// 400. Verified live on this key — 'high' returns a thinking block and clean
+// JSON, 'medium' returns no thinking block at all.
+const RESEARCH_EFFORT = process.env.RESEARCH_EFFORT || 'high'
 
 const SQUEEZE_REGEX = /(short squeeze|short interest|gamma squeeze|squeez(?:e|ing)|days to cover|float rotation|covering)/i
 const VOLUME_REGEX = /(unusual volume|relative volume|rvol|options sweep|dark pool|heavy volume|flow|accumulation)/i
@@ -588,6 +594,7 @@ For each candidate, evaluate these dimensions:
 3. SECTOR CONDITIONS — Check the sector ETF trends provided. A stock in a sector that's declining -3%+ needs an exceptionally strong idiosyncratic catalyst to overcome headwinds. Don't fight the trend without cause.
 4. RISK/REWARD — What's the downside if wrong vs upside if right? A stock at $5 support with $8 target is 60% upside / 20% downside. That's asymmetry. A stock already up 40% in 2 weeks with no floor? That's risk.
 5. SOURCE INDEPENDENCE — Are multiple independent traders/sources flagging this? Or is it one loud account tweeting 5 times? Check sourceCount and contextMentions vs convictionMentions.
+6. REGIME FIT — Read the MACRO BACKDROP section for the environment these picks have to survive: rates, liquidity, positioning, geopolitics. Tighten conviction and size when the backdrop is hostile (rising yields, risk-off, escalation); allow more when it is supportive. A good setup in a bad tape is still a bad trade. The backdrop constrains picks, it never creates them.
 
 ## What Makes a Great Pick
 - Multiple independent sources with conviction language (not just context)
@@ -620,6 +627,79 @@ Rules:
 - If equal setups, prefer the tech stock
 - AVOID: broad ETFs (SPY, QQQ, IWM, IGV)
 - Use the ticker board first for setup quality, then X signals for nuance and catalyst specificity`
+
+// Housekeeping posts from the same desks: subscription pushes, "sale ends
+// tonight", and the TV-hit scheduling notes ("looking forward to joining X at
+// 8am"). They are frequent, they are always the newest thing in the feed, and
+// they say nothing about the regime. Deliberately narrow — this matches posting
+// *about the account* rather than any word that happens to look commercial, so
+// a real story about a company's discounting or a Fed speaker's schedule still
+// gets through.
+const MACRO_HOUSEKEEPING_REGEX = /(\b\d{1,2}% off\b|\bsale (has begun|ends|is live)\b|\buse code\b|\blink in bio\b|\bsign ?up\b|\bsubscribe\b|\bpromo\b|\b(is|are) live now\b|\blooking forward to joining\b|\b(catch|join) me on\b|\bwill be (on|joining) @)/i
+
+const MACRO_BLOCK_LIMIT = 14
+
+// Context accounts are macro desks, not stock pickers: they explain the regime a
+// pick has to survive, and whatever tickers they name are usually incidental to
+// the point being made. The board rightly refuses to promote a ticker carried
+// only by context mentions — which meant their commentary had no route to the
+// model at all, so the one input that should shape sizing and risk appetite was
+// the one input being thrown away. This surfaces the posts themselves, kept
+// deliberately apart from the pick evidence so they inform the read on the tape
+// without becoming candidates.
+//
+// Selection is round-robin across desks rather than newest-first. These accounts
+// post at wildly different rates — one of them posts every ~18 minutes and the
+// other two in bursts a few times a day — so straight recency handed 11 of 14
+// slots to the loudest desk and pushed the slower, more considered macro reads
+// out of the prompt entirely. Frequency is not authority.
+export function buildMacroContextBlock(signals) {
+  const byDesk = new Map()
+  for (const signal of signals) {
+    if (signal.sourceRole !== 'context' || signal.sourceType !== 'account') continue
+    if (!signal.text || MACRO_HOUSEKEEPING_REGEX.test(signal.text)) continue
+    if (!byDesk.has(signal.username)) byDesk.set(signal.username, [])
+    byDesk.get(signal.username).push(signal)
+  }
+  if (byDesk.size === 0) return ''
+
+  for (const posts of byDesk.values()) {
+    posts.sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0))
+  }
+
+  const picked = []
+  for (let rank = 0; picked.length < MACRO_BLOCK_LIMIT; rank += 1) {
+    let placed = false
+    for (const posts of byDesk.values()) {
+      if (!posts[rank]) continue
+      picked.push(posts[rank])
+      placed = true
+      if (picked.length >= MACRO_BLOCK_LIMIT) break
+    }
+    if (!placed) break
+  }
+  picked.sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0))
+
+  const lines = picked.map((post) => {
+    const ageH = (Date.now() - Date.parse(post.createdAt || 0)) / 36e5
+    const age = !Number.isFinite(ageH) ? '?'
+      : ageH < 24 ? `${Math.round(ageH)}h`
+      : `${Math.round(ageH / 24)}d`
+    const body = post.text.replace(/\s+/g, ' ').slice(0, 300)
+    return `  [@${post.username}, ${age} ago] ${body}`
+  })
+
+  return [
+    '',
+    '=== MACRO BACKDROP (context desks — regime, not picks) ===',
+    ...lines,
+    'Read this for the environment: rates, liquidity, positioning, risk appetite, geopolitics.',
+    'Use it to decide how aggressive to be, and to reject picks that fight the current regime.',
+    'Do NOT generate a pick from this section — a ticker appearing here is evidence of nothing',
+    'unless it also appears on the board above.',
+    '',
+  ].join('\n')
+}
 
 function buildTickerUserMessage(signals, articles, signalBoard, sectorTrends = new Map(), technicals = new Map()) {
   const { boardText, signalText } = summarizeSignalsForPrompt(signals, articles, { signalBoard })
@@ -655,9 +735,11 @@ function buildTickerUserMessage(signals, articles, signalBoard, sectorTrends = n
     }
   }
 
+  const macroBlock = buildMacroContextBlock(signals)
+
   return `=== HIGH-UPSIDE TICKER BOARD ===
 ${boardText}
-${sectorBlock}${techBlock}
+${sectorBlock}${techBlock}${macroBlock}
 === X SIGNALS (${signals.length} total, showing top matches) ===
 ${signalText}
 
@@ -875,7 +957,15 @@ export async function extractTickers(signals, articles, options = {}) {
   for (let attempt = 0; attempt < 3; attempt++) {
     const response = await client.messages.create({
       model: CLAUDE_MODEL,
-      max_tokens: 2048,
+      max_tokens: 8000,
+      // Ranking 30 candidates against six rejection criteria, sector trends and
+      // per-ticker technicals is exactly the shape of work extended thinking is
+      // for, and it had never been switched on — the block below has always
+      // skipped thinking blocks that could not occur. It also helps with the
+      // empty first attempt this loop retries around: given somewhere to
+      // reason, the model stops using the answer slot to think out loud.
+      thinking: { type: 'adaptive' },
+      output_config: { effort: RESEARCH_EFFORT },
       stream: false,
       system: systemPrompt,
       messages,

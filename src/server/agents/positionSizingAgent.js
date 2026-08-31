@@ -5,7 +5,7 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 
-const CLAUDE_MODEL = 'claude-sonnet-4-6'
+const CLAUDE_MODEL = 'claude-sonnet-5'
 
 const POSITION_SIZING_SYSTEM_PROMPT = `You are a portfolio allocation specialist. Given a user's current holdings and a set of new stock picks, provide actionable position sizing advice.
 

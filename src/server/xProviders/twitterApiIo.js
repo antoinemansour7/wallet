@@ -21,10 +21,31 @@ const PAGE_SIZE = 20
 // Free accounts are capped at 0.2 QPS (one request per 5s); any paid credit
 // raises this to 200+ QPS. Default to no delay and let free-tier users opt in.
 const REQUEST_DELAY_MS = Number(process.env.TWITTERAPI_IO_DELAY_MS || 0)
-const MAX_PAGES = Number(process.env.TWITTERAPI_IO_MAX_PAGES || 3)
+// A ceiling, not a target. The per-account maxPosts is what actually governs
+// depth, and both the 30h window and a short page break the loop earlier still,
+// so this only has to be high enough not to become the binding constraint: the
+// deepest account asks for 60 posts at 20 per page. Set too low, a high-volume
+// account is silently truncated mid-window and nobody finds out.
+const MAX_PAGES = Number(process.env.TWITTERAPI_IO_MAX_PAGES || 5)
 
 export function isConfigured() {
   return Boolean(process.env.TWITTERAPI_IO_KEY)
+}
+
+// Every observed call bills a flat 300 credits whether it returns 20 posts or
+// 2, so requests — not posts — are the unit that costs money. Counting them
+// here means the nightly run can report its own spend instead of leaving it to
+// be guessed from a provider dashboard that says it undercounts.
+let requestCount = 0
+let postCount = 0
+
+export function getUsage() {
+  return { requests: requestCount, posts: postCount, credits: requestCount * 300 }
+}
+
+export function resetUsage() {
+  requestCount = 0
+  postCount = 0
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -45,6 +66,7 @@ async function apiGet(path, params = {}) {
     if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v))
   }
 
+  requestCount += 1
   const res = await fetch(url, {
     headers: { 'x-api-key': key },
     signal: AbortSignal.timeout(20000),
@@ -69,7 +91,9 @@ async function apiGet(path, params = {}) {
 // `tweets`. Accept either rather than trusting one.
 function readTweets(body) {
   const list = body?.data?.tweets ?? body?.tweets ?? []
-  return Array.isArray(list) ? list : []
+  if (!Array.isArray(list)) return []
+  postCount += list.length
+  return list
 }
 
 function readCursor(body) {

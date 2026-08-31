@@ -15,7 +15,11 @@ import { CURATED_ACCOUNTS } from '../src/server/xSignals.js'
 const API_KEY = process.env.TWITTERAPI_IO_KEY
 const BASE = process.env.TWITTERAPI_IO_BASE || 'https://api.twitterapi.io'
 const WINDOW_HOURS = 30 // must match SIGNAL_MAX_AGE_MS in xSignals.js
-const PRICE_PER_POST = 0.00015
+// Billing is per request, not per post: every observed call cost a flat 300
+// credits whether it returned 20 posts or 2. Pricing only the posts we chose
+// to keep understated the real cost roughly fourfold.
+const CREDITS_PER_REQUEST = 300
+const USD_PER_CREDIT = 0.00001 // 1M credits per USD 10
 const JSON_OUT = process.argv.includes('--json')
 
 if (!API_KEY) {
@@ -186,10 +190,14 @@ if (sample) {
     `metrics ${sample.hasMetrics ? 'yes' : 'NO'} | cashtags ${sample.hasCashtags ? 'yes' : 'no (regex fallback covers this)'}`)
 }
 
-const runCost = (totalInWindow + (search.returned || 0)) * PRICE_PER_POST
-console.log('\nCOST')
-console.log(`  this probe        ${requestCount} requests, ${postCount} posts ≈ $${(postCount * PRICE_PER_POST).toFixed(4)}`)
-console.log(`  projected/month   ~$${(runCost * 26).toFixed(2)} at 26 runs (vs ~$78 on the official API)`)
+const probeCredits = requestCount * CREDITS_PER_REQUEST
+console.log('')
+console.log('COST')
+console.log('  this probe        ' + requestCount + ' requests, ' + postCount + ' posts, '
+  + probeCredits + ' credits (USD ' + (probeCredits * USD_PER_CREDIT).toFixed(3) + ')')
+console.log('  scope             the probe reads one page per account and skips the search')
+console.log('                    lane, so this is not the pipeline cost. The nightly run')
+console.log('                    logs its own as "[xSignals] provider spend".')
 
 console.log('\nVERDICT')
 console.log(`  ${live}/${accounts.length} accounts reachable, ${fresh}/${accounts.length} fresh inside ${WINDOW_HOURS}h`)
