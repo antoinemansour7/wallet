@@ -7,6 +7,78 @@ const CDR_UNDERLYING = {
   NOWS: 'NOW',
 }
 
+/**
+ * Single-stock leveraged ETFs, mapped to the company they track.
+ *
+ * You hold these to get exposure to one business, so the business is what the
+ * row should be captioned with. Left alone they are worse than anonymous: the
+ * CDN either 404s (NVDL, CONL, MSTU) and falls through to a letter circle, or
+ * serves the *issuer's* house logo (TSLL, AMDL), so a Direxion Tesla product and
+ * a Direxion Apple product render as the same picture.
+ *
+ * Every entry verified against the product's official name on 2026-08-31.
+ */
+const LEVERAGED_UNDERLYING = {
+  NVDL: 'NVDA', NVDX: 'NVDA', NVDU: 'NVDA', NVDD: 'NVDA',
+  TSLL: 'TSLA', TSLT: 'TSLA', TSLR: 'TSLA', TSLS: 'TSLA',
+  CONL: 'COIN',
+  MSTU: 'MSTR', MSTX: 'MSTR', MSTZ: 'MSTR',
+  AMDL: 'AMD',
+  AAPU: 'AAPL', AAPD: 'AAPL', AAPB: 'AAPL',
+  MSFU: 'MSFT', MSFD: 'MSFT',
+  GGLL: 'GOOGL', GGLS: 'GOOGL',
+  METU: 'META', METD: 'META',
+  AMZU: 'AMZN', AMZD: 'AMZN',
+  PLTU: 'PLTR',
+}
+
+// Words that appear in a fund's name but are never the underlying ticker.
+const NAME_NOISE = new Set([
+  'BULL', 'BEAR', 'LONG', 'SHORT', 'DAILY', 'TARGET', 'ETF', 'ETN', 'FUND',
+  'TRUST', 'SHARES', 'INDEX', 'CLASS', 'NEW', 'THE', 'AND', 'INC', 'CORP',
+  'CO', 'LTD', 'PLC', 'SA', 'NV', 'AG', 'US', 'USD', 'CAD', 'HDG', 'CDR',
+  'HEDGED', 'UNITS', 'UNIT', 'SP', 'TSX', 'NASDAQ', 'DOW',
+])
+
+/**
+ * Pull the underlying ticker out of a leveraged product's name, for the ones
+ * not in the map above. Only runs when the name actually reads as a leveraged
+ * product, so an ordinary holding is never second-guessed.
+ *
+ * Index products — "BETAPRO SP500 2X DAILY BULL ETF" — deliberately yield
+ * nothing. There is no single company behind them, and the issuer's own logo is
+ * the honest answer.
+ */
+const DIRECTION_WORDS = new Set(['LONG', 'BULL', 'BEAR', 'SHORT'])
+
+export function underlyingFromName(name, symbol) {
+  const text = String(name || '')
+  if (!/\b(\d+(?:\.\d+)?\s*X|BULL|BEAR|LEVERAGED)\b/i.test(text)) return null
+
+  const self = String(symbol || '').toUpperCase().split('.')[0]
+  const words = text.toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean)
+  const plausible = (w) => (
+    w && w.length >= 2 && w.length <= 5
+    && /^[A-Z]+$/.test(w)
+    && !NAME_NOISE.has(w)
+    && !DIRECTION_WORDS.has(w)
+    && w !== self
+  )
+
+  // The underlying sits next to the direction word, on one side or the other:
+  //   "GraniteShares 2x Long NVDA Daily"   -> after
+  //   "Direxion Daily TSLA Bull 2X ETF"    -> before
+  // Scanning for the first plausible token anywhere instead picked up the
+  // issuer — "T-Rex 2X Long MSTR" yielded REX.
+  for (let i = 0; i < words.length; i += 1) {
+    if (!DIRECTION_WORDS.has(words[i])) continue
+    for (const candidate of [words[i + 1], words[i - 1]]) {
+      if (plausible(candidate)) return candidate
+    }
+  }
+  return null
+}
+
 // Deterministic gradient fallback when no logo exists for a symbol
 const AVATAR_TINTS = [
   'from-indigo-500/80 to-violet-500/80',
@@ -42,7 +114,7 @@ export function avatarTint(symbol) {
  * Unknown symbols 404 cleanly — no placeholder image — so walking the list and
  * landing on the letter avatar is safe.
  */
-export function logoCandidates(symbol) {
+export function logoCandidates(symbol, description = '') {
   const raw = String(symbol || '').trim().toUpperCase()
   if (!raw) return []
 
@@ -51,11 +123,15 @@ export function logoCandidates(symbol) {
   const suffix = dot === -1 ? '' : raw.slice(dot + 1)
   const mapped = CDR_UNDERLYING[base]
 
+  // A leveraged wrapper is a way to own one company; caption it with that
+  // company. The map is checked first, the product's own name second.
+  const underlying = LEVERAGED_UNDERLYING[base] ?? underlyingFromName(description, raw)
+
   const order = suffix === 'NE'
-    ? [mapped, base]          // CDR — the US underlying is the real company
+    ? [mapped, base]                    // CDR — the US underlying is the company
     : suffix
-      ? [raw, mapped, base]   // TSX/TSXV — the suffixed symbol is the right one
-      : [mapped, base]
+      ? [underlying, raw, mapped, base] // TSX/TSXV — suffixed symbol is the right one
+      : [underlying, mapped, base]
 
   return [...new Set(order.filter(Boolean))]
 }
@@ -75,14 +151,14 @@ export function logoUrl(symbol, size, scale = 1) {
  * Company logo by ticker (Parqet CDN), falling back through the candidate
  * symbols and finally to a gradient initial. `size` is the diameter in px.
  */
-export default function CompanyLogo({ symbol, size = 40, className = '' }) {
-  const candidates = logoCandidates(symbol)
+export default function CompanyLogo({ symbol, description = '', size = 40, className = '' }) {
+  const candidates = logoCandidates(symbol, description)
   const [attempt, setAttempt] = useState(0)
 
   // A recycled row (holdings re-sort, a new pick list) hands this component a
   // different symbol without remounting it. Without the reset, a symbol that
   // had exhausted its candidates would show the letter avatar forever.
-  useEffect(() => { setAttempt(0) }, [symbol])
+  useEffect(() => { setAttempt(0) }, [symbol, description])
 
   const sym = candidates[attempt]
 

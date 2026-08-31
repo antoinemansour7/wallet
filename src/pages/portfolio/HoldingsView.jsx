@@ -42,7 +42,7 @@ function PositionRow({ row, expanded, onToggle }) {
         onClick={onToggle}
         className="flex w-full items-center gap-3 px-4 py-3.5 text-left sm:px-5"
       >
-        <CompanyLogo symbol={symbol} size={40} />
+        <CompanyLogo symbol={symbol} description={row.DESCRIPTION} size={40} />
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">

@@ -21,7 +21,7 @@ export default function TopPositionsChart({ rows, large = false }) {
                 key={`${item.symbol}-${item.index}`}
                 className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors hover:bg-white/[0.03]"
               >
-                <CompanyLogo symbol={item.symbol} size={34} />
+                <CompanyLogo symbol={item.symbol} description={item.description} size={34} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline justify-between gap-3">
                     <span className="text-[13px] font-semibold text-white">{item.symbol}</span>
