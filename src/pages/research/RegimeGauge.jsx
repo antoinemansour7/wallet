@@ -15,18 +15,22 @@ const bandFor = (score) => BANDS.find((b) => score >= b.min)
 
 // Component scores share the composite's colour scale, so a red row is red for
 // the same reason the headline is.
-function ComponentRow({ label, score, detail }) {
+// Name, then what it means in words, then the one number behind it. The number
+// used to be the whole row — "10y 4.76% at 100th pctile, +1.6% in 20d" is a
+// fine note to yourself and a poor thing to show a reader.
+function ComponentRow({ label, score, detail, metric }) {
   const band = bandFor(score)
   return (
-    <div className="py-2">
+    <div className="py-2.5">
       <div className="flex items-center gap-2.5">
-        <span className="min-w-0 flex-1 truncate text-[12.5px] text-white/60">{label}</span>
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-white/70">{label}</span>
         <div className="h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-white/[0.07]">
           <div className={`h-full rounded-full ${band.bar}`} style={{ width: `${Math.max(4, score * 10)}%` }} />
         </div>
-        <span className={`w-6 shrink-0 text-right font-mono text-[12.5px] font-semibold tabular ${band.tone}`}>{score}</span>
+        <span className={`w-6 shrink-0 text-right font-mono text-[13px] font-semibold tabular ${band.tone}`}>{score}</span>
       </div>
-      <p className="mt-0.5 text-[11.5px] leading-snug text-white/35">{detail}</p>
+      <p className="mt-1 text-[12.5px] leading-snug text-white/50">{detail}</p>
+      {metric && <p className="mt-0.5 text-[11px] leading-snug text-white/25">{metric}</p>}
     </div>
   )
 }
@@ -67,8 +71,8 @@ export default function RegimeGauge({ regime, defaultOpen = false }) {
             <div className={`h-full rounded-full ${band.bar}`} style={{ width: `${pct}%` }} />
           </div>
           {regime.drag && (
-            <p className="mt-2.5 text-[12px] leading-snug text-white/45">
-              Biggest drag: <span className="text-white/60">{regime.drag.label}</span> — {regime.drag.detail}
+            <p className="mt-2.5 text-[12.5px] leading-snug text-white/50">
+              Weakest part: <span className="text-white/70">{regime.drag.label}</span> — {regime.drag.detail.toLowerCase()}
             </p>
           )}
         </div>
@@ -85,15 +89,15 @@ export default function RegimeGauge({ regime, defaultOpen = false }) {
       {open && (
         <div className="mt-3.5 border-t border-white/[0.06] pt-1.5">
           {(regime.components ?? []).map((c) => (
-            <ComponentRow key={c.key} label={c.label} score={c.score} detail={c.detail} />
+            <ComponentRow key={c.key} label={c.label} score={c.score} detail={c.detail} metric={c.metric} />
           ))}
           {/* Said plainly, because a number next to a list of picks invites exactly
               the reading it must not have. */}
-          <p className="mt-3 border-t border-white/[0.05] pt-3 text-[11px] leading-relaxed text-white/30">
-            Rates the market, not the picks. A strong setup in a weak tape is still a strong
-            setup — this argues about position size, not about whether an idea is good.
-            Uncalibrated: one month of history could not separate its signal from drift, so
-            nothing downstream acts on it automatically.
+          <p className="mt-3 border-t border-white/[0.05] pt-3 text-[11.5px] leading-relaxed text-white/35">
+            This scores the market, not the picks below. A good stock can still be a bad
+            moment to buy — use it to decide how much to put in, not whether an idea is any
+            good. It is new and not yet proven against results, so nothing else here acts
+            on it automatically.
           </p>
         </div>
       )}

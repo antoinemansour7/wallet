@@ -161,75 +161,133 @@ export const REGIME_WEIGHTS = {
 export function computeRegime(series, asOf = null) {
   const s = (key) => series[key] || []
   const parts = []
-  const add = (key, label, score, detail) => {
+  const add = (key, label, score, copy) => {
     if (score == null) return
-    parts.push({ key, label, score: round1(clamp(score)), weight: REGIME_WEIGHTS[key], detail })
+    parts.push({
+      key, label, score: round1(clamp(score)), weight: REGIME_WEIGHTS[key],
+      detail: copy.detail, metric: copy.metric, technical: copy.technical,
+    })
   }
 
-  // Trend — is the index itself working?
+  // Each component carries three strings, because three different readers need
+  // three different things. `detail` is what a person reads: what this actually
+  // means for them, in words. `metric` is the one number behind it. `technical`
+  // is the precise form the model gets in its prompt — an LLM reasons better
+  // over "10y 4.76% at 100th pctile" than over "borrowing costs are high".
+  const pct = (n) => `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`
+  const pp = (n) => `${n >= 0 ? '+' : ''}${n.toFixed(1)}pp`
+
+  // Market direction — is the index itself working?
   const spy50 = distanceFromSma(s('SPY'), asOf, 50)
   const spy200 = distanceFromSma(s('SPY'), asOf, 200)
   if (spy50 != null) {
-    add('trend', 'Trend', 5 + spy50 * 1.2 + (spy200 ?? 0) * 0.15,
-      `SPY ${spy50 >= 0 ? '+' : ''}${spy50.toFixed(1)}% vs 50MA`
-      + (spy200 != null ? `, ${spy200 >= 0 ? '+' : ''}${spy200.toFixed(1)}% vs 200MA` : ''))
+    add('trend', 'Market direction', 5 + spy50 * 1.2 + (spy200 ?? 0) * 0.15, {
+      detail: spy50 > 2 ? 'Climbing, and well above where it has been trading'
+        : spy50 > 0 ? 'Holding just above where it has been trading'
+        : spy50 > -2 ? 'Slipped just below where it has been trading'
+        : 'Falling, and well below where it has been trading',
+      metric: `S&P 500 ${pct(spy50)} vs its 50-day average`,
+      technical: `SPY ${pct(spy50)} vs 50MA`
+        + (spy200 != null ? `, ${pct(spy200)} vs 200MA` : ''),
+    })
   }
 
-  // Volatility — low VIX is supportive. Monotonic on purpose: a complacency
+  // Calm vs fear — low VIX is supportive. Monotonic on purpose: a complacency
   // penalty at the extreme low is a real effect but not one this sample can
   // separate from noise, so it is left out rather than guessed at.
   const vixPct = percentileAsOf(s('VIX'), asOf)
   const vixLast = valueAsOf(s('VIX'), asOf)
   if (vixPct != null) {
-    add('volatility', 'Volatility', 10 - vixPct / 10,
-      `VIX ${vixLast?.toFixed(1)} (${ordinal(vixPct)} pctile)`)
+    add('volatility', 'Calm vs fear', 10 - vixPct / 10, {
+      detail: vixPct <= 20 ? 'Unusually relaxed — hardly anyone is paying for protection'
+        : vixPct <= 40 ? 'Calmer than usual'
+        : vixPct <= 60 ? 'Normal levels of nervousness'
+        : vixPct <= 80 ? 'Jumpier than usual'
+        : 'Fearful — investors are braced for big swings',
+      metric: `Fear gauge at ${vixLast?.toFixed(1)}, lower than ${100 - vixPct}% of the past year`,
+      technical: `VIX ${vixLast?.toFixed(1)} (${ordinal(vixPct)} pctile)`,
+    })
   }
 
-  // Rate stress — level AND rate of change. Fast-rising yields compress the
+  // Interest rates — level AND rate of change. Fast-rising yields compress the
   // multiples of exactly the long-duration names this board favours.
   const tnxPct = percentileAsOf(s('TNX'), asOf)
   const tnx20 = changeOver(s('TNX'), asOf, 20)
   const tnxLast = valueAsOf(s('TNX'), asOf)
   if (tnxPct != null) {
-    add('rates', 'Rate stress', 10 - tnxPct / 10 - (tnx20 ?? 0) * 1.5,
-      `10y ${tnxLast?.toFixed(2)}% at ${ordinal(tnxPct)} pctile`
-      + (tnx20 != null ? `, ${tnx20 >= 0 ? '+' : ''}${tnx20.toFixed(1)}% in 20d` : ''))
+    const rising = (tnx20 ?? 0) > 0.5
+    add('rates', 'Interest rates', 10 - tnxPct / 10 - (tnx20 ?? 0) * 1.5, {
+      detail: tnxPct >= 85
+        ? (rising
+          ? 'At a one-year high and still rising — this pulls money out of stocks'
+          : 'At a one-year high, which weighs on what stocks are worth')
+        : tnxPct >= 60 ? 'On the high side, a mild drag on stocks'
+        : tnxPct <= 25 ? 'Low, which makes stocks more attractive'
+        : 'Around normal',
+      metric: `10-year government bond at ${tnxLast?.toFixed(2)}%`,
+      technical: `10y ${tnxLast?.toFixed(2)}% at ${ordinal(tnxPct)} pctile`
+        + (tnx20 != null ? `, ${pct(tnx20)} in 20d` : ''),
+    })
   }
 
-  // Commodity stress — a fast crude spike is an input-cost and inflation shock.
+  // Oil — a fast crude spike is an input-cost and inflation shock.
   const oil20 = changeOver(s('OIL'), asOf, 20)
   if (oil20 != null) {
-    add('commodity', 'Commodity', 5 - oil20 * 0.5,
-      `crude ${oil20 >= 0 ? '+' : ''}${oil20.toFixed(1)}% in 20d`)
+    add('commodity', 'Oil', 5 - oil20 * 0.5, {
+      detail: oil20 > 8 ? 'Spiking, which pushes up costs across the economy'
+        : oil20 > 3 ? 'Climbing, adding to cost pressure'
+        : oil20 > -3 ? 'Steady'
+        : 'Falling, which eases cost pressure',
+      metric: `Crude ${pct(oil20)} over the past month`,
+      technical: `crude ${pct(oil20)} in 20d`,
+    })
   }
 
-  // Risk appetite — are speculative cohorts being paid or punished, relative
-  // to the index? Absolute moves say more about beta than about appetite.
+  // Appetite for risk — are speculative cohorts being paid or punished,
+  // relative to the index? Absolute moves say more about beta than appetite.
   const arkk20 = changeOver(s('ARKK'), asOf, 20)
   const iwm20 = changeOver(s('IWM'), asOf, 20)
   const spy20 = changeOver(s('SPY'), asOf, 20)
   if (spy20 != null && (arkk20 != null || iwm20 != null)) {
     const arkkRel = arkk20 != null ? arkk20 - spy20 : 0
     const iwmRel = iwm20 != null ? iwm20 - spy20 : 0
-    add('riskAppetite', 'Risk appetite', 5 + arkkRel * 0.25 + iwmRel * 0.4,
-      `high-beta ${arkkRel >= 0 ? '+' : ''}${arkkRel.toFixed(1)}pp, small caps ${iwmRel >= 0 ? '+' : ''}${iwmRel.toFixed(1)}pp vs SPY`)
+    add('riskAppetite', 'Appetite for risk', 5 + arkkRel * 0.25 + iwmRel * 0.4, {
+      detail: arkkRel > 1 && iwmRel > 1 ? 'Investors are happily buying riskier, faster-growing companies'
+        : arkkRel > 1 ? 'Money is chasing big speculative names, but smaller companies are being left behind'
+        : arkkRel < -1 && iwmRel < -1 ? 'Investors are backing away from anything risky'
+        : 'Some risk-taking, but not across the board',
+      metric: `Speculative stocks ${pp(arkkRel)} vs the S&P over a month`,
+      technical: `high-beta ${pp(arkkRel)}, small caps ${pp(iwmRel)} vs SPY`,
+    })
   }
 
-  // Credit — the market that usually cracks first.
+  // Credit markets — the market that usually cracks first.
   const hygSma = distanceFromSma(s('HYG'), asOf, 50)
   const hygPct = percentileAsOf(s('HYG'), asOf)
   if (hygSma != null) {
-    add('credit', 'Credit', 5 + hygSma * 3 - (50 - (hygPct ?? 50)) / 10,
-      `HYG ${hygSma >= 0 ? '+' : ''}${hygSma.toFixed(1)}% vs 50MA`
-      + (hygPct != null ? `, ${ordinal(hygPct)} pctile` : ''))
+    const creditScore = 5 + hygSma * 3 - (50 - (hygPct ?? 50)) / 10
+    add('credit', 'Credit markets', creditScore, {
+      detail: creditScore <= 3.5
+        ? 'Lenders are turning cautious on riskier companies — often an early warning'
+        : creditScore >= 6.5 ? 'Lenders are relaxed about lending to riskier companies'
+        : 'Steady',
+      metric: `Risky-company debt ${pct(hygSma)} vs its 50-day average`,
+      technical: `HYG ${pct(hygSma)} vs 50MA`
+        + (hygPct != null ? `, ${ordinal(hygPct)} pctile` : ''),
+    })
   }
 
-  // Breadth — is the advance shared, or is the index being carried?
+  // Spread of gains — is the advance shared, or is the index being carried?
   const rsp20 = changeOver(s('RSP'), asOf, 20)
   if (rsp20 != null && spy20 != null) {
     const rel = rsp20 - spy20
-    add('breadth', 'Breadth', 5 + rel * 2,
-      `equal-weight ${rel >= 0 ? '+' : ''}${rel.toFixed(1)}pp vs cap-weight`)
+    add('breadth', 'Spread of gains', 5 + rel * 2, {
+      detail: rel < -0.5 ? 'The gains are coming from a handful of giant companies, not the whole market'
+        : rel > 0.5 ? 'Gains are spread widely across the market'
+        : 'Gains are reasonably evenly spread',
+      metric: `Average stock ${pp(rel)} vs the biggest ones`,
+      technical: `equal-weight ${pp(rel)} vs cap-weight`,
+    })
   }
 
   if (parts.length === 0) return null
@@ -245,7 +303,9 @@ export function computeRegime(series, asOf = null) {
     score: round1(score),
     label: regimeLabel(score),
     components: parts,
-    drag: sorted[0] ? { label: sorted[0].label, detail: sorted[0].detail } : null,
+    drag: sorted[0]
+      ? { label: sorted[0].label, detail: sorted[0].detail, technical: sorted[0].technical }
+      : null,
     support: sorted.at(-1) ? { label: sorted.at(-1).label, detail: sorted.at(-1).detail } : null,
     coverage: `${parts.length}/${Object.keys(REGIME_WEIGHTS).length}`,
   }
@@ -305,17 +365,22 @@ export async function getMarketRegime() {
   return regime
 }
 
-/** Compact block for the model prompt — numbers, not adjectives. */
+/**
+ * Compact block for the model prompt — the precise readings, not the plain
+ * English the panel shows. A model reasons better over "10y 4.76% at 100th
+ * pctile" than over "borrowing costs are high"; a person is the other way
+ * round, which is why each component carries both.
+ */
 export function formatRegimeForPrompt(regime) {
   if (!regime) return ''
   const lines = regime.components.map(
-    (c) => `  ${c.label}: ${c.score}/10 — ${c.detail}`,
+    (c) => `  ${c.label}: ${c.score}/10 — ${c.technical ?? c.detail}`,
   )
   return [
     '',
     `=== MARKET REGIME (${regime.score}/10 — ${regime.label}) ===`,
     ...lines,
-    `Biggest drag: ${regime.drag?.label} (${regime.drag?.detail}).`,
+    `Biggest drag: ${regime.drag?.label} (${regime.drag?.technical ?? regime.drag?.detail}).`,
     'This rates the tape, not any individual pick. Do NOT lower a pick\'s conviction because',
     'the regime is poor — conviction rates the idea on its own merits and position size is',
     'where the tape is expressed. Use this to judge whether a setup has to fight its',
