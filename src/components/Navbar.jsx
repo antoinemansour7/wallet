@@ -12,7 +12,6 @@ export function Logo({ size = 30, withWordmark = true }) {
       >
         <svg viewBox="0 0 32 32" className="size-[72%]" fill="none">
           <path d="M5 8.5 9.5 23 14.8 11.5 20.2 23 27 8.5" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="M18.2 8.5h5.2a3.6 3.6 0 0 1 0 7.2h-5.2m0 0h5.8a3.6 3.6 0 0 1 0 7.2h-5.8V8.5Z" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" opacity=".58" />
         </svg>
       </span>
       {withWordmark && (
