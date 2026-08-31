@@ -5,6 +5,7 @@ import Reveal from '../components/Reveal'
 import { SearchSpot } from '../components/illustrations'
 import { loadLocalPortfolio } from '../utils/portfolioStorage'
 import { flattenAccountRows } from '../utils/accountPortfolio'
+import RegimeGauge from './research/RegimeGauge'
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -260,6 +261,9 @@ export default function Research() {
             )}
           </div>
         </div>
+
+        {/* Market conditions — the tape the picks below have to survive. */}
+        {!loadingResearch && <RegimeGauge regime={research?.regime} />}
 
         {/* Picks */}
         {loadingResearch ? (
