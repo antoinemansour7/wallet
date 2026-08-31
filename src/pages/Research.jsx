@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext'
 import Reveal from '../components/Reveal'
 import { SearchSpot } from '../components/illustrations'
 import { loadLocalPortfolio } from '../utils/portfolioStorage'
+import { IS_PREVIEW, PREVIEW_RESEARCH } from '../preview/mockMode'
 import { flattenAccountRows } from '../utils/accountPortfolio'
 import RegimeGauge from './research/RegimeGauge'
 import PickCard from './research/PickCard'
@@ -27,17 +28,19 @@ function formatTime(dateStr) {
 function SignalTrail({ research }) {
   const x = research?.xBreakdown
   const parts = [
-    x?.accountSignals != null && { label: 'Curated accounts', value: x.accountSignals },
-    x?.searchSignals != null && { label: 'X search', value: x.searchSignals },
-    research?.articles?.length ? { label: 'News', value: research.articles.length } : null,
-    research?.queryCount ? { label: 'Queries', value: research.queryCount } : null,
+    // Pipeline stage names meant nothing to a reader. Each label now says what
+    // was actually read, not which part of the system read it.
+    x?.accountSignals != null && { label: 'Posts from traders we follow', value: x.accountSignals },
+    x?.searchSignals != null && { label: 'Other posts found by searching', value: x.searchSignals },
+    research?.articles?.length ? { label: 'News articles', value: research.articles.length } : null,
+    research?.queryCount ? { label: 'Searches run', value: research.queryCount } : null,
   ].filter(Boolean)
 
   if (parts.length === 0) return null
 
   return (
     <div className="rounded-2xl border border-white/[0.05] bg-wall-surface/60 px-5 py-4">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/40">What fed this run</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/40">What we read last night</p>
       {/* Two columns so this reads the same in a 320px rail as it does full width. */}
       <div className="mt-3.5 grid grid-cols-2 gap-x-4 gap-y-3.5">
         {parts.map((p) => (
@@ -62,6 +65,10 @@ export default function Research() {
   const { user } = useAuth()
 
   async function loadResearch() {
+    // /api/get-research needs the nightly pipeline behind it. In preview the
+    // page would otherwise sit on its empty state, which is the one view that
+    // shows nothing about how the copy reads.
+    if (IS_PREVIEW) { setResearch(PREVIEW_RESEARCH); setLoadingResearch(false); return }
     try {
       const res = await fetch('/api/get-research')
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -128,8 +135,8 @@ export default function Research() {
           </div>
           <p className="mt-2 text-[15px] leading-relaxed text-white/50">
             {hasAnything
-              ? `${picks.length + below.length} pick${picks.length + below.length === 1 ? '' : 's'} from ${signalCount.toLocaleString()} signals across X, screeners, media and news`
-              : 'Overnight picks from X, screeners, media and news'}
+              ? `${picks.length + below.length} idea${picks.length + below.length === 1 ? '' : 's'}, picked overnight from ${signalCount.toLocaleString()} posts, articles and stock screens`
+              : 'Ideas picked overnight from posts, articles and stock screens'}
           </p>
         </header>
 
@@ -171,9 +178,9 @@ export default function Research() {
 
             {picks.length === 0 && (
               <div className="rounded-2xl border border-dashed border-white/[0.08] px-5 py-8 text-center">
-                <p className="text-[13px] text-white/50">Nothing cleared {CONVICTION_THRESHOLD}/10 tonight</p>
+                <p className="text-[13px] text-white/50">Nothing looked strong enough tonight</p>
                 <p className="mt-1 text-[12px] text-white/30">
-                  {below.length} lower-conviction candidate{below.length === 1 ? '' : 's'} below
+                  {below.length} weaker idea{below.length === 1 ? '' : 's'} below, if you want to look anyway
                 </p>
               </div>
             )}
@@ -186,7 +193,7 @@ export default function Research() {
                   aria-expanded={showBelow}
                   className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-white/[0.05] py-2.5 text-[11.5px] text-white/35 transition-colors duration-200 hover:border-white/[0.10] hover:text-white/60"
                 >
-                  {showBelow ? 'Hide' : `Show ${below.length} more`} below the {CONVICTION_THRESHOLD}/10 threshold
+                  {showBelow ? 'Hide the weaker ideas' : `Show ${below.length} weaker idea${below.length === 1 ? '' : 's'}`}
                   <svg
                     width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                     strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"

@@ -81,3 +81,67 @@ export const PREVIEW_PORTFOLIO = {
   lastPriceRefreshAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 }
+
+// ─── Research ─────────────────────────────────────────────────────────────────
+// Shaped to hit the branches that only appear with real output: a pick above
+// the cut and one below it, a confirmed catalyst and an unconfirmed one, a
+// complete trade plan and one missing its levels, overbought and oversold
+// readings, and a regime with a named weakest component.
+
+export const PREVIEW_RESEARCH = {
+  generatedAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+  signalCount: 562,
+  queryCount: 60,
+  xBreakdown: { accountSignals: 130, searchSignals: 200 },
+  articles: new Array(60).fill(null).map((_, i) => ({ id: i })),
+  regime: {
+    score: 5.1,
+    label: 'Mixed',
+    drag: { label: 'Interest rates', detail: 'At a one-year high and still rising, which pulls money out of stocks' },
+    components: [
+      { key: 'rates', label: 'Interest rates', score: 2, detail: 'At a one-year high and still rising, which pulls money out of stocks', metric: '10-year Treasury 4.76%, up 1.6% in 20 days' },
+      { key: 'credit', label: 'Cost of borrowing', score: 6, detail: 'Companies can still borrow at normal cost, so nothing looks strained', metric: 'High-yield spread 3.1%, near its two-year average' },
+      { key: 'vol', label: 'Nervousness', score: 5, detail: 'Traders expect an ordinary amount of movement, neither calm nor panicked', metric: 'VIX 17.4' },
+      { key: 'breadth', label: 'How many stocks are rising', score: 4, detail: 'The gains are concentrated in a few large names rather than spread out', metric: '44% of the S&P above its 50-day average' },
+      { key: 'trend', label: 'Market direction', score: 7, detail: 'The index is above its long-term average and has been climbing', metric: 'S&P 3.2% above its 200-day average' },
+      { key: 'dollar', label: 'US dollar', score: 5, detail: 'Flat, so it is neither helping nor hurting company earnings abroad', metric: 'DXY 104.1, unchanged over 20 days' },
+      { key: 'energy', label: 'Oil price', score: 3, detail: 'Rising quickly, which raises costs for most companies', metric: 'WTI $87.20, up 11% in 20 days' },
+    ],
+  },
+  picks: [
+    {
+      ticker: 'RKLB', conviction: 8, setupType: 'catalyst',
+      sources: ['@optionshawk', '@Mr_Derivatives', 'finviz', 'RKLB catalyst search'],
+      themes: ['space', 'earnings', 'contracts'], signalCount: 14, quoteVerified: true,
+      price: 42.18, quoteChangePercent: 2.4, stopLoss: 38.4, target: 49.5,
+      reason: 'NASA awarded a $150M hypersonic test contract last week, and three traders who do not follow each other all flagged heavy call buying for May. The stock has been sitting in a narrow band just under $42 for two weeks, which often comes before a sharp move, and earnings land Thursday after the close. If the contract pipeline speeds up, there is room to $49 against about $4 of downside.',
+      bearCase: 'The stock has already climbed 35% this month, so people who bought early have a large profit to protect and may sell into any good news. The NASA contract has been public for a week, so the market has likely accounted for it already. If Thursday guidance disappoints, the nearest level buyers have defended is $38, about 10% lower.',
+      riskScore: 6,
+      catalystVerified: true, catalystTimeline: 'Thursday after close', catalystPricedIn: false,
+      catalystDetail: 'Q2 earnings confirmed for Thursday, with analysts expecting revenue near $132M.',
+      technicals: { trend: 'consolidating', rsi: 58, pctFrom52wHigh: -6, relativeVolume: 1.8 },
+    },
+    {
+      ticker: 'MU', conviction: 7, setupType: 'breakout',
+      sources: ['@aleabitoreddit', 'exa-discovery', 'finviz'],
+      themes: ['ai', 'semiconductors'], signalCount: 9, quoteVerified: true,
+      price: 118.4, quoteChangePercent: -0.8, stopLoss: 109, target: 134,
+      reason: 'Memory prices rose for the third month running, and Micron sells into exactly that. The stock just cleared the level that capped it since March on volume nearly double normal, which suggests real buying rather than drift. Two analysts raised targets this week on the same reasoning.',
+      bearCase: 'Memory has boom and bust cycles, and suppliers are adding capacity that usually arrives right as prices peak. At 74 the momentum reading is high enough that a pause would be normal. A pullback to $109 would be ordinary rather than alarming, but it is 8% away.',
+      riskScore: 5,
+      catalystVerified: false, catalystTimeline: 'Next month', catalystPricedIn: true,
+      catalystDetail: 'Reported plans for a Japan fab expansion, which we could not confirm in company filings.',
+      technicals: { trend: 'overbought-uptrend', rsi: 74, pctFrom52wHigh: -3, relativeVolume: 1.9 },
+    },
+    {
+      ticker: 'SOFI', conviction: 5, setupType: 'squeeze',
+      sources: ['@wallstengine', 'finviz'],
+      themes: ['fintech'], signalCount: 4, quoteVerified: true,
+      price: 8.94, quoteChangePercent: 1.1, stopLoss: null, target: null,
+      reason: 'Trading in a tight range with a large share of the stock sold short, which can force those sellers to buy back quickly if it moves up. But no specific event is scheduled, so this rests on the chart alone and could sit still for weeks.',
+      bearCase: 'Nothing here forces a move. Tight ranges resolve downward as often as upward, and with no event on the calendar there is no reason for the next buyer to show up this week rather than next month.',
+      riskScore: 6,
+      technicals: { trend: 'oversold-downtrend', rsi: 28, pctFrom52wHigh: -34, relativeVolume: 1.1 },
+    },
+  ],
+}

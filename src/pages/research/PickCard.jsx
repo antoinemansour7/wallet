@@ -3,15 +3,18 @@ import CompanyLogo from '../../components/CompanyLogo'
 
 // ─── Labels ────────────────────────────────────────────────────────────────────
 
+// The pipeline's setup names are trader shorthand. Each becomes a short phrase
+// that says what the chart is doing, so the chip is readable without a glossary.
 const SETUP_LABELS = {
-  squeeze: 'Squeeze', breakout: 'Breakout', volume: 'Volume',
-  catalyst: 'Catalyst', momentum: 'Momentum',
+  squeeze: 'Coiled tight', breakout: 'Breaking out', volume: 'Unusual volume',
+  catalyst: 'Event coming', momentum: 'Trending up',
 }
 
 const TREND_LABELS = {
-  uptrend: 'Uptrend', 'overbought-uptrend': 'Overbought', recovery: 'Recovery',
-  consolidating: 'Consolidating', pullback: 'Pullback', downtrend: 'Downtrend',
-  'oversold-downtrend': 'Oversold', mixed: 'Mixed',
+  uptrend: 'Rising', 'overbought-uptrend': 'Rising, looks stretched',
+  recovery: 'Recovering', consolidating: 'Flat range', pullback: 'Pulling back',
+  downtrend: 'Falling', 'oversold-downtrend': 'Falling, may be oversold',
+  mixed: 'No clear direction',
 }
 
 // The raw source strings are internal identifiers. "exa-discovery" and
@@ -19,10 +22,10 @@ const TREND_LABELS = {
 function sourceLabel(source) {
   const s = String(source)
   if (s.startsWith('@')) return s
-  if (s === 'finviz') return 'Screener'
-  if (s === 'exa-discovery') return 'Media'
-  if (s.endsWith('catalyst search')) return 'Catalyst search'
-  if (s.endsWith('search')) return 'Search'
+  if (s === 'finviz') return 'Stock screener'
+  if (s === 'exa-discovery') return 'News coverage'
+  if (s.endsWith('catalyst search')) return 'News search'
+  if (s.endsWith('search')) return 'Web search'
   return s
 }
 
@@ -189,16 +192,16 @@ export default function PickCard({ pick, rank, defaultOpen = false }) {
 
       {open && (
         <div className="space-y-5 border-t border-white/[0.06] px-4 py-5 sm:px-5 sm:py-6">
-          <Section label="Thesis">
+          <Section label="Why this one">
             <p className="text-[14.5px] leading-[1.8] text-white/75">{reason}</p>
           </Section>
 
           {hasPlan && (
             <div className="grid grid-cols-3 gap-2">
               {[
-                { k: 'Entry', v: money(entry), cls: 'text-white', bg: 'bg-white/[0.04]' },
-                { k: 'Stop', v: money(stop), cls: 'text-loss', bg: 'bg-loss/[0.07]' },
-                { k: 'Target', v: money(tgt), cls: 'text-gain', bg: 'bg-gain/[0.07]' },
+                { k: 'Buy near', v: money(entry), cls: 'text-white', bg: 'bg-white/[0.04]' },
+                { k: 'Cut losses at', v: money(stop), cls: 'text-loss', bg: 'bg-loss/[0.07]' },
+                { k: 'Take profit at', v: money(tgt), cls: 'text-gain', bg: 'bg-gain/[0.07]' },
               ].map((c) => (
                 <div key={c.k} className={`rounded-xl px-3 py-2.5 text-center ${c.bg}`}>
                   <p className="text-[10.5px] font-semibold uppercase tracking-[0.1em] text-white/45">{c.k}</p>
@@ -209,7 +212,7 @@ export default function PickCard({ pick, rank, defaultOpen = false }) {
           )}
 
           {technicals && (technicals.trend || technicals.rsi != null) && (
-            <Section label="Technicals">
+            <Section label="What the chart shows">
               <div className="flex flex-wrap gap-1.5">
                 {technicals.trend && (
                   <span className="rounded-md border border-white/[0.08] px-2.5 py-1.5 text-[12.5px] text-white/60">
@@ -217,18 +220,19 @@ export default function PickCard({ pick, rank, defaultOpen = false }) {
                   </span>
                 )}
                 {technicals.rsi != null && (
-                  <span className="rounded-md border border-white/[0.08] px-2.5 py-1.5 font-mono text-[12.5px] text-white/55">
-                    RSI {technicals.rsi}
+                  <span className="rounded-md border border-white/[0.08] px-2.5 py-1.5 text-[12.5px] text-white/55">
+                    {technicals.rsi >= 70 ? 'Possibly overbought' : technicals.rsi <= 30 ? 'Possibly oversold' : 'Neither cheap nor stretched'}
+                    <span className="ml-1.5 font-mono text-white/30">{technicals.rsi}</span>
                   </span>
                 )}
                 {technicals.pctFrom52wHigh != null && (
-                  <span className="rounded-md border border-white/[0.08] px-2.5 py-1.5 font-mono text-[12.5px] text-white/55">
-                    {technicals.pctFrom52wHigh}% from high
+                  <span className="rounded-md border border-white/[0.08] px-2.5 py-1.5 text-[12.5px] text-white/55">
+                    <span className="font-mono">{Math.abs(technicals.pctFrom52wHigh)}%</span> below its 12-month high
                   </span>
                 )}
                 {technicals.relativeVolume > 1.3 && (
-                  <span className="rounded-md border border-white/[0.08] px-2.5 py-1.5 font-mono text-[12.5px] text-white/55">
-                    {technicals.relativeVolume}× vol
+                  <span className="rounded-md border border-white/[0.08] px-2.5 py-1.5 text-[12.5px] text-white/55">
+                    <span className="font-mono">{technicals.relativeVolume}×</span> its normal volume
                   </span>
                 )}
               </div>
@@ -238,7 +242,7 @@ export default function PickCard({ pick, rank, defaultOpen = false }) {
           {bearCase && (
             <div className="rounded-xl bg-loss/[0.05] px-3.5 py-3">
               <Section
-                label="Bear case"
+                label="What could go wrong"
                 trailing={riskScore != null && <ScoreMeter score={riskScore} tone="risk" />}
               >
                 <p className="text-[13.5px] leading-[1.8] text-white/65">{bearCase}</p>
@@ -250,11 +254,11 @@ export default function PickCard({ pick, rank, defaultOpen = false }) {
             <div className={`rounded-xl px-3.5 py-3 ${catalystVerified ? 'bg-gain/[0.05]' : 'bg-white/[0.03]'}`}>
               <div className="mb-1.5 flex flex-wrap items-center gap-2">
                 <span className={`text-[10px] font-semibold uppercase tracking-[0.1em] ${catalystVerified ? 'text-gain/80' : 'text-white/35'}`}>
-                  {catalystVerified ? 'Catalyst verified' : 'Unverified catalyst'}
+                  {catalystVerified ? 'We confirmed this event' : "We couldn't confirm this event"}
                 </span>
                 {catalystTimeline && <span className="text-[10.5px] text-white/35">{catalystTimeline}</span>}
                 {catalystPricedIn && (
-                  <span className="rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[9.5px] font-medium text-white/40">Priced in</span>
+                  <span className="rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[9.5px] font-medium text-white/40">Market likely expects it</span>
                 )}
               </div>
               {catalystDetail && <p className="text-[13.5px] leading-[1.8] text-white/65">{catalystDetail}</p>}
@@ -264,11 +268,13 @@ export default function PickCard({ pick, rank, defaultOpen = false }) {
           {/* Evidence trail, so the score above is auditable rather than asserted. */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-white/[0.05] pt-3.5 text-[12px] text-white/40">
             <span>
-              {sources.length} independent source{sources.length === 1 ? '' : 's'}
-              {signalCount > 0 && ` · ${signalCount} signal${signalCount === 1 ? '' : 's'}`}
+              Found by {sources.length} source{sources.length === 1 ? '' : 's'} that don't share a feed
+              {signalCount > 0 && ` · ${signalCount} mention${signalCount === 1 ? '' : 's'}`}
             </span>
-            {themes.length > 0 && <span className="text-white/25">{themes.slice(0, 4).join(' · ')}</span>}
-            {quoteVerified && <span className="text-white/25">price verified live</span>}
+            {themes.length > 0 && (
+              <span className="text-white/25">About: {themes.slice(0, 4).join(', ')}</span>
+            )}
+            {quoteVerified && <span className="text-white/25">Price checked just now</span>}
           </div>
         </div>
       )}

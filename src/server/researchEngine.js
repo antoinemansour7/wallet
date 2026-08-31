@@ -621,6 +621,7 @@ Return ONLY a valid JSON array, no markdown fences, no explanation:
 Rules:
 - conviction 1–10 (10 = strongest). Be honest — a 7 with clear reasoning beats an inflated 9
 - reason: 2-4 sentences (40-80 words). Explain the SPECIFIC catalyst, why the setup is compelling, and what makes the risk/reward asymmetric. Reference concrete details from the signals — dates, price levels, contract values, earnings dates, specific trader observations. Also reference the technical setup (RSI, trend, MACD direction) to validate entry timing. This is the main thing users read, make it insightful and specific, not generic.
+- WRITE THE reason FOR A NON-PROFESSIONAL. The reader is a retail investor, not a desk analyst. Keep every number and date — precision is the point — but say what they mean in ordinary words. Write "coiled in a tight range just under $42, which often precedes a sharp move" rather than "consolidating at $42 support with a screener-confirmed breakout pattern". Never use these without explaining them in the same sentence: squeeze, breakout, sell-the-news, extended, coil, setup, asymmetric, priced in, bagholder, tape, beta, coiled. No trader shorthand ("sold the rip", "bid up", "offer stacked"). Plain sentences, not clauses stacked with slashes. Aim for something an intelligent person who has never traded could read once and follow.
 - Max 5 tickers, sorted by conviction descending
 - Only quote-verified, tradable tickers from the board
 - PREFER band=starter or band=core-upside
