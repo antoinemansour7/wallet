@@ -9,39 +9,39 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans:    ['the-future', 'Inter', 'system-ui', 'sans-serif'],
-        display: ['the-future', 'Inter', 'system-ui', 'sans-serif'],
-        mono:    ['SF Mono', 'ui-monospace', 'monospace'],
+        sans:    ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        display: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono:    ['SFMono-Regular', 'ui-monospace', 'monospace'],
       },
       colors: {
-        // Core palette — neutral near-black, no warm tint
-        brand:           '#0a0a0c',
-        'brand-light':   '#fafafa',
-        surface:         '#141417',
-        card:            '#141417',
-        accent:          '#ffffff',
-        'accent-2':      '#d4d4d8',
+        // Quiet brokerage palette: paper, ink, sage, and restrained semantic color
+        brand:           '#f5f7f4',
+        'brand-light':   '#ffffff',
+        surface:         '#ffffff',
+        card:            '#ffffff',
+        accent:          '#216b50',
+        'accent-2':      '#d8e6dd',
 
         // Borders
-        border:          '#26262b',
-        'border-subtle': '#1c1c21',
+        border:          '#dfe6e1',
+        'border-subtle': '#e9eeea',
 
         // Text
-        'text-primary':   '#ffffff',
-        'text-secondary': '#9ca0a8',
-        'text-muted':     '#696e79',
+        'text-primary':   '#17211d',
+        'text-secondary': '#5c6b63',
+        'text-muted':     '#829087',
 
         // Semantic
         gain:      '#34d399',
-        'gain-bg': '#0b201a',
-        loss:      '#fb7185',
-        'loss-bg': '#251218',
-        warning:   '#fbbf24',
+'gain-bg': '#e5f1eb',
+        loss:          '#b84c49',
+        'loss-bg':     '#f7e9e7',
+        warning:       '#9b6b18',
 
-        // Dark surfaces
-        'wall-bg':       '#0a0a0c',
-        'wall-surface':  '#141417',
-        'wall-elevated': '#1a1a1f',
+        // Paper surfaces
+        'wall-bg':       '#f5f7f4',
+        'wall-surface':  '#ffffff',
+        'wall-elevated': '#edf3ee',
       },
       borderRadius: {
         card: '20px',

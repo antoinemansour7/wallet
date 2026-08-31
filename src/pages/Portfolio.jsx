@@ -346,7 +346,7 @@ export default function Portfolio() {
   const onDrop = (e) => { e.preventDefault(); setIsDragging(false); handleFile(e.dataTransfer.files[0]) }
 
   return (
-    <div className="min-h-screen bg-wall-bg">
+    <div className="portfolio-shell min-h-screen bg-wall-bg">
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
         <TabNav activeView={visibleView} hasData={hasData} onChange={setActiveView} />
 
