@@ -22,7 +22,7 @@ function hasExchangeSuffix(symbol) {
   return String(symbol ?? '').includes('.')
 }
 
-function getQuoteSymbolsForRow(row) {
+export function getQuoteSymbolsForRow(row) {
   const symbol = String(row.SYMBOL ?? '').trim()
   if (!symbol) return []
 
@@ -59,7 +59,7 @@ export function collectSymbols(rows) {
   )]
 }
 
-export async function fetchLivePrices(symbols) {
+export async function fetchLivePrices(symbols, { cachedOnly = false } = {}) {
   // Always include the USD/CAD FX rate so we can convert USD prices in CAD accounts.
   const uniqueSymbols = [...new Set(
     [...symbols, FX_SYMBOL].map((s) => String(s).trim()).filter(Boolean),
@@ -69,7 +69,7 @@ export async function fetchLivePrices(symbols) {
   const res = await fetch('/api/live-prices', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ symbols: uniqueSymbols }),
+    body: JSON.stringify({ symbols: uniqueSymbols, cachedOnly }),
   })
 
   const data = await res.json()
@@ -138,12 +138,20 @@ export function applyLivePrices(rows, quotes, usdCadRate = null) {
     const previousCloseValue = Number.isFinite(quote.previousClose)
       ? quote.previousClose * fxRate * quantity
       : null
-    const dayChange = previousCloseValue !== null
+    let dayChange = previousCloseValue !== null
       ? marketValue - previousCloseValue
       : null
-    const dayChangePct = dayChange !== null && previousCloseValue > 0
+    let dayChangePct = dayChange !== null && previousCloseValue > 0
       ? (dayChange / previousCloseValue) * 100
       : null
+    // Some providers return per-share change without previousClose — without
+    // this fallback those rows render an empty day change.
+    if (dayChange === null && Number.isFinite(quote.change)) {
+      dayChange = quote.change * fxRate * quantity
+    }
+    if (dayChangePct === null && Number.isFinite(quote.changePercent)) {
+      dayChangePct = quote.changePercent
+    }
     const unrealized = bookValue > 0 ? marketValue - bookValue : null
     const unrealizedPct = bookValue > 0 ? (unrealized / bookValue) * 100 : null
 
@@ -162,9 +170,9 @@ export function applyLivePrices(rows, quotes, usdCadRate = null) {
   return { rows: nextRows, updatedRows }
 }
 
-export async function enrichRowsWithLivePrices(rows) {
+export async function enrichRowsWithLivePrices(rows, { cachedOnly = false } = {}) {
   const symbols = collectSymbols(rows)
-  const { quotes, missing, errors, cache, usdCadRate } = await fetchLivePrices(symbols)
+  const { quotes, missing, errors, cache, usdCadRate } = await fetchLivePrices(symbols, { cachedOnly })
   const result = applyLivePrices(rows, quotes, usdCadRate)
 
   return {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { Logo } from '../components/Navbar'
 
 const BENEFITS = [
   'Portfolio syncs across all your devices.',
@@ -10,8 +11,8 @@ const BENEFITS = [
 ]
 
 const FEATURE_CHIPS = [
-  { color: '#00a87e', label: 'Live market prices' },
-  { color: '#494fdf', label: 'AI-parsed holdings' },
+  { color: '#34d399', label: 'Live market prices' },
+  { color: '#a1a1aa', label: 'AI-parsed holdings' },
   { color: 'rgba(255,255,255,0.4)', label: 'CDR · CAD · FX support' },
 ]
 
@@ -59,18 +60,13 @@ export default function Login() {
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-wall-bg">
-      {/* Background glow — Revolut blue accent */}
-      <div className="pointer-events-none absolute -top-40 left-1/4 h-[700px] w-[700px] rounded-full bg-[#494fdf]/[0.12] blur-[160px]" />
-      <div className="pointer-events-none absolute bottom-0 right-1/4 h-[400px] w-[400px] rounded-full bg-[#00a87e]/[0.06] blur-[120px]" />
+      {/* Background glow — warm ambient blobs, WS style */}
+      <div className="blob-drift pointer-events-none absolute -top-40 left-1/4 h-[700px] w-[700px] rounded-full bg-accent/[0.10] blur-[160px]" />
+      <div className="blob-drift-late pointer-events-none absolute bottom-0 right-1/4 h-[400px] w-[400px] rounded-full bg-gain/[0.07] blur-[120px]" />
 
       {/* Nav */}
       <nav className="relative z-10 mx-auto flex max-w-7xl items-center justify-between px-8 py-6">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10">
-            <LogoMark />
-          </div>
-          <span className="font-display text-base font-semibold text-white">WallAI</span>
-        </div>
+        <Logo size={36} />
         <span className="rounded-full border border-white/10 bg-white/[0.06] px-3.5 py-1.5 text-xs font-medium text-white/50">
           Private beta
         </span>
@@ -82,7 +78,7 @@ export default function Login() {
         {/* Left — hero */}
         <div className="animate-fade-in">
           <h1 className="mb-6 font-display text-[clamp(3rem,6vw,5.5rem)] font-semibold leading-[1.0] tracking-[-0.03em] text-white">
-            See what your<br />portfolio is<br />really doing.
+            See what your<br />portfolio is<br /><span className="text-gradient">really doing.</span>
           </h1>
 
           <p className="mb-10 max-w-md text-lg leading-relaxed text-white/45">
@@ -100,7 +96,7 @@ export default function Login() {
         </div>
 
         {/* Right — sign-in card */}
-        <div className="rounded-card border border-white/10 bg-wall-surface p-8">
+        <div className="animate-fade-in rounded-card border border-white/10 bg-wall-surface p-8 [animation-delay:150ms] [animation-fill-mode:backwards]">
           <h2 className="mb-1.5 font-display text-2xl font-semibold leading-tight text-white">
             Continue to<br />your workspace.
           </h2>
@@ -112,7 +108,7 @@ export default function Login() {
             type="button"
             onClick={handleSignIn}
             disabled={isSigningIn}
-            className="flex w-full items-center justify-center gap-3 rounded-full bg-white px-4 py-[14px] text-sm font-semibold text-brand transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-3 rounded-full bg-gradient-accent px-4 py-[14px] text-sm font-semibold text-brand shadow-glow-sm transition-all duration-ws ease-ws hover:shadow-glow disabled:cursor-not-allowed disabled:opacity-50"
           >
             <GoogleIcon />
             {isSigningIn ? 'Opening Google…' : 'Continue with Google'}
@@ -149,15 +145,6 @@ export default function Login() {
 
       </div>
     </main>
-  )
-}
-
-function LogoMark() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
-      <path d="M2 16L7 9L11 13L15 6L20 10" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M2 19h18" stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.35" />
-    </svg>
   )
 }
 

@@ -2,17 +2,18 @@ import { useState } from 'react'
 import { fmtCurrency } from '../../utils/portfolioStats'
 import { aggregatePositionsBySymbol } from './helpers'
 
+// Categorical allocation palette — distinct, professional, no purple
 const SEGMENT_COLORS = [
-  '#5eead4',
-  '#60a5fa',
-  '#a78bfa',
-  '#f472b6',
-  '#f59e0b',
-  '#34d399',
-  '#f87171',
   '#38bdf8',
-  '#c084fc',
-  '#facc15',
+  '#22d3ee',
+  '#2dd4bf',
+  '#34d399',
+  '#a3e635',
+  '#fbbf24',
+  '#f59e0b',
+  '#fb7185',
+  '#60a5fa',
+  '#94a3b8',
 ]
 
 function segmentColor(index) {

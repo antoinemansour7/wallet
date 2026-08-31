@@ -15,6 +15,16 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
+  // Run-log history: GET /api/get-research?logs=1 (cron monitoring)
+  if (req.query?.logs) {
+    try {
+      const { getRecentRuns } = await import('../src/server/runLog.js')
+      return res.status(200).json({ runs: await getRecentRuns(30) })
+    } catch (err) {
+      return res.status(500).json({ error: err.message })
+    }
+  }
+
   res.setHeader('Cache-Control', 'public, s-maxage=900, stale-while-revalidate=3600')
 
   const redis = getRedis()

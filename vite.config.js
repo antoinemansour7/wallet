@@ -57,8 +57,30 @@ function livePricesPlugin() {
         req.on('data', (chunk) => (body += chunk))
         req.on('end', async () => {
           try {
-            const { symbols } = JSON.parse(body || '{}')
-            const result = await fetchYahooQuotes(symbols)
+            const parsed = JSON.parse(body || '{}')
+
+            // Mirror the deployed function: { cachedOnly } → instant cache read,
+            // { positions } → history series, { symbols } → live quotes
+            if (parsed.cachedOnly && Array.isArray(parsed.symbols)) {
+              const { fetchCachedMarketQuotes } = await import('./src/server/marketQuotes.js')
+              res.setHeader('Content-Type', 'application/json')
+              return res.end(JSON.stringify(await fetchCachedMarketQuotes(parsed.symbols)))
+            }
+
+            if (Array.isArray(parsed.positions)) {
+              const mod = await import('./src/server/portfolioSeries.js')
+              const series = parsed.intraday
+                ? await mod.getIntradaySeries({ positions: parsed.positions, cashValue: Number(parsed.cashValue) || 0 })
+                : await mod.getPortfolioSeries({
+                    positions: parsed.positions,
+                    cashValue: Number(parsed.cashValue) || 0,
+                    days: Math.min(Number(parsed.days) || 365, 365),
+                  })
+              res.setHeader('Content-Type', 'application/json')
+              return res.end(JSON.stringify({ series }))
+            }
+
+            const result = await fetchYahooQuotes(parsed.symbols)
 
             res.setHeader('Content-Type', 'application/json')
             res.end(JSON.stringify(result))
@@ -68,6 +90,77 @@ function livePricesPlugin() {
             res.end(JSON.stringify({ error: err.message }))
           }
         })
+      })
+    },
+  }
+}
+
+function liveQuotePlugin() {
+  const seedCache = new Map() // symbol -> { seed, at } (dev-only, mirrors Redis TTL)
+  const sparkCache = new Map()
+  return {
+    name: 'live-quote-api',
+    configureServer(server) {
+      server.middlewares.use('/api/live-quote', (req, res) => {
+        res.setHeader('Content-Type', 'application/json')
+        if (req.method !== 'GET') {
+          res.statusCode = 405
+          return res.end(JSON.stringify({ error: 'Method not allowed' }))
+        }
+
+        const symbol = String(new URL(req.url, 'http://localhost').searchParams.get('symbol') || '')
+          .toUpperCase().trim()
+        if (!/^[A-Z]{1,6}(\.[A-Z]{1,3})?$/.test(symbol)) {
+          res.statusCode = 400
+          return res.end(JSON.stringify({ error: 'Enter a stock symbol, e.g. NVDA or ORAC.NE' }))
+        }
+
+        ;(async () => {
+          try {
+            const { computeSignal } = await import('./src/server/tradeSignal.js')
+            const { analyzeTickersBatch } = await import('./src/server/technicalAnalysis.js')
+            const { fetchYahooQuotes } = await import('./src/server/yahooQuotes.js')
+            const { getSpark } = await import('./api/live-quote.js')
+
+            const cached = seedCache.get(symbol)
+            let seed = cached && Date.now() - cached.at < 300_000 ? cached.seed : null
+            if (!seed) {
+              let tech = null
+              try { tech = (await analyzeTickersBatch([symbol], { concurrency: 1 })).get(symbol) } catch { /* */ }
+              seed = tech?.analyzed
+                ? { rsi: tech.rsi, sma20: tech.sma20, sma50: tech.sma50, macd: tech.macd, atr: tech.atr, relativeVolume: tech.relativeVolume, trend: tech.trend }
+                : {}
+              if (tech?.analyzed) seedCache.set(symbol, { seed, at: Date.now() })
+            }
+
+            let spark = sparkCache.get(symbol)
+            if (!spark || Date.now() - spark.at > 60_000) {
+              spark = { data: await getSpark(symbol), at: Date.now() }
+              sparkCache.set(symbol, spark)
+            }
+
+            const { quotes } = await fetchYahooQuotes([symbol], { forceRefresh: true })
+            const q = quotes.find((x) => Number.isFinite(x.price))
+            if (!q) return res.end(JSON.stringify({ found: false, symbol }))
+
+            const price = q.price
+            const prevClose = Number.isFinite(q.previousClose) ? q.previousClose : null
+            res.end(JSON.stringify({
+              found: true, symbol, name: q.shortName || '', currency: q.currency || '',
+              price,
+              ts: q.marketTime ? new Date(q.marketTime * 1000).toISOString() : new Date().toISOString(),
+              prevClose,
+              dayChange: prevClose ? Number((price - prevClose).toFixed(2)) : null,
+              dayChangePct: Number.isFinite(q.changePercent) ? Number(q.changePercent.toFixed(2)) : (prevClose ? Number((((price - prevClose) / prevClose) * 100).toFixed(2)) : null),
+              spark: spark.data,
+              indicators: { rsi: seed.rsi ?? null, macd: seed.macd ?? null, trend: seed.trend ?? null, atr: seed.atr ?? null, relativeVolume: seed.relativeVolume ?? null },
+              signal: computeSignal({ price, ...seed, prevClose }),
+            }))
+          } catch (err) {
+            res.statusCode = 500
+            res.end(JSON.stringify({ error: err.message }))
+          }
+        })()
       })
     },
   }
@@ -219,6 +312,7 @@ export default defineConfig(({ mode }) => {
       react(),
       pdfExtractPlugin(env.GROQ_API_KEY),
       livePricesPlugin(),
+      liveQuotePlugin(),
       refreshPricesPlugin(),
       getResearchPlugin(),
       nightlyResearchPlugin(env),

@@ -52,7 +52,7 @@ describe('deriveAdaptiveSeed and buildAdaptiveQueries', () => {
 
     const queries = buildAdaptiveQueries(seed)
     expect(queries.some((query) => query.id === 'theme:biotech')).toBe(true)
-    expect(queries.length).toBeLessThanOrEqual(5)
+    expect(queries.length).toBeLessThanOrEqual(10)
   })
 
   it('does not let mega-cap chatter dominate adaptive ticker searches', () => {

@@ -29,9 +29,10 @@ async function fetchDailyCandles(ticker, days = 120) {
   for (let i = 0; i < timestamps.length; i++) {
     const c = quotes.close?.[i]
     const h = quotes.high?.[i]
+    const l = quotes.low?.[i]
     const v = quotes.volume?.[i]
     if (c != null && h != null) {
-      candles.push({ c, h, v: v || 0 })
+      candles.push({ c, h, l: l ?? c, v: v || 0 })
     }
   }
 
@@ -160,7 +161,8 @@ function deriveTrend(price, sma20, sma50, rsi) {
 // ─── Main: analyze a single ticker ─────────────────────────────────────────────
 
 async function analyzeTicker(ticker) {
-  const candles = await fetchDailyCandles(ticker, 60)
+  // Full year of candles so the 52-week high is real (not a 60-day high)
+  const candles = await fetchDailyCandles(ticker, 365)
   if (!candles || candles.length < 20) {
     return { ticker, error: 'insufficient data', analyzed: false }
   }
@@ -187,9 +189,25 @@ async function analyzeTicker(ticker) {
     : null
   const relativeVolume = avgVol5 && avgVol20 ? Number((avgVol5 / avgVol20).toFixed(2)) : null
 
+  // ATR(14) for stop-loss / target placement
+  let atr = null
+  if (candles.length >= 15) {
+    const trs = []
+    for (let i = candles.length - 14; i < candles.length; i++) {
+      const prevClose = candles[i - 1].c
+      trs.push(Math.max(
+        candles[i].h - candles[i].l,
+        Math.abs(candles[i].h - prevClose),
+        Math.abs(candles[i].l - prevClose),
+      ))
+    }
+    atr = Number((trs.reduce((s, v) => s + v, 0) / trs.length).toFixed(2))
+  }
+
   const trend = deriveTrend(price, sma20, sma50, rsi)
 
   return {
+    atr,
     ticker,
     analyzed: true,
     price: Number(price.toFixed(2)),

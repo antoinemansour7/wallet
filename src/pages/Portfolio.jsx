@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { parseSpreadsheet } from '../utils/parseSpreadsheet'
 import { enrichRowsWithLivePrices } from '../utils/livePrices'
 import { loadLocalPortfolio, loadSavedPortfolioWithTimeout, savePortfolio } from '../utils/portfolioStorage'
-import { saveDailySnapshot } from '../utils/portfolioHistory'
+import { recordIntradayPoint, saveDailySnapshot } from '../utils/portfolioHistory'
 import { useAuth } from '../context/AuthContext'
+import Reveal from '../components/Reveal'
 import { buildAccountPortfolio, getAccountEntries, hasAccountPortfolio } from '../utils/accountPortfolio'
 import { computeStats } from '../utils/portfolioStats'
 import { AUTO_PRICE_REFRESH_MS } from './portfolio/constants'
@@ -20,7 +21,7 @@ import AllocationDonut from './portfolio/AllocationDonut'
 import HoldingsView from './portfolio/HoldingsView'
 import UploadView from './portfolio/UploadView'
 import EmptyState from './portfolio/EmptyState'
-import AiAnalysisView from './portfolio/AiAnalysisView'
+import TradeView from './portfolio/TradeView'
 
 export default function Portfolio() {
   const [rows, setRows]                   = useState([])
@@ -111,10 +112,11 @@ export default function Portfolio() {
     return () => clearTimeout(timer)
   }, [accounts, fileName, hasData, lastUpdatedAt, rows, uid])
 
-  // Record daily snapshot for performance chart
+  // Record daily snapshot + intraday point for the performance chart
   useEffect(() => {
     if (!uid || !stats) return
     saveDailySnapshot(uid, stats).catch(() => {})
+    recordIntradayPoint(stats)
   }, [uid, stats])
 
   const refreshRowsWithLivePrices = useCallback(async (sourceRows, options = {}) => {
@@ -124,6 +126,17 @@ export default function Portfolio() {
       setLiveMessage('')
       return sourceRows
     }
+    // Phase 1 — instant paint from the Redis quote cache (no blocking live
+    // fetch). Only on the first refresh of a session, so the auto-refresh
+    // interval never repaints stale over already-live numbers.
+    const isFirstRefresh = lastRefreshRef.current === 0
+    if (isFirstRefresh || options.instant) {
+      try {
+        const cached = await enrichRowsWithLivePrices(sourceRows, { cachedOnly: true })
+        if (cached.updatedRows > 0) applyPortfolioRows(cached.rows, options)
+      } catch { /* fall through to the live fetch */ }
+    }
+
     setLiveStatus('loading')
     setLiveMessage('Refreshing current prices from market data providers…')
     try {
@@ -267,22 +280,22 @@ export default function Portfolio() {
   const onDrop = (e) => { e.preventDefault(); setIsDragging(false); handleFile(e.dataTransfer.files[0]) }
 
   return (
-    <div className="min-h-screen bg-wall-bg">
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10">
+    <div className="relative min-h-screen overflow-hidden bg-wall-bg">
+      <div className="glow-orb blob-drift absolute -top-64 left-1/3 h-[560px] w-[560px]" />
+      <div className="relative mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10">
         <PortfolioHeader fileName={fileName} hasData={hasData} lastUpdatedAt={lastUpdatedAt} />
         <TabNav activeView={visibleView} hasData={hasData} onChange={setActiveView} />
 
         {visibleView === 'overview' && stats && (
           <>
             <LiveBanner liveStatus={liveStatus} liveMessage={liveMessage} lastUpdatedAt={lastUpdatedAt} />
+            <Reveal>
+              <PerformanceChart hero stats={stats} rows={rows} />
+            </Reveal>
             <KpiGrid rows={rows} stats={stats} accounts={accountEntries} onCashOverride={handleCashOverride} />
-            <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-              <AccountAllocationChart accounts={accountEntries} />
-              <ValueVsBookChart stats={stats} />
-            </div>
-            <div className="mt-4 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-              <TopPositionsChart rows={rows} />
-              <PnlBreakdownChart rows={rows} />
+            <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+              <Reveal><TopPositionsChart rows={rows} /></Reveal>
+              <Reveal delay={80}><AccountAllocationChart accounts={accountEntries} /></Reveal>
             </div>
           </>
         )}
@@ -291,9 +304,10 @@ export default function Portfolio() {
         {visibleView === 'charts' && stats && (
           <>
             <LiveBanner liveStatus={liveStatus} liveMessage={liveMessage} lastUpdatedAt={lastUpdatedAt} />
-            <AllocationDonut rows={rows} stats={stats} />
-            <div className="mt-8">
-              <PerformanceChart stats={stats} />
+            <Reveal><AllocationDonut rows={rows} stats={stats} /></Reveal>
+            <div className="mt-8 grid gap-4 lg:grid-cols-2">
+              <Reveal><ValueVsBookChart stats={stats} /></Reveal>
+              <Reveal delay={80}><PnlBreakdownChart rows={rows} /></Reveal>
             </div>
           </>
         )}
@@ -302,8 +316,8 @@ export default function Portfolio() {
         {visibleView === 'holdings' && (
           <HoldingsView rows={rows} accounts={accountEntries} onUploadClick={() => setActiveView('upload')} />
         )}
-        {visibleView === 'ai' && (
-          <AiAnalysisView rows={rows} />
+        {visibleView === 'trade' && (
+          <TradeView rows={rows} />
         )}
         {visibleView === 'upload' && (
           <UploadView

@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
+import CompanyLogo from '../components/CompanyLogo'
+import Reveal from '../components/Reveal'
+import { SearchSpot } from '../components/illustrations'
 import { loadLocalPortfolio } from '../utils/portfolioStorage'
 import { flattenAccountRows } from '../utils/accountPortfolio'
 
@@ -42,6 +45,7 @@ function PickCard({ pick, rank }) {
     sourceCount, technicals,
     bearCase, riskScore,
     catalystVerified, catalystDetail, catalystTimeline, catalystPricedIn,
+    price, stopLoss, target,
   } = pick
 
   const scoreColor = conviction >= 8 ? 'text-gain' : conviction >= 6 ? 'text-white' : 'text-white/40'
@@ -54,8 +58,11 @@ function PickCard({ pick, rank }) {
         className="flex w-full items-center justify-between px-5 py-4 text-left sm:px-6 sm:py-5"
       >
         <div className="flex items-center gap-4">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.05] font-mono text-[12px] font-medium text-white/40">
-            {rank}
+          <span className="relative shrink-0">
+            <CompanyLogo symbol={ticker} size={36} />
+            <span className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-wall-elevated text-[9px] font-semibold text-white/60 ring-2 ring-wall-surface">
+              {rank}
+            </span>
           </span>
           <div>
             <div className="flex items-center gap-2.5">
@@ -119,6 +126,24 @@ function PickCard({ pick, rank }) {
                   {sourceCount} source{sourceCount > 1 ? 's' : ''}
                 </span>
               )}
+            </div>
+          )}
+
+          {/* Trade plan — ATR-based exit levels */}
+          {price != null && stopLoss != null && target != null && (
+            <div className="mt-5 grid grid-cols-3 gap-2">
+              <div className="rounded-xl bg-white/[0.03] px-3 py-2.5 text-center">
+                <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-white/30">Entry</p>
+                <p className="mt-0.5 text-[13px] font-semibold tabular text-white">${price}</p>
+              </div>
+              <div className="rounded-xl bg-loss/[0.06] px-3 py-2.5 text-center">
+                <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-loss/50">Stop</p>
+                <p className="mt-0.5 text-[13px] font-semibold tabular text-loss">${stopLoss}</p>
+              </div>
+              <div className="rounded-xl bg-gain/[0.06] px-3 py-2.5 text-center">
+                <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-gain/50">Target</p>
+                <p className="mt-0.5 text-[13px] font-semibold tabular text-gain">${target}</p>
+              </div>
             </div>
           )}
 
@@ -214,8 +239,9 @@ export default function Research() {
   const generatedAtLabel = formatGeneratedAt(research?.generatedAt)
 
   return (
-    <div className="min-h-screen bg-wall-bg">
-      <div className="mx-auto max-w-2xl px-4 py-10 sm:px-6 sm:py-16">
+    <div className="relative min-h-screen overflow-hidden bg-wall-bg">
+      <div className="glow-orb blob-drift absolute -top-72 left-1/2 h-[520px] w-[520px] -translate-x-1/2" />
+      <div className="relative mx-auto max-w-2xl px-4 py-10 sm:px-6 sm:py-16">
 
         {/* Header */}
         <div className="mb-8 sm:mb-12">
@@ -243,14 +269,17 @@ export default function Research() {
             ))}
           </div>
         ) : picks.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-white/[0.06] py-20 text-center">
-            <p className="text-[14px] text-white/30">No picks yet</p>
-            <p className="mt-1 text-[12px] text-white/15">Pipeline runs nightly at 3 AM UTC</p>
+          <div className="flex flex-col items-center rounded-2xl border border-dashed border-white/[0.06] py-16 text-center">
+            <SearchSpot />
+            <p className="mt-3 text-[14px] text-white/40">No picks yet</p>
+            <p className="mt-1 text-[12px] text-white/20">Pipeline runs nightly at 3 AM UTC</p>
           </div>
         ) : (
           <div className="space-y-3">
             {picks.map((pick, i) => (
-              <PickCard key={pick.ticker} pick={pick} rank={i + 1} />
+              <Reveal key={pick.ticker} delay={i * 70}>
+                <PickCard pick={pick} rank={i + 1} />
+              </Reveal>
             ))}
           </div>
         )}

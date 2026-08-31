@@ -219,8 +219,33 @@ function buildQuoteMap(quotes = []) {
   return map
 }
 
+// Board items can come from older cached payloads that predate newer count
+// fields — a single undefined field would turn the whole score into NaN.
+function normalizeBoardItem(item) {
+  const num = (value) => (Number.isFinite(value) ? value : 0)
+  return {
+    ...item,
+    signalCount: num(item.signalCount),
+    articleCount: num(item.articleCount),
+    maxScore: num(item.maxScore),
+    squeezeSignals: num(item.squeezeSignals),
+    volumeSignals: num(item.volumeSignals),
+    breakoutSignals: num(item.breakoutSignals),
+    catalystSignals: num(item.catalystSignals),
+    negativeSignals: num(item.negativeSignals),
+    accountMentions: num(item.accountMentions),
+    convictionMentions: num(item.convictionMentions),
+    contextMentions: num(item.contextMentions),
+    searchMentions: num(item.searchMentions),
+    screenerMentions: num(item.screenerMentions),
+    sources: item.sources || [],
+    themes: item.themes || [],
+  }
+}
+
 export function rankHighUpsideBoard(signalBoard, quotesByTicker = new Map(), sectorTrends = new Map()) {
   return signalBoard
+    .map(normalizeBoardItem)
     .map((item) => {
       const quote = quotesByTicker.get(item.ticker)
       const price = Number.isFinite(Number(quote?.price)) ? Number(quote.price) : null
@@ -424,7 +449,12 @@ export function summarizeSignalsForPrompt(signals, articles, options = {}) {
   return { signalBoard, boardText, signalText }
 }
 
-const TICKER_SYSTEM_PROMPT = `You are an elite stock signal analyst. Your job is to find high-conviction buying opportunities — stocks with asymmetric risk/reward where multiple factors align. You think critically, not reactively.
+const TICKER_SYSTEM_PROMPT = `You are an elite stock signal analyst. Your job is to find the stocks most likely to rise in the NEXT TRADING SESSION (measured open→close). The user buys at the next open and is scored on that single session — a great pick that takes a week to move is a failed pick here. You think critically, not reactively.
+
+Because the horizon is one session, weight these hardest:
+- Catalysts landing TODAY or TOMORROW (earnings before open/after close, FDA dates, scheduled announcements) beat vague "upcoming" catalysts
+- earnings-calendar and premarket-movers screener signals are time-critical — a stock reporting earnings tomorrow morning IS tomorrow's mover, in one direction or the other; pick them only when the setup and positioning favor an upside reaction
+- Fresh signals (<24h) beat persistent multi-day chatter, which is usually already priced in
 
 ## Your Decision Framework
 
@@ -481,7 +511,7 @@ function buildTickerUserMessage(signals, articles, signalBoard, sectorTrends = n
     const lines = [...sectorTrends.entries()]
       .sort((a, b) => a[1] - b[1])
       .map(([etf, chg]) => `  ${etf}: ${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`)
-    sectorBlock = `\n=== SECTOR ETF TRENDS (5-day) ===\n${lines.join('\n')}\nETFs in decline signal broad sector headwinds — picks from those sectors need extra-strong catalysts to justify.\n`
+    sectorBlock = `\n=== SECTOR ETF TRENDS (today's session move) ===\n${lines.join('\n')}\nETFs in decline signal broad sector headwinds — picks from those sectors need extra-strong catalysts to justify.\n`
   }
 
   let techBlock = ''
@@ -502,7 +532,7 @@ function buildTickerUserMessage(signals, articles, signalBoard, sectorTrends = n
         return `  ${parts.join(', ')}`
       })
     if (lines.length > 0) {
-      techBlock = `\n=== PER-TICKER TECHNICAL ANALYSIS (60-day daily candles) ===\n${lines.join('\n')}\nUse these to validate entry timing. Reject overbought (RSI>70) or downtrend stocks unless the catalyst is exceptional.\n`
+      techBlock = `\n=== PER-TICKER TECHNICAL ANALYSIS (12-month daily candles) ===\n${lines.join('\n')}\nUse these to validate entry timing. Reject overbought (RSI>70) or downtrend stocks unless the catalyst is exceptional.\n`
     }
   }
 
@@ -516,15 +546,85 @@ ${signalText}
 ${articleTexts}`
 }
 
-function postProcessCandidates(parsed, signalBoard, technicals = new Map()) {
+// Score adjustment from the actual chart, so entry timing isn't left to the
+// LLM's discretion alone. Positive = confirmed setup, negative = bad entry.
+export function technicalAdjustment(tech) {
+  if (!tech) return 0
+  let adj = 0
+
+  const trendAdj = {
+    'uptrend': 1.2,
+    'recovery': 0.5,
+    'consolidating': 0.4,
+    'pullback': 0,
+    'overbought-uptrend': -1.8,
+    'oversold-downtrend': -1.5,
+    'downtrend': -2.5,
+  }
+  adj += trendAdj[tech.trend] ?? 0
+
+  const hist = tech.macd?.histogram
+  if (Number.isFinite(hist)) adj += hist > 0 ? 0.6 : -0.6
+
+  if (Number.isFinite(tech.rsi)) {
+    if (tech.rsi > 75) adj -= 1.0
+    else if (tech.rsi >= 45 && tech.rsi <= 65) adj += 0.5
+  }
+
+  if (Number.isFinite(tech.relativeVolume)) {
+    if (tech.relativeVolume >= 1.5) adj += 0.8
+    else if (tech.relativeVolume >= 1.2) adj += 0.4
+  }
+
+  return Number(adj.toFixed(2))
+}
+
+// Feedback loop applied numerically, not just as prompt text: setups with a
+// proven (n>=5) weighted win rate get boosted, proven losers get penalized.
+export function setupPerformanceAdjustment(setupType, stats) {
+  const setupStats = stats?.bySetup?.[setupType]
+  if (!setupStats || setupStats.total < 5) return 0
+  if (setupStats.weightedWinRate >= 60) return 1.5
+  if (setupStats.weightedWinRate <= 30) return -2.0
+  return 0
+}
+
+// Per-source feedback: signal sources (X accounts, finviz, exa) with a proven
+// track record boost the picks they flagged; proven losers drag them down.
+// Capped so no single dimension dominates the composite.
+export function sourcePerformanceAdjustment(sources, stats) {
+  const bySource = stats?.bySource
+  if (!bySource || !sources || sources.length === 0) return 0
+
+  let adj = 0
+  for (const source of sources) {
+    const sourceStats = bySource[source]
+    if (!sourceStats || sourceStats.total < 3) continue
+    if (sourceStats.weightedWinRate >= 60) adj += 0.75
+    else if (sourceStats.weightedWinRate <= 30) adj -= 1.0
+  }
+
+  return Number(Math.max(-2, Math.min(1.5, adj)).toFixed(2))
+}
+
+export function postProcessCandidates(parsed, signalBoard, technicals = new Map(), options = {}) {
   const boardByTicker = new Map(signalBoard.map((item) => [item.ticker, item]))
+  const recentPickedTickers = options.recentPickedTickers ?? new Set()
+  const performanceStats = options.performanceStats ?? null
   const normalized = parsed
     .filter((t) => t.ticker && typeof t.conviction === 'number')
     .map((tickerObj) => {
       const ticker = normalizeTicker(tickerObj.ticker)
       const summary = boardByTicker.get(ticker)
       const tech = technicals.get(ticker)
+      const techAdjustment = technicalAdjustment(tech?.analyzed ? tech : null)
+      const setupAdjustment = setupPerformanceAdjustment(summary?.setupType ?? 'momentum', performanceStats)
+      const sourceAdjustment = sourcePerformanceAdjustment(summary?.sources ?? [], performanceStats)
       return {
+        techAdjustment,
+        setupAdjustment,
+        sourceAdjustment,
+        sources: summary?.sources ?? [],
         ...tickerObj,
         ticker,
         sourceCount: summary?.sources.length ?? 0,
@@ -544,6 +644,19 @@ function postProcessCandidates(parsed, signalBoard, technicals = new Map()) {
         mainstreamCrowdFavorite: Boolean(summary?.mainstreamCrowdFavorite),
         convictionMentions: summary?.convictionMentions ?? 0,
         contextMentions: summary?.contextMentions ?? 0,
+        recentRepeat: recentPickedTickers.has(ticker),
+        // ATR-based exit levels: stop 1.5×ATR below, target 2.5×ATR above
+        stopLoss: tech?.analyzed && Number.isFinite(tech.atr) && summary?.price
+          ? Number((summary.price - 1.5 * tech.atr).toFixed(2)) : null,
+        target: tech?.analyzed && Number.isFinite(tech.atr) && summary?.price
+          ? Number((summary.price + 2.5 * tech.atr).toFixed(2)) : null,
+        compositeScore: Number((
+          (Number(tickerObj.conviction) * 1.5)
+          + (summary?.archetypeScore ?? 0)
+          + techAdjustment
+          + setupAdjustment
+          + sourceAdjustment
+        ).toFixed(2)),
         technicals: tech?.analyzed ? {
           rsi: tech.rsi,
           sma20: tech.sma20,
@@ -556,36 +669,39 @@ function postProcessCandidates(parsed, signalBoard, technicals = new Map()) {
       }
     })
 
-  const strict = normalized
+  const fresh = normalized.filter((item) => !item.recentRepeat)
+  const candidates = fresh.length > 0 ? fresh : normalized
+
+  const strict = candidates
     .filter((item) => item.quoteVerified)
     .filter((item) => !item.pennyStockRisk || item.exceptionalPennySetup)
     .filter((item) => item.repeatedAttention)
     .filter((item) => !item.brokenSetupRisk)
     .filter((item) => !item.mainstreamCrowdFavorite)
     .filter((item) => item.convictionMentions > 0)
-    .sort((a, b) => ((b.conviction * 1.5) + b.archetypeScore) - ((a.conviction * 1.5) + a.archetypeScore))
+    .sort((a, b) => b.compositeScore - a.compositeScore)
 
   if (strict.length > 0) return strict.slice(0, 5)
 
-  const relaxed = normalized
+  const relaxed = candidates
     .filter((item) => item.quoteVerified)
     .filter((item) => !item.pennyStockRisk || item.exceptionalPennySetup)
     .filter((item) => !item.brokenSetupRisk)
     .filter((item) => !item.mainstreamCrowdFavorite)
     .filter((item) => item.convictionMentions > 0 || item.signalCount > item.contextMentions)
-    .sort((a, b) => ((b.conviction * 1.5) + b.archetypeScore) - ((a.conviction * 1.5) + a.archetypeScore))
+    .sort((a, b) => b.compositeScore - a.compositeScore)
     .slice(0, 5)
 
   if (relaxed.length > 0) return relaxed
 
   console.warn('[researchEngine] all filters returned 0 tickers — using minimal fallback')
-  return normalized
+  return candidates
     .filter((item) => item.quoteVerified)
-    .sort((a, b) => ((b.conviction * 1.5) + b.archetypeScore) - ((a.conviction * 1.5) + a.archetypeScore))
+    .sort((a, b) => b.compositeScore - a.compositeScore)
     .slice(0, 3)
 }
 
-export async function extractTickers(signals, articles) {
+export async function extractTickers(signals, articles, options = {}) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
 
@@ -605,17 +721,29 @@ export async function extractTickers(signals, articles) {
 
   // Load historical performance stats for feedback loop
   let performanceBlock = ''
+  let performanceStats = null
+  let recentPickedTickers = new Set()
   try {
-    const { getWinRateStats, formatStatsForPrompt } = await import('./agents/signalHistoryTools.js')
+    const { getWinRateStats, formatStatsForPrompt, getRecentPickedTickers } = await import('./agents/signalHistoryTools.js')
     const stats = await getWinRateStats()
+    performanceStats = stats
     performanceBlock = formatStatsForPrompt(stats)
     if (performanceBlock) console.log(`[researchEngine] feedback loop: loaded stats from ${stats.totalPicks} tracked picks`)
+    recentPickedTickers = await getRecentPickedTickers(3)
+    if (recentPickedTickers.size > 0) console.log(`[researchEngine] cooldown: blocking ${recentPickedTickers.size} recently picked tickers`)
   } catch (err) {
     console.error('[researchEngine] performance stats load failed:', err.message)
   }
 
+  const freshSignalBoard = signalBoard.filter((item) => !recentPickedTickers.has(item.ticker))
+  const candidateSignalBoard = freshSignalBoard.length > 0 ? freshSignalBoard : signalBoard
+
+  // Hand the ranked board to the caller (shadow tracking trains the feedback
+  // loop on top candidates that never make the final cut)
+  options.onBoard?.(candidateSignalBoard)
+
   const client = new Anthropic({ apiKey })
-  const userContent = buildTickerUserMessage(signals, articles, signalBoard, sectorTrends, technicals)
+  const userContent = buildTickerUserMessage(signals, articles, candidateSignalBoard, sectorTrends, technicals)
 
   // Inject performance feedback into the system prompt
   const systemPrompt = performanceBlock
@@ -668,7 +796,46 @@ export async function extractTickers(signals, articles) {
     }
   }
 
-  return postProcessCandidates(parsed, signalBoard, technicals)
+  return postProcessCandidates(parsed, candidateSignalBoard, technicals, { recentPickedTickers, performanceStats })
+}
+
+// ─── Final re-ranking after the contrarian + catalyst agents ──────────────────
+// Those agents produce riskScore, catalystVerified, catalystPricedIn and
+// catalystConfidence — this folds them into the order picks are delivered in,
+// instead of leaving them as display-only metadata.
+
+export function finalizePicks(picks) {
+  if (!picks || picks.length === 0) return []
+
+  const scored = picks.map((pick) => {
+    let score = (Number(pick.conviction) || 5) * 1.5 + (pick.archetypeScore ?? 0) * 0.4
+
+    if (pick.catalystVerified === true && !pick.catalystPricedIn) {
+      score += 2.5 + (Number(pick.catalystConfidence) || 5) * 0.3
+    } else if (pick.catalystVerified === false) {
+      score -= 1.5
+    }
+    if (pick.catalystPricedIn) score -= 3
+
+    const risk = Number(pick.riskScore)
+    if (Number.isFinite(risk)) {
+      if (risk >= 8) score -= 3
+      else if (risk >= 6) score -= 1
+      else if (risk <= 3) score += 1
+    }
+
+    score += pick.techAdjustment ?? 0
+
+    return { ...pick, finalScore: Number(score.toFixed(2)) }
+  })
+
+  // Hard gate: a pick whose catalyst is already priced in AND that carries
+  // extreme contrarian risk has no edge left — drop it if alternatives exist.
+  const dangerous = (pick) => pick.catalystPricedIn && (Number(pick.riskScore) || 0) >= 8
+  const safe = scored.filter((pick) => !dangerous(pick))
+  const kept = safe.length > 0 ? safe : scored
+
+  return kept.sort((a, b) => b.finalScore - a.finalScore)
 }
 
 // ─── OpenAI: generate research reports (with web search) ─────────────────────

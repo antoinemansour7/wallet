@@ -3,45 +3,75 @@
 // Used by: Slack Agent, Position Sizing Agent, and any future MCP server.
 // ────────────────────────────────────────────────────────────────────────────────
 
-// Sector classification map for common stocks
+// Sector classification map for common stocks (incl. Canadian CDR tickers,
+// which often differ from the US underlying — e.g. ORAC=Oracle, NOWS=ServiceNow)
 const SECTOR_MAP = {
   // Tech / Software
   AAPL: 'Technology', MSFT: 'Technology', GOOGL: 'Technology', GOOG: 'Technology',
   META: 'Technology', AMZN: 'Technology', CRM: 'Technology', ORCL: 'Technology',
-  ADBE: 'Technology', NOW: 'Technology', SHOP: 'Technology', SNOW: 'Technology',
-  PLTR: 'Technology', NET: 'Technology', DDOG: 'Technology', MDB: 'Technology',
+  ORAC: 'Technology', ADBE: 'Technology', NOW: 'Technology', NOWS: 'Technology',
+  SHOP: 'Technology', SNOW: 'Technology', PLTR: 'Technology', NET: 'Technology',
+  DDOG: 'Technology', MDB: 'Technology', CRWD: 'Technology', PANW: 'Technology',
+  ZS: 'Technology', SNPS: 'Technology', CDNS: 'Technology', INTU: 'Technology',
+  IBM: 'Technology', CSCO: 'Technology', UBER: 'Technology', ABNB: 'Technology',
+  HLIT: 'Technology', SMCI: 'Technology', DELL: 'Technology', HPQ: 'Technology',
+  APP: 'Technology', RDDT: 'Technology', SNAP: 'Technology', SPOT: 'Technology',
   // Semiconductors
   NVDA: 'Semiconductors', AMD: 'Semiconductors', INTC: 'Semiconductors',
   MU: 'Semiconductors', AVGO: 'Semiconductors', QCOM: 'Semiconductors',
   TSM: 'Semiconductors', MRVL: 'Semiconductors', AMAT: 'Semiconductors',
   KLAC: 'Semiconductors', LRCX: 'Semiconductors', ASML: 'Semiconductors',
+  ARM: 'Semiconductors', TXN: 'Semiconductors', ADI: 'Semiconductors',
   // Aerospace / Defense
   RKLB: 'Aerospace', LUNR: 'Aerospace', BA: 'Aerospace', LMT: 'Aerospace',
   RTX: 'Aerospace', NOC: 'Aerospace', GD: 'Aerospace', ASTS: 'Aerospace',
+  ACHR: 'Aerospace', JOBY: 'Aerospace', AVAV: 'Aerospace', KTOS: 'Aerospace',
   // Biotech / Healthcare
   MRNA: 'Biotech', PFE: 'Healthcare', JNJ: 'Healthcare', UNH: 'Healthcare',
   LLY: 'Healthcare', ABBV: 'Healthcare', AMGN: 'Biotech', GILD: 'Biotech',
+  HIMS: 'Healthcare', VRTX: 'Biotech', REGN: 'Biotech', ISRG: 'Healthcare',
+  TEM: 'Healthcare', RXRX: 'Biotech', CRSP: 'Biotech',
   // Finance
   JPM: 'Finance', GS: 'Finance', BAC: 'Finance', V: 'Finance',
   MA: 'Finance', SQ: 'Finance', SOFI: 'Finance', HOOD: 'Finance',
+  PYPL: 'Finance', AXP: 'Finance', WFC: 'Finance', MS: 'Finance',
+  BRK: 'Finance', SCHW: 'Finance', AFRM: 'Finance',
   // Energy
   XOM: 'Energy', CVX: 'Energy', COP: 'Energy', SLB: 'Energy',
+  OXY: 'Energy', ENPH: 'Energy', FSLR: 'Energy', NEE: 'Energy',
   // Consumer
   TSLA: 'Consumer', NKE: 'Consumer', SBUX: 'Consumer', DIS: 'Consumer',
-  NFLX: 'Consumer', COST: 'Consumer', WMT: 'Consumer',
-  // Crypto
+  NFLX: 'Consumer', COST: 'Consumer', WMT: 'Consumer', MCD: 'Consumer',
+  LULU: 'Consumer', CMG: 'Consumer', HD: 'Consumer', TGT: 'Consumer',
+  // Crypto / Bitcoin proxies
   COIN: 'Crypto', MARA: 'Crypto', MSTR: 'Crypto', RIOT: 'Crypto',
+  BMNR: 'Crypto', IREN: 'Crypto', CLSK: 'Crypto', HUT: 'Crypto',
+  CIFR: 'Crypto', WULF: 'Crypto', BITF: 'Crypto', HIVE: 'Crypto',
+  // Industrials / Other
+  CAT: 'Industrials', DE: 'Industrials', GE: 'Industrials', HON: 'Industrials',
 }
 
+// CDR tickers that don't appear above but whose description names the company.
+const SECTOR_KEYWORDS = [
+  [/semiconductor|chip|foundry|wafer/i, 'Semiconductors'],
+  [/software|cloud|saas|data|cyber|internet|platform|digital/i, 'Technology'],
+  [/biotech|therapeutic|pharma|genomic|clinical/i, 'Biotech'],
+  [/health|medical|hospital|care|telehealth/i, 'Healthcare'],
+  [/bitcoin|crypto|blockchain|mining|miner|digital asset/i, 'Crypto'],
+  [/aerospace|defense|space|satellite|rocket|missile|drone/i, 'Aerospace'],
+  [/energy|oil|gas|solar|petroleum|renewable/i, 'Energy'],
+  [/bank|financ|capital|insurance|payment|fintech/i, 'Finance'],
+  [/etf|index|fund|trust|holdings? etf/i, 'ETF/Fund'],
+  [/retail|consumer|restaurant|apparel|beverage/i, 'Consumer'],
+]
+
 function classifySector(symbol, description = '') {
-  if (SECTOR_MAP[symbol]) return SECTOR_MAP[symbol]
-  const desc = description.toLowerCase()
-  if (desc.includes('semiconductor') || desc.includes('chip')) return 'Semiconductors'
-  if (desc.includes('software') || desc.includes('cloud') || desc.includes('tech')) return 'Technology'
-  if (desc.includes('biotech') || desc.includes('pharma')) return 'Biotech'
-  if (desc.includes('energy') || desc.includes('oil')) return 'Energy'
-  if (desc.includes('financial') || desc.includes('bank')) return 'Finance'
-  if (desc.includes('etf') || desc.includes('index') || desc.includes('fund')) return 'ETF/Fund'
+  // Strip exchange suffix (e.g. AVGO.NE → AVGO) so CDRs resolve
+  const base = String(symbol || '').toUpperCase().replace(/\.(NE|TO|V|CN)$/, '')
+  if (SECTOR_MAP[base]) return SECTOR_MAP[base]
+  for (const [pattern, sector] of SECTOR_KEYWORDS) {
+    if (pattern.test(description)) return sector
+  }
   return 'Other'
 }
 
@@ -155,5 +185,114 @@ export function getConcentrationRisk(portfolioRows) {
     largestSector: largestSector ? { sector: largestSector.sector, weight: largestSector.weight } : null,
     risks,
     diversified: risks.length === 0,
+  }
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value))
+}
+
+function gradeFromScore(score) {
+  if (score >= 90) return 'A'
+  if (score >= 80) return 'A−'
+  if (score >= 72) return 'B+'
+  if (score >= 64) return 'B'
+  if (score >= 56) return 'B−'
+  if (score >= 48) return 'C+'
+  if (score >= 40) return 'C'
+  if (score >= 32) return 'C−'
+  if (score >= 24) return 'D'
+  return 'F'
+}
+
+/**
+ * Full quantitative portfolio analysis: concentration (HHI / effective
+ * positions), a deterministic diversification score + grade, P&L statistics,
+ * and severity-tagged risk flags. Computed in code so the grade is consistent
+ * and not subject to LLM variance — the LLM only narrates and recommends.
+ */
+export function getPortfolioAnalytics(portfolioRows) {
+  const { holdings, totalValue } = getUserHoldings(portfolioRows)
+  if (holdings.length === 0) {
+    return { empty: true, positionCount: 0, totalValue: 0 }
+  }
+
+  const { sectors } = getSectorExposure(portfolioRows)
+
+  // ── Concentration: Herfindahl-Hirschman Index on position weights ──
+  const fractions = holdings.map((h) => h.weight / 100)
+  const stockHHI = fractions.reduce((sum, f) => sum + f * f, 0)
+  const effectivePositions = stockHHI > 0 ? 1 / stockHHI : 0
+
+  const sectorFractions = sectors.map((s) => s.weight / 100)
+  const sectorHHI = sectorFractions.reduce((sum, f) => sum + f * f, 0)
+  const effectiveSectors = sectorHHI > 0 ? 1 / sectorHHI : 0
+
+  const largest = holdings[0]
+  const top5Weight = holdings.slice(0, 5).reduce((s, h) => s + h.weight, 0)
+  const largestSector = sectors[0]
+
+  // ── Diversification score (0-100): breadth 50%, position 25%, sector 25% ──
+  const breadthScore = clamp((effectivePositions / 12) * 100, 0, 100)
+  const positionScore = largest.weight <= 8 ? 100
+    : largest.weight >= 30 ? 0
+    : (100 * (30 - largest.weight)) / (30 - 8)
+  const sectorScore = !largestSector || largestSector.weight <= 25 ? 100
+    : largestSector.weight >= 60 ? 0
+    : (100 * (60 - largestSector.weight)) / (60 - 25)
+
+  const score = Math.round(0.5 * breadthScore + 0.25 * positionScore + 0.25 * sectorScore)
+  const grade = gradeFromScore(score)
+
+  // ── P&L analytics ──
+  const totalCost = holdings.reduce((s, h) => s + h.bookValue, 0)
+  const totalPnl = holdings.reduce((s, h) => s + h.gainLoss, 0)
+  const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0
+  const winners = holdings.filter((h) => h.gainLossPct > 0)
+  const losers = holdings.filter((h) => h.gainLossPct < 0)
+  const ranked = [...holdings].sort((a, b) => b.gainLossPct - a.gainLossPct)
+  const bestPerformer = ranked[0]
+  const worstPerformer = ranked[ranked.length - 1]
+
+  // ── Severity-tagged flags ──
+  const flags = []
+  if (largest.weight > 25) flags.push({ severity: 'high', text: `${largest.symbol} is ${largest.weight}% of the portfolio — a single-name blowup would be severe.` })
+  else if (largest.weight > 15) flags.push({ severity: 'medium', text: `${largest.symbol} is ${largest.weight}% — above a comfortable single-position ceiling.` })
+  if (top5Weight > 65) flags.push({ severity: 'high', text: `Top 5 holdings are ${top5Weight.toFixed(0)}% of the book — very top-heavy.` })
+  else if (top5Weight > 50) flags.push({ severity: 'medium', text: `Top 5 holdings are ${top5Weight.toFixed(0)}% — moderately concentrated.` })
+  if (largestSector && largestSector.weight > 50) flags.push({ severity: 'high', text: `${largestSector.sector} is ${largestSector.weight}% of exposure — you're effectively a sector bet.` })
+  else if (largestSector && largestSector.weight > 35) flags.push({ severity: 'medium', text: `${largestSector.sector} is ${largestSector.weight}% — overweight versus a balanced book.` })
+  if (effectivePositions < 4) flags.push({ severity: 'high', text: `Only ~${effectivePositions.toFixed(1)} effective positions — diversification is thin despite holding ${holdings.length} names.` })
+  else if (effectivePositions < 8) flags.push({ severity: 'medium', text: `~${effectivePositions.toFixed(1)} effective positions — concentration is higher than the raw count suggests.` })
+
+  return {
+    empty: false,
+    totalValue: Number(totalValue.toFixed(2)),
+    totalCost: Number(totalCost.toFixed(2)),
+    totalPnl: Number(totalPnl.toFixed(2)),
+    totalPnlPct: Number(totalPnlPct.toFixed(2)),
+    positionCount: holdings.length,
+    effectivePositions: Number(effectivePositions.toFixed(1)),
+    effectiveSectors: Number(effectiveSectors.toFixed(1)),
+    stockHHI: Number(stockHHI.toFixed(4)),
+    sectorHHI: Number(sectorHHI.toFixed(4)),
+    score,
+    grade,
+    scoreBreakdown: {
+      breadth: Math.round(breadthScore),
+      position: Math.round(positionScore),
+      sector: Math.round(sectorScore),
+    },
+    top5Weight: Number(top5Weight.toFixed(1)),
+    largestPosition: { symbol: largest.symbol, weight: largest.weight },
+    largestSector: largestSector ? { sector: largestSector.sector, weight: largestSector.weight } : null,
+    winnersCount: winners.length,
+    losersCount: losers.length,
+    winRate: holdings.length > 0 ? Number(((winners.length / holdings.length) * 100).toFixed(0)) : 0,
+    bestPerformer: bestPerformer ? { symbol: bestPerformer.symbol, pct: Number(bestPerformer.gainLossPct.toFixed(1)) } : null,
+    worstPerformer: worstPerformer ? { symbol: worstPerformer.symbol, pct: Number(worstPerformer.gainLossPct.toFixed(1)) } : null,
+    sectors: sectors.map((s) => ({ sector: s.sector, weight: s.weight, count: s.count })),
+    holdings: holdings.map((h) => ({ symbol: h.symbol, weight: h.weight, sector: h.sector, pnlPct: Number(h.gainLossPct.toFixed(1)) })),
+    flags,
   }
 }

@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { fmtCurrency, fmtPct } from '../../utils/portfolioStats'
-import StatCard from './StatCard'
+import Reveal from '../../components/Reveal'
 
 function CashEditor({ totalCash, onSave }) {
   const [editing, setEditing] = useState(false)
@@ -58,30 +58,51 @@ function CashEditor({ totalCash, onSave }) {
   )
 }
 
+function Stat({ label, value, valueCls = 'text-white', sub, action }) {
+  return (
+    <div className="min-w-0 flex-1 px-4 py-3.5 sm:px-5">
+      <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-white/30">{label}</p>
+      <p className={`mt-1 truncate text-[15px] font-semibold tabular ${valueCls}`}>{value}</p>
+      {sub && <p className="mt-0.5 truncate text-[11px] tabular text-white/30">{sub}</p>}
+      {action && <div className="mt-1.5">{action}</div>}
+    </div>
+  )
+}
+
+// Quiet single-strip stats under the hero chart — broker style, no giant
+// KPI cards, no explainer sentences.
 export default function KpiGrid({ rows, stats, accounts, onCashOverride }) {
   const cashShare = stats.totalMarketValue > 0 ? (stats.totalCashValue / stats.totalMarketValue) * 100 : 0
-  const cashSub = stats.totalCashValue !== 0
-    ? `${cashShare.toFixed(1)}% of portfolio value`
-    : 'No cash balance tracked'
+  const dayCls = stats.totalDayChange > 0 ? 'text-gain' : stats.totalDayChange < 0 ? 'text-loss' : 'text-white'
+  const pnlCls = stats.totalPnl > 0 ? 'text-gain' : stats.totalPnl < 0 ? 'text-loss' : 'text-white'
+
   return (
-    <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
-      <StatCard label="Total Value" value={fmtCurrency(stats.totalMarketValue)} sub={`${rows.length} positions`} />
-      <StatCard
-        label="Cash Balance"
-        value={fmtCurrency(stats.totalCashValue)}
-        sub={cashSub}
-        tone={stats.totalCashValue !== 0 ? 'accent' : 'neutral'}
-        action={<CashEditor totalCash={stats.totalCashValue} onSave={onCashOverride} />}
-      />
-      <StatCard
-        label="All-time P&L"
-        value={fmtCurrency(stats.totalPnl)}
-        sub="Combined closed-trade gains and open-position performance"
-        pnl={stats.totalPnl}
-        badge={fmtPct(stats.totalPnlPct)}
-      />
-      <StatCard label="Today's Change" value={fmtCurrency(stats.totalDayChange)} sub="Move since the prior close" badge={fmtPct(stats.dayChangePct)} pnl={stats.totalDayChange} />
-      <StatCard label="Accounts" value={String(accounts.length)} sub={`${rows.length} positions total`} />
-    </div>
+    <Reveal>
+      <div className="mb-5 mt-6 grid grid-cols-2 divide-white/[0.05] rounded-card border border-white/[0.06] bg-wall-surface shadow-card sm:flex sm:divide-x">
+        <Stat
+          label="Today"
+          value={`${stats.totalDayChange >= 0 ? '+' : ''}${fmtCurrency(stats.totalDayChange)}`}
+          valueCls={dayCls}
+          sub={fmtPct(stats.dayChangePct)}
+        />
+        <Stat
+          label="All-time return"
+          value={`${stats.totalPnl >= 0 ? '+' : ''}${fmtCurrency(stats.totalPnl)}`}
+          valueCls={pnlCls}
+          sub={fmtPct(stats.totalPnlPct)}
+        />
+        <Stat
+          label="Cash"
+          value={fmtCurrency(stats.totalCashValue)}
+          sub={stats.totalCashValue !== 0 ? `${cashShare.toFixed(1)}% of portfolio` : undefined}
+          action={<CashEditor totalCash={stats.totalCashValue} onSave={onCashOverride} />}
+        />
+        <Stat
+          label="Positions"
+          value={String(rows.length)}
+          sub={`across ${accounts.length} account${accounts.length === 1 ? '' : 's'}`}
+        />
+      </div>
+    </Reveal>
   )
 }

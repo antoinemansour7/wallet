@@ -71,9 +71,11 @@ export async function runContrarianAgent(picks, technicals = new Map()) {
     console.log(`[contrarianAgent] Exa grounding: ${validSearches.length}/${picks.length} tickers had bearish news`)
   }
 
-  // Build the user message with pick details + technicals
+  // Build the user message with pick details + technicals. Picks carry their
+  // own technicals from postProcessCandidates — use them when no map is passed.
   const pickDetails = picks.map((p) => {
     const tech = technicals.get(p.ticker)
+      ?? (p.technicals ? { analyzed: true, ...p.technicals } : null)
     const parts = [
       `TICKER: ${p.ticker}`,
       `Bull thesis: ${p.reason}`,

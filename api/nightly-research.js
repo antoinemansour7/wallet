@@ -3,6 +3,7 @@ import { collectXSignals } from '../src/server/xSignals.js'
 import {
   fetchAllYahooNews,
   extractTickers,
+  finalizePicks,
   generateResearchReports,
 } from '../src/server/researchEngine.js'
 import { fetchBreakoutCandidates, candidatesToSignals } from '../src/server/technicalScreener.js'
@@ -13,7 +14,9 @@ import { sendPickAlerts } from '../src/server/agents/slackAgent.js'
 
 const RESEARCH_KEY = 'research:latest'
 const RESEARCH_TTL = 48 * 60 * 60 // 48 hours
-const HISTORY_TTL = 7 * 24 * 60 * 60 // 7 days
+// Must outlive the longest performance checkpoint (day 10) plus the stats
+// window — performance records keep 30 days, so history must too.
+const HISTORY_TTL = 30 * 24 * 60 * 60 // 30 days
 const HISTORY_INDEX_KEY = 'research:history-index'
 const HISTORY_MAX_ENTRIES = 30
 
@@ -29,6 +32,52 @@ function getRedis() {
   return null
 }
 
+// Premarket validation (8 AM ET cron): re-check overnight picks against live
+// quotes — a pick that already gapped up hard has spent its move, and one that
+// gapped down hard broke overnight. Re-rank so the user opens fresh odds.
+async function runPremarketCheck(res) {
+  const redis = getRedis()
+  if (!redis) return res.status(503).json({ error: 'Redis not configured' })
+
+  const payload = await redis.get(RESEARCH_KEY)
+  if (!payload?.picks?.length) return res.status(200).json({ skipped: 'no overnight picks' })
+
+  const { fetchMarketQuotes } = await import('../src/server/marketQuotes.js')
+  const { quotes } = await fetchMarketQuotes(payload.picks.map((p) => p.ticker))
+  const quoteMap = new Map(quotes.map((q) => [q.requestedSymbol || q.symbol, q]))
+
+  const rescored = payload.picks.map((pick) => {
+    const quote = quoteMap.get(pick.ticker)
+    const live = Number(quote?.price)
+    const gapPct = Number.isFinite(live) && pick.price > 0
+      ? Number((((live - pick.price) / pick.price) * 100).toFixed(2))
+      : null
+
+    const gappedAway = gapPct != null && gapPct >= 8
+    const brokenOvernight = gapPct != null && gapPct <= -8
+
+    let score = pick.finalScore ?? (Number(pick.conviction) || 5) * 1.5
+    if (gappedAway) score -= 5
+    if (brokenOvernight) score -= 6
+    if (gapPct != null && gapPct >= 1 && gapPct < 8) score += 1 // confirming momentum
+
+    return { ...pick, premarketGapPct: gapPct, gappedAway, brokenOvernight, premarketScore: Number(score.toFixed(2)) }
+  }).sort((a, b) => b.premarketScore - a.premarketScore)
+
+  const updated = { ...payload, picks: rescored, premarketCheckedAt: new Date().toISOString() }
+  await redis.set(RESEARCH_KEY, updated, { ex: RESEARCH_TTL })
+
+  const dateKey = new Date().toISOString().slice(0, 10)
+  const history = await redis.get(`research:history:${dateKey}`)
+  if (history) await redis.set(`research:history:${dateKey}`, { ...history, picks: rescored, premarketCheckedAt: updated.premarketCheckedAt }, { ex: HISTORY_TTL })
+
+  console.log('[nightly-research] premarket re-rank:', rescored.map((p) => `${p.ticker}${p.gappedAway ? '(gapped)' : ''}${p.brokenOvernight ? '(broken)' : ''}`).join(','))
+  return res.status(200).json({
+    mode: 'premarket',
+    picks: rescored.map((p) => ({ ticker: p.ticker, gapPct: p.premarketGapPct, gappedAway: p.gappedAway, brokenOvernight: p.brokenOvernight })),
+  })
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
@@ -36,6 +85,21 @@ export default async function handler(req, res) {
 
   if (!isAuthorized(req)) {
     return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  const startedAt = Date.now()
+  const { recordRun } = await import('../src/server/runLog.js')
+
+  if (req.query?.mode === 'premarket') {
+    try {
+      const result = await runPremarketCheck(res)
+      await recordRun('premarket-check', startedAt, { errors: [] })
+      return result
+    } catch (err) {
+      console.error('[nightly-research] premarket check failed:', err.message)
+      await recordRun('premarket-check', startedAt, { errors: [{ step: 'premarket', error: err.message }] })
+      return res.status(500).json({ error: err.message })
+    }
   }
 
   const errors = []
@@ -95,10 +159,24 @@ export default async function handler(req, res) {
     errors.push({ step: 'exa-discovery', error: err.message })
   }
 
+  // Step 2.8: day-trade catalysts — next-session earnings reporters
+  try {
+    const { collectDayTradeSignals } = await import('../src/server/dayTradeSignals.js')
+    const dayTradeSignals = await collectDayTradeSignals('nightly')
+    signals = [...signals, ...dayTradeSignals]
+    console.log(`[nightly-research] day-trade signals: ${dayTradeSignals.length}`)
+  } catch (err) {
+    console.error('[nightly-research] day-trade signals failed:', err.message)
+    errors.push({ step: 'day-trade', error: err.message })
+  }
+
   // Step 3: extract tickers via Claude
   let tickers = []
+  let shadowBoard = []
   try {
-    tickers = await extractTickers(signals, articles)
+    tickers = await extractTickers(signals, articles, {
+      onBoard: (board) => { shadowBoard = board.slice(0, 15) },
+    })
     console.log(`[nightly-research] extracted ${tickers.length} tickers:`, tickers.map((t) => t.ticker))
   } catch (err) {
     console.error('[nightly-research] ticker extraction failed:', err.message)
@@ -127,6 +205,14 @@ export default async function handler(req, res) {
       console.error('[nightly-research] catalyst agent failed:', err.message)
       errors.push({ step: 'catalyst', error: err.message })
     }
+  }
+
+  // Step 3.8: re-rank with everything the agents learned (risk scores,
+  // catalyst verification) so delivery order reflects true expected edge
+  if (tickers.length > 0) {
+    const before = tickers.map((t) => t.ticker)
+    tickers = finalizePicks(tickers)
+    console.log(`[nightly-research] finalized order: ${before.join(',')} → ${tickers.map((t) => t.ticker).join(',')}`)
   }
 
   // Step 4: generate Perplexity reports
@@ -164,6 +250,26 @@ export default async function handler(req, res) {
     await redis.lpush(HISTORY_INDEX_KEY, dateKey)
     await redis.ltrim(HISTORY_INDEX_KEY, 0, HISTORY_MAX_ENTRIES - 1)
 
+    // Shadow tracking: the top-15 board candidates that didn't make the cut.
+    // Tracked like real picks (but never shown) to ~3x the learning data
+    // behind setup/source win rates.
+    const pickedSet = new Set(picks.map((p) => p.ticker))
+    const shadowPicks = shadowBoard
+      .filter((item) => !pickedSet.has(item.ticker) && Number.isFinite(item.price) && item.price > 0)
+      .map((item) => ({
+        ticker: item.ticker,
+        price: item.price,
+        setupType: item.setupType,
+        sources: (item.sources || []).slice(0, 6),
+        archetypeScore: item.archetypeScore,
+      }))
+    if (shadowPicks.length > 0) {
+      await redis.set(`research:shadow:${dateKey}`, { date: dateKey, picks: shadowPicks }, { ex: HISTORY_TTL })
+      await redis.lpush('research:shadow-index', dateKey)
+      await redis.ltrim('research:shadow-index', 0, HISTORY_MAX_ENTRIES - 1)
+      console.log(`[nightly-research] shadow-tracking ${shadowPicks.length} board candidates`)
+    }
+
     console.log('[nightly-research] stored research:latest + history in Redis')
   } else {
     console.warn('[nightly-research] Redis not configured — results not persisted')
@@ -178,6 +284,14 @@ export default async function handler(req, res) {
       errors.push({ step: 'slack', error: err.message })
     }
   }
+
+  await recordRun('nightly-research', startedAt, {
+    errors,
+    signals: signals.length,
+    articles: articles.length,
+    picks: picks.length,
+    tickers: tickers.map((t) => t.ticker),
+  })
 
   return res.status(200).json({
     stored: Boolean(redis),

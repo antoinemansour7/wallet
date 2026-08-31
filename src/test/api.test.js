@@ -36,7 +36,7 @@ describe('api/get-research', () => {
     vi.doMock('@upstash/redis', () => ({
       Redis: { fromEnv: () => ({ get: vi.fn() }) },
     }))
-    const mod = await import('./get-research.js')
+    const mod = await import('../../api/get-research.js')
 
     const res = mockRes()
     await mod.default(mockReq('POST'), res)
@@ -49,7 +49,7 @@ describe('api/get-research', () => {
     vi.doMock('@upstash/redis', () => ({
       Redis: { fromEnv: () => ({ get: vi.fn().mockResolvedValue(mockData) }) },
     }))
-    const mod = await import('./get-research.js')
+    const mod = await import('../../api/get-research.js')
 
     const res = mockRes()
     await mod.default(mockReq('GET'), res)
@@ -62,7 +62,7 @@ describe('api/get-research', () => {
     vi.doMock('@upstash/redis', () => ({
       Redis: { fromEnv: () => ({ get: vi.fn().mockResolvedValue(null) }) },
     }))
-    const mod = await import('./get-research.js')
+    const mod = await import('../../api/get-research.js')
 
     const res = mockRes()
     await mod.default(mockReq('GET'), res)
@@ -76,7 +76,7 @@ describe('api/get-research', () => {
     vi.doMock('@upstash/redis', () => ({
       Redis: { fromEnv: () => ({ get: vi.fn().mockRejectedValue(new Error('fail')) }) },
     }))
-    const mod = await import('./get-research.js')
+    const mod = await import('../../api/get-research.js')
 
     const res = mockRes()
     await mod.default(mockReq('GET'), res)
@@ -89,7 +89,7 @@ describe('api/get-research', () => {
     vi.doMock('@upstash/redis', () => ({
       Redis: { fromEnv: () => ({ get: vi.fn().mockResolvedValue(null) }) },
     }))
-    const mod = await import('./get-research.js')
+    const mod = await import('../../api/get-research.js')
 
     const res = mockRes()
     await mod.default(mockReq('GET'), res)
@@ -110,10 +110,10 @@ describe('api/live-prices', () => {
   })
 
   it('rejects non-POST requests', async () => {
-    vi.doMock('../src/server/marketQuotes.js', () => ({
+    vi.doMock('../server/marketQuotes.js', () => ({
       fetchMarketQuotes: vi.fn(),
     }))
-    const mod = await import('./live-prices.js')
+    const mod = await import('../../api/live-prices.js')
 
     const res = mockRes()
     await mod.default(mockReq('GET'), res)
@@ -127,10 +127,10 @@ describe('api/live-prices', () => {
       missing: [],
       errors: [],
     })
-    vi.doMock('../src/server/marketQuotes.js', () => ({
+    vi.doMock('../server/marketQuotes.js', () => ({
       fetchMarketQuotes: mockFetch,
     }))
-    const mod = await import('./live-prices.js')
+    const mod = await import('../../api/live-prices.js')
 
     const res = mockRes()
     await mod.default(mockReq('POST', { symbols: ['AAPL'] }), res)
@@ -141,15 +141,44 @@ describe('api/live-prices', () => {
   })
 
   it('returns 500 on error', async () => {
-    vi.doMock('../src/server/marketQuotes.js', () => ({
+    vi.doMock('../server/marketQuotes.js', () => ({
       fetchMarketQuotes: vi.fn().mockRejectedValue(new Error('Yahoo down')),
     }))
-    const mod = await import('./live-prices.js')
+    const mod = await import('../../api/live-prices.js')
 
     const res = mockRes()
     await mod.default(mockReq('POST', { symbols: ['X'] }), res)
 
     expect(res.statusCode).toBe(500)
     expect(res.body.error).toBe('Yahoo down')
+  })
+
+  it('serves cached-only quotes instantly without a live fetch', async () => {
+    const liveFetch = vi.fn()
+    const cachedFetch = vi.fn().mockResolvedValue({ quotes: [{ symbol: 'AAPL', price: 149, cacheStatus: 'stale' }], missing: [], errors: [], cache: { cachedOnly: true } })
+    vi.doMock('../server/marketQuotes.js', () => ({ fetchMarketQuotes: liveFetch, fetchCachedMarketQuotes: cachedFetch }))
+    const mod = await import('../../api/live-prices.js')
+
+    const res = mockRes()
+    await mod.default(mockReq('POST', { symbols: ['AAPL'], cachedOnly: true }), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.quotes[0].price).toBe(149)
+    expect(cachedFetch).toHaveBeenCalledWith(['AAPL'])
+    expect(liveFetch).not.toHaveBeenCalled()
+  })
+
+  it('dispatches to portfolio series when positions are provided', async () => {
+    const mockSeries = vi.fn().mockResolvedValue([{ date: '2026-06-10', marketValue: 1000 }])
+    vi.doMock('../server/marketQuotes.js', () => ({ fetchMarketQuotes: vi.fn() }))
+    vi.doMock('../server/portfolioSeries.js', () => ({ getPortfolioSeries: mockSeries }))
+    const mod = await import('../../api/live-prices.js')
+
+    const res = mockRes()
+    await mod.default(mockReq('POST', { positions: [{ symbol: 'AAPL', quantity: 2 }], cashValue: 100 }), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.series).toHaveLength(1)
+    expect(mockSeries).toHaveBeenCalledWith({ positions: [{ symbol: 'AAPL', quantity: 2 }], cashValue: 100, days: 365 })
   })
 })

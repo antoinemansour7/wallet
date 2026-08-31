@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react'
+import CompanyLogo from '../components/CompanyLogo'
+import Reveal from '../components/Reveal'
+import { HistorySpot } from '../components/illustrations'
 
 function formatDate(dateStr) {
   try {
@@ -103,11 +106,12 @@ function PickRow({ pick, currentPrice }) {
   return (
     <div className="group flex items-center gap-2 py-2.5 border-b border-white/[0.04] last:border-0 sm:gap-3">
       {/* Ticker */}
+      <CompanyLogo symbol={pick.ticker} size={24} className="hidden sm:flex" />
       <span className="w-12 shrink-0 font-mono text-[13px] font-bold text-white sm:w-14 sm:text-sm">{pick.ticker}</span>
 
       {/* Conviction dot */}
       <div className="hidden items-center gap-1 sm:flex">
-        <div className={`h-1.5 w-1.5 rounded-full ${conviction >= 8 ? 'bg-gain' : conviction >= 6 ? 'bg-amber-400' : 'bg-white/20'}`} />
+        <div className={`h-1.5 w-1.5 rounded-full ${conviction >= 8 ? 'bg-gain' : conviction >= 6 ? 'bg-warning' : 'bg-white/20'}`} />
         <span className="font-mono text-[10px] text-white/30">{conviction}</span>
       </div>
 
@@ -180,8 +184,9 @@ export default function History() {
             ))}
           </div>
         ) : entries.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-white/[0.06] py-16 text-center">
-            <p className="text-sm text-white/40">No history yet.</p>
+          <div className="flex flex-col items-center rounded-xl border border-dashed border-white/[0.06] py-14 text-center">
+            <HistorySpot />
+            <p className="mt-3 text-sm text-white/40">No history yet.</p>
             <p className="mt-1 text-xs text-white/20">Recorded after each nightly pipeline run.</p>
           </div>
         ) : (
@@ -190,8 +195,9 @@ export default function History() {
 
             {/* Entries */}
             <div className="space-y-3">
-              {entries.filter((entry) => entry.picks.some((p) => p.conviction >= 6)).map((entry) => (
-                <div key={entry.date} className="rounded-xl border border-white/[0.06] bg-wall-surface overflow-hidden">
+              {entries.filter((entry) => entry.picks.some((p) => p.conviction >= 6)).map((entry, entryIndex) => (
+                <Reveal key={entry.date} delay={Math.min(entryIndex, 4) * 70}>
+                <div className="rounded-xl border border-white/[0.06] bg-wall-surface overflow-hidden">
                   {/* Day header */}
                   <div className="flex items-center justify-between border-b border-white/[0.04] px-4 py-3 sm:px-5">
                     <div className="flex items-center gap-2">
@@ -214,6 +220,7 @@ export default function History() {
                     ))}
                   </div>
                 </div>
+                </Reveal>
               ))}
             </div>
           </>

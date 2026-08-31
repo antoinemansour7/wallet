@@ -32,7 +32,8 @@ describe('Login page', () => {
 
   it('renders brand name', () => {
     renderLogin()
-    expect(screen.getByText('WallAI')).toBeInTheDocument()
+    // Brand renders as Wall + AI in separate spans (gradient on "AI")
+    expect(screen.getByText((_, el) => el?.textContent === 'WallAI' && el?.tagName === 'SPAN' && el.querySelector('span'))).toBeInTheDocument()
   })
 
   it('renders sign-in button', () => {

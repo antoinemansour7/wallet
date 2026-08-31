@@ -25,9 +25,9 @@ export default function ValueVsBookChart({ stats }) {
   return (
     <ChartPanel title="Value vs Book" meta={fmtCurrency(stats.totalPnl)}>
       <div className="space-y-5">
-        <GradientBar label="Portfolio value" value={stats.totalMarketValue} max={max} from="#1c1c1c90" to="#1c1c1c" />
-        <GradientBar label="Book value" value={stats.totalBookValue} max={max} from="#a1a1aa90" to="#71717a" />
-        <GradientBar label="Cash reserve" value={stats.totalCashValue} max={max} from="#0d948890" to="#0f766e" />
+        <GradientBar label="Portfolio value" value={stats.totalMarketValue} max={max} from="#fafafa" to="#d4d4d8" />
+        <GradientBar label="Book value" value={stats.totalBookValue} max={max} from="#a1a1aa" to="#818188" />
+        <GradientBar label="Cash reserve" value={stats.totalCashValue} max={max} from="#71717a" to="#52525b" />
       </div>
       <div className="mt-5 rounded-lg border border-white/[0.06] bg-white/[0.06] px-4 py-3">
         <div className="flex items-center justify-between gap-3">

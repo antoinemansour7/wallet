@@ -1,5 +1,13 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { rankHighUpsideBoard, fetchAllYahooNews } from './researchEngine'
+import {
+  rankHighUpsideBoard,
+  fetchAllYahooNews,
+  postProcessCandidates,
+  technicalAdjustment,
+  setupPerformanceAdjustment,
+  sourcePerformanceAdjustment,
+  finalizePicks,
+} from './researchEngine'
 
 // fetchAllYahooNews tests
 describe('fetchAllYahooNews', () => {
@@ -179,6 +187,17 @@ describe('rankHighUpsideBoard', () => {
     expect(withPenalty).toBeLessThan(withoutPenalty)
   })
 
+  it('keeps scores finite when board items are missing newer count fields', () => {
+    const quoteMap = new Map([['OLD', { price: 25, changePercent: 1 }]])
+    const legacyItem = makeItem({ ticker: 'OLD' })
+    delete legacyItem.screenerMentions
+    delete legacyItem.searchMentions
+
+    const ranked = rankHighUpsideBoard([legacyItem], quoteMap)
+
+    expect(Number.isFinite(ranked[0].archetypeScore)).toBe(true)
+  })
+
   it('assigns priceBand correctly', () => {
     const quoteMap = new Map([
       ['LOW', { price: 3 }],
@@ -197,5 +216,164 @@ describe('rankHighUpsideBoard', () => {
     expect(get('LOW').priceBand).toBe('penny-risk')
     expect(get('MID').priceBand).toBe('core-upside')
     expect(get('HIGH').priceBand).toBe('large')
+  })
+})
+
+describe('postProcessCandidates', () => {
+  const makeBoardItem = (ticker, overrides = {}) => ({
+    ticker,
+    sources: ['source-a', 'source-b'],
+    themes: ['ai'],
+    signalCount: 3,
+    articleCount: 0,
+    setupType: 'catalyst',
+    archetypeScore: 12,
+    price: 40,
+    quoteVerified: true,
+    quoteChangePercent: 1,
+    priceBand: 'core-upside',
+    repeatedAttention: true,
+    pennyStockRisk: false,
+    exceptionalPennySetup: false,
+    brokenSetupRisk: false,
+    mainstreamCrowdFavorite: false,
+    convictionMentions: 2,
+    contextMentions: 0,
+    ...overrides,
+  })
+
+  it('filters recently picked tickers when fresh alternatives exist', () => {
+    const parsed = [
+      { ticker: 'IREN', conviction: 9, reason: 'Recently picked again' },
+      { ticker: 'RKLB', conviction: 7, reason: 'Fresh catalyst' },
+    ]
+    const signalBoard = [
+      makeBoardItem('IREN', { archetypeScore: 20 }),
+      makeBoardItem('RKLB', { archetypeScore: 10 }),
+    ]
+
+    const picks = postProcessCandidates(parsed, signalBoard, new Map(), {
+      recentPickedTickers: new Set(['IREN']),
+    })
+
+    expect(picks.map((p) => p.ticker)).toEqual(['RKLB'])
+  })
+
+  it('lets a strong technical setup outrank a weak one at equal conviction', () => {
+    const parsed = [
+      { ticker: 'WEAK', conviction: 8, reason: 'Chatter but bad chart' },
+      { ticker: 'STRONG', conviction: 8, reason: 'Chatter and confirmed chart' },
+    ]
+    const signalBoard = [makeBoardItem('WEAK'), makeBoardItem('STRONG')]
+    const technicals = new Map([
+      ['WEAK', { analyzed: true, trend: 'downtrend', rsi: 80, macd: { histogram: -0.4 }, relativeVolume: 0.8 }],
+      ['STRONG', { analyzed: true, trend: 'uptrend', rsi: 58, macd: { histogram: 0.3 }, relativeVolume: 1.6 }],
+    ])
+
+    const picks = postProcessCandidates(parsed, signalBoard, technicals)
+
+    expect(picks[0].ticker).toBe('STRONG')
+    expect(picks[0].techAdjustment).toBeGreaterThan(0)
+    expect(picks.find((p) => p.ticker === 'WEAK').techAdjustment).toBeLessThan(0)
+  })
+
+  it('boosts picks flagged by proven sources and penalizes proven losers', () => {
+    const stats = {
+      bySource: {
+        '@winner': { weightedWinRate: 70, total: 5 },
+        '@loser': { weightedWinRate: 20, total: 4 },
+        '@thin': { weightedWinRate: 90, total: 2 },
+      },
+    }
+
+    expect(sourcePerformanceAdjustment(['@winner'], stats)).toBe(0.75)
+    expect(sourcePerformanceAdjustment(['@loser'], stats)).toBe(-1.0)
+    expect(sourcePerformanceAdjustment(['@thin'], stats)).toBe(0)
+    expect(sourcePerformanceAdjustment(['@winner', '@loser'], stats)).toBe(-0.25)
+    expect(sourcePerformanceAdjustment([], stats)).toBe(0)
+    expect(sourcePerformanceAdjustment(['@winner'], null)).toBe(0)
+  })
+
+  it('attaches ATR-based stop and target when technicals include ATR', () => {
+    const parsed = [{ ticker: 'RKLB', conviction: 8, reason: 'Catalyst' }]
+    const signalBoard = [makeBoardItem('RKLB', { price: 40 })]
+    const technicals = new Map([
+      ['RKLB', { analyzed: true, trend: 'uptrend', rsi: 55, atr: 2, macd: { histogram: 0.1 }, relativeVolume: 1.1 }],
+    ])
+
+    const picks = postProcessCandidates(parsed, signalBoard, technicals)
+
+    expect(picks[0].stopLoss).toBe(37)   // 40 - 1.5×2
+    expect(picks[0].target).toBe(45)     // 40 + 2.5×2
+  })
+
+  it('applies setup win-rate adjustments only with enough samples', () => {
+    expect(setupPerformanceAdjustment('catalyst', { bySetup: { catalyst: { weightedWinRate: 70, total: 6 } } })).toBe(1.5)
+    expect(setupPerformanceAdjustment('squeeze', { bySetup: { squeeze: { weightedWinRate: 20, total: 8 } } })).toBe(-2.0)
+    expect(setupPerformanceAdjustment('squeeze', { bySetup: { squeeze: { weightedWinRate: 20, total: 3 } } })).toBe(0)
+    expect(setupPerformanceAdjustment('breakout', null)).toBe(0)
+  })
+})
+
+describe('technicalAdjustment', () => {
+  it('rewards confirmed uptrends and punishes broken charts', () => {
+    const strong = technicalAdjustment({ trend: 'uptrend', rsi: 55, macd: { histogram: 0.2 }, relativeVolume: 1.7 })
+    const weak = technicalAdjustment({ trend: 'downtrend', rsi: 80, macd: { histogram: -0.2 }, relativeVolume: 0.9 })
+
+    expect(strong).toBeGreaterThan(2)
+    expect(weak).toBeLessThan(-3)
+    expect(technicalAdjustment(null)).toBe(0)
+  })
+})
+
+describe('finalizePicks', () => {
+  const basePick = (ticker, overrides = {}) => ({
+    ticker,
+    conviction: 7,
+    archetypeScore: 10,
+    ...overrides,
+  })
+
+  it('promotes verified, not-priced-in catalysts over unverified picks', () => {
+    const picks = [
+      basePick('HYPE', { conviction: 9, catalystVerified: false }),
+      basePick('REAL', { conviction: 8, catalystVerified: true, catalystPricedIn: false, catalystConfidence: 8 }),
+    ]
+
+    const finalized = finalizePicks(picks)
+
+    expect(finalized[0].ticker).toBe('REAL')
+    expect(finalized[0].finalScore).toBeGreaterThan(finalized[1].finalScore)
+  })
+
+  it('drops priced-in picks with extreme contrarian risk when alternatives exist', () => {
+    const picks = [
+      basePick('LATE', { conviction: 9, catalystVerified: true, catalystPricedIn: true, riskScore: 9 }),
+      basePick('OK', { conviction: 7, catalystVerified: true, catalystPricedIn: false, riskScore: 4 }),
+    ]
+
+    const finalized = finalizePicks(picks)
+
+    expect(finalized.map((p) => p.ticker)).toEqual(['OK'])
+  })
+
+  it('keeps dangerous picks when nothing else survives', () => {
+    const picks = [
+      basePick('ONLY', { catalystPricedIn: true, riskScore: 9 }),
+    ]
+
+    expect(finalizePicks(picks).map((p) => p.ticker)).toEqual(['ONLY'])
+    expect(finalizePicks([])).toEqual([])
+  })
+
+  it('penalizes high contrarian risk in the final order', () => {
+    const picks = [
+      basePick('RISKY', { conviction: 8, riskScore: 9 }),
+      basePick('CALM', { conviction: 8, riskScore: 2 }),
+    ]
+
+    const finalized = finalizePicks(picks)
+
+    expect(finalized[0].ticker).toBe('CALM')
   })
 })

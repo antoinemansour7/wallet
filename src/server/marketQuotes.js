@@ -1,4 +1,4 @@
-import { getKnownQuoteSymbols } from './quoteCache.js'
+import { getCachedQuote, getKnownQuoteSymbols, isFreshQuote } from './quoteCache.js'
 import {
   fetchPolygonQuotes,
   isPolygonEnabled,
@@ -99,6 +99,27 @@ export async function fetchMarketQuotes(symbols, options = {}) {
     errors,
     cache: mergeCacheStats(polygonResult.cache, yahooResult.cache, fallbackResult.cache),
   }
+}
+
+// Cache-only read: returns whatever is in Redis (fresh or stale) without any
+// live provider fetch. Powers the instant first paint on app open — the
+// background-refreshed quotes are served immediately, then a normal live call
+// ticks them to current.
+export async function fetchCachedMarketQuotes(symbols) {
+  const uniqueSymbols = normalizeSymbols(symbols)
+  const now = Date.now()
+  const quotes = []
+
+  for (const symbol of uniqueSymbols) {
+    const cached = await getCachedQuote(symbol)
+    if (cached && Number.isFinite(Number(cached.price))) {
+      quotes.push({ ...cached, cacheStatus: isFreshQuote(cached, now) ? 'hit' : 'stale' })
+    }
+  }
+
+  const foundSymbols = getFoundSymbols(quotes)
+  const missing = uniqueSymbols.filter((symbol) => !foundSymbols.has(symbolKey(symbol)))
+  return { quotes, missing, errors: [], cache: { enabled: true, cachedOnly: true, hits: quotes.length } }
 }
 
 export async function refreshKnownMarketQuotes(options = {}) {

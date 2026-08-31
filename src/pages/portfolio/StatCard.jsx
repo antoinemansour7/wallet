@@ -25,8 +25,8 @@ function cardToneClasses(tone) {
       }
     case 'accent':
       return {
-        borderTop: 'bg-[#494fdf]',
-        value: 'text-[#494fdf]',
+        borderTop: 'bg-gradient-accent',
+        value: 'text-accent',
         badge: 'border-white/[0.06] bg-white/[0.04] text-white/60',
         detail: 'border-white/[0.06] bg-white/[0.04]',
         detailText: 'text-white',
@@ -47,7 +47,7 @@ export default function StatCard({ label, value, sub, pnl = 0, tone, badge, brea
   const classes      = cardToneClasses(resolvedTone)
 
   return (
-    <div className="relative overflow-hidden rounded-card border border-white/[0.06] bg-wall-surface p-4 transition-all duration-200 hover:border-white/[0.12] sm:p-5">
+    <div className="relative h-full overflow-hidden rounded-card border border-white/[0.06] bg-wall-surface p-4 transition-all duration-ws ease-ws hover:-translate-y-0.5 hover:border-white/[0.12] hover:shadow-card-hover sm:p-5">
       <div className={`absolute inset-x-0 top-0 h-0.5 ${classes.borderTop}`} />
       <div className="mb-3 flex items-start justify-between gap-3">
         <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-white/40">{label}</p>
@@ -57,7 +57,7 @@ export default function StatCard({ label, value, sub, pnl = 0, tone, badge, brea
           </span>
         )}
       </div>
-      <p className={`font-mono text-[20px] font-bold tabular leading-none tracking-tight sm:text-[26px] ${value ? classes.value : 'text-white/40'}`}>
+      <p className={`font-display text-[22px] font-medium tabular leading-none tracking-tight sm:text-[28px] ${value ? classes.value : 'text-white/40'}`}>
         {value ?? '—'}
       </p>
       {sub && (

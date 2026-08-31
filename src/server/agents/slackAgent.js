@@ -40,12 +40,15 @@ export async function sendPickAlerts(picks) {
     const emoji = conviction >= 8 ? '🟢' : conviction >= 6 ? '🟡' : '⚪'
     const catalystTag = pick.catalystVerified ? ' ✅ Catalyst verified' : ''
     const riskTag = pick.riskScore >= 7 ? ` ⚠️ Risk ${pick.riskScore}/10` : ''
+    const levels = pick.price && pick.stopLoss && pick.target
+      ? `\nEntry ~$${pick.price} · Stop $${pick.stopLoss} · Target $${pick.target}`
+      : ''
 
     return {
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `${emoji} *#${i + 1} $${pick.ticker}* — Conviction ${conviction}/10${catalystTag}${riskTag}\n${pick.reason || 'No reasoning available'}${pick.bearCase ? `\n_Bear case: ${pick.bearCase}_` : ''}`,
+        text: `${emoji} *#${i + 1} $${pick.ticker}* — Conviction ${conviction}/10${catalystTag}${riskTag}\n${pick.reason || 'No reasoning available'}${pick.bearCase ? `\n_Bear case: ${pick.bearCase}_` : ''}${levels}`,
       },
     }
   })

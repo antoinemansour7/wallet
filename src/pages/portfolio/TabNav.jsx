@@ -20,7 +20,7 @@ export default function TabNav({ activeView, hasData, onChange }) {
           >
             {tab.label}
             {isActive && (
-              <span className="absolute inset-x-0 -bottom-px h-px bg-white" />
+              <span className="grow-x absolute inset-x-0 -bottom-px h-px bg-accent" />
             )}
           </button>
         )
