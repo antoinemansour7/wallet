@@ -68,6 +68,7 @@ export async function fetchAllYahooNews() {
 import Anthropic from '@anthropic-ai/sdk'
 import { fetchMarketQuotes } from './marketQuotes.js'
 import { extractTickersFromText } from './xSignals.js'
+import { formatRegimeForPrompt } from './marketRegime.js'
 
 const CLAUDE_MODEL = 'claude-sonnet-5'
 
@@ -701,7 +702,7 @@ export function buildMacroContextBlock(signals) {
   ].join('\n')
 }
 
-function buildTickerUserMessage(signals, articles, signalBoard, sectorTrends = new Map(), technicals = new Map()) {
+function buildTickerUserMessage(signals, articles, signalBoard, sectorTrends = new Map(), technicals = new Map(), regime = null) {
   const { boardText, signalText } = summarizeSignalsForPrompt(signals, articles, { signalBoard })
   const articleTexts = articles.slice(0, 25).map((a) => `${a.title} — ${a.description}`).join('\n')
 
@@ -736,10 +737,12 @@ function buildTickerUserMessage(signals, articles, signalBoard, sectorTrends = n
   }
 
   const macroBlock = buildMacroContextBlock(signals)
+  // Numbers, so REGIME FIT has something to reason over instead of adjectives.
+  const regimeBlock = formatRegimeForPrompt(regime)
 
   return `=== HIGH-UPSIDE TICKER BOARD ===
 ${boardText}
-${sectorBlock}${techBlock}${macroBlock}
+${sectorBlock}${techBlock}${regimeBlock}${macroBlock}
 === X SIGNALS (${signals.length} total, showing top matches) ===
 ${signalText}
 
@@ -944,7 +947,7 @@ export async function extractTickers(signals, articles, options = {}) {
   options.onBoard?.(candidateSignalBoard)
 
   const client = new Anthropic({ apiKey })
-  const userContent = buildTickerUserMessage(signals, articles, candidateSignalBoard, sectorTrends, technicals)
+  const userContent = buildTickerUserMessage(signals, articles, candidateSignalBoard, sectorTrends, technicals, options.regime)
 
   // Inject performance feedback into the system prompt
   const systemPrompt = performanceBlock

@@ -11,6 +11,7 @@ import { runContrarianAgent } from '../src/server/agents/contrarianAgent.js'
 import { runCatalystAgent } from '../src/server/agents/catalystAgent.js'
 import { runExaDiscovery } from '../src/server/agents/exaDiscoveryAgent.js'
 import { sendPickAlerts } from '../src/server/agents/slackAgent.js'
+import { getMarketRegime, regimeSizeMultiplier } from '../src/server/marketRegime.js'
 
 const RESEARCH_KEY = 'research:latest'
 const RESEARCH_TTL = 48 * 60 * 60 // 48 hours
@@ -175,12 +176,28 @@ export default async function handler(req, res) {
     errors.push({ step: 'day-trade', error: err.message })
   }
 
+  // Market regime — rates the tape, never an individual pick. Recorded on
+  // every pick so this becomes calibratable once the history spans more than
+  // the single month it currently covers; it cannot be backfilled.
+  let regime = null
+  try {
+    regime = await getMarketRegime()
+    if (regime) {
+      console.log(`[nightly-research] market regime: ${regime.score}/10 (${regime.label})`
+        + ` — drag: ${regime.drag?.label} | ${regime.coverage} components`)
+    }
+  } catch (err) {
+    console.error('[nightly-research] regime failed:', err.message)
+    errors.push({ step: 'regime', error: err.message })
+  }
+
   // Step 3: extract tickers via Claude
   let tickers = []
   let shadowBoard = []
   try {
     tickers = await extractTickers(signals, articles, {
       onBoard: (board) => { shadowBoard = board.slice(0, 15) },
+      regime,
     })
     console.log(`[nightly-research] extracted ${tickers.length} tickers:`, tickers.map((t) => t.ticker))
   } catch (err) {
@@ -233,9 +250,21 @@ export default async function handler(req, res) {
   }
 
   // Step 5: store in Redis
+  // Stamp the tape onto each pick, so a later calibration can ask what the
+  // regime was on the day it was made without reconstructing it.
+  const stampedPicks = regime
+    ? picks.map((p) => ({
+      ...p,
+      regimeScore: regime.score,
+      regimeLabel: regime.label,
+      suggestedSizeMultiplier: regimeSizeMultiplier(regime.score),
+    }))
+    : picks
+
   const payload = {
     generatedAt: new Date().toISOString(),
-    picks,
+    picks: stampedPicks,
+    regime,
     articles,
     signalCount: signals.length,
     tweetCount: signals.length,
