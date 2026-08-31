@@ -1,15 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import CompanyLogo from '../../components/CompanyLogo'
+import SignalPanel from './SignalPanel'
 import { getQuoteSymbolsForRow } from '../../utils/livePrices'
 
 const POLL_MS = 3000
 const fmt = (n) => (Number.isFinite(n) ? n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—')
 
-const VERDICT = {
-  BUY: '#34d399',
-  SELL: '#fb7185',
-  HOLD: '#fbbf24',
-}
 
 function Sparkline({ data, positive }) {
   if (!data || data.length < 2) return <div className="h-14" />
@@ -51,22 +47,6 @@ function Sparkline({ data, positive }) {
   )
 }
 
-function SentimentMeter({ score }) {
-  const pos = Math.max(2, Math.min(98, (score + 100) / 2))
-  return (
-    <div>
-      <div className="relative h-2 rounded-full" style={{ background: 'linear-gradient(90deg, #fb7185 0%, #3a3a42 50%, #34d399 100%)' }}>
-        <span
-          className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-wall-bg bg-white shadow-card transition-all duration-500 ease-ws"
-          style={{ left: `${pos}%` }}
-        />
-      </div>
-      <div className="mt-2 flex justify-between text-[10px] font-medium uppercase tracking-[0.1em] text-white/25">
-        <span>Sell</span><span>Neutral</span><span>Buy</span>
-      </div>
-    </div>
-  )
-}
 
 function IndicatorStat({ label, value, tone }) {
   const cls = tone === 'gain' ? 'text-gain' : tone === 'loss' ? 'text-loss' : 'text-white/75'
@@ -267,28 +247,7 @@ export default function TradeView({ rows = [] }) {
             </div>
           </div>
 
-          {/* Signal */}
-          <div className="rounded-card border border-white/[0.06] bg-wall-surface px-6 py-5 shadow-card">
-            <div className="flex items-end justify-between">
-              <div>
-                <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-white/30">Technical signal</p>
-                <p className="mt-1 font-display text-[28px] font-semibold leading-none" style={{ color: VERDICT[sig?.verdict] ?? '#fbbf24' }}>
-                  {sig?.verdict ?? 'HOLD'}
-                </p>
-              </div>
-              <span className="text-[12px] tabular text-white/35">strength {sig?.strength ?? 0}/100</span>
-            </div>
-            <div className="mt-5">
-              <SentimentMeter score={sig?.score ?? 0} />
-            </div>
-            {sig?.reasons?.length > 0 && (
-              <div className="mt-4 flex flex-wrap gap-1.5">
-                {sig.reasons.map((r, i) => (
-                  <span key={i} className="rounded-full bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/45">{r}</span>
-                ))}
-              </div>
-            )}
-          </div>
+          <SignalPanel signal={sig} />
 
           {/* Indicator strip */}
           <div className="flex divide-x divide-white/[0.05] rounded-card border border-white/[0.06] bg-wall-surface shadow-card">
