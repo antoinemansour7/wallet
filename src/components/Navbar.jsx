@@ -6,7 +6,7 @@ export function Logo({ size = 30, withWordmark = true }) {
   return (
     <span className="flex items-center gap-2.5">
       <span
-        className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-[11px] bg-gradient-accent text-brand shadow-[0_8px_24px_rgba(52,211,153,0.16)]"
+        className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-[11px] bg-gradient-accent text-ink shadow-[0_8px_24px_rgba(52,211,153,0.16)]"
         style={{ width: size, height: size }}
         aria-hidden="true"
       >
@@ -15,7 +15,7 @@ export function Logo({ size = 30, withWordmark = true }) {
         </svg>
       </span>
       {withWordmark && (
-        <span className="text-[15px] font-semibold tracking-[-0.02em] text-white">
+        <span className="text-[15px] font-semibold tracking-[-0.02em] text-ink">
           Wall<span className="text-gradient">AI</span>
         </span>
       )}
