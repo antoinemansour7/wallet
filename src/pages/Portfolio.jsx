@@ -19,7 +19,8 @@ import PnlBreakdownChart from './portfolio/PnlBreakdownChart'
 import PerformanceChart from './portfolio/PerformanceChart'
 import AllocationDonut from './portfolio/AllocationDonut'
 import HoldingsView from './portfolio/HoldingsView'
-import AddAccountView from './portfolio/AddAccountView'
+import AccountsView from './portfolio/AccountsView'
+import AddAccountModal from './portfolio/AddAccountModal'
 import EmptyState from './portfolio/EmptyState'
 import TradeView from './portfolio/TradeView'
 
@@ -231,6 +232,7 @@ export default function Portfolio() {
   // A statement is staged rather than applied. Nothing touches the portfolio
   // until the merge has been previewed and confirmed, which is what makes
   // "add this to my existing TFSA" a safe thing to do.
+  const [addOpen, setAddOpen] = useState(false)
   const [pending, setPending] = useState(null)
   const [preview, setPreview] = useState(null)
   const [merging, setMerging] = useState(false)
@@ -265,6 +267,19 @@ export default function Portfolio() {
     })
   }, [accounts, pending])
 
+  const openAdd = useCallback(() => {
+    setPending(null)
+    setPreview(null)
+    setError('')
+    setAddOpen(true)
+  }, [])
+
+  const closeAdd = useCallback(() => {
+    setAddOpen(false)
+    setPending(null)
+    setPreview(null)
+  }, [])
+
   const handleCancelMerge = useCallback(() => {
     setPending(null)
     setPreview(null)
@@ -292,6 +307,7 @@ export default function Portfolio() {
       setFileName(pending.name)
       setPending(null)
       setPreview(null)
+      setAddOpen(false)
       setActiveView('overview')
 
       if (nextRows.length > 0) {
@@ -348,7 +364,7 @@ export default function Portfolio() {
             </div>
           </>
         )}
-        {visibleView === 'overview' && !stats && <EmptyState onUploadClick={() => setActiveView('add')} />}
+        {visibleView === 'overview' && !stats && <EmptyState onUploadClick={() => openAdd()} />}
 
         {visibleView === 'charts' && stats && (
           <>
@@ -360,37 +376,41 @@ export default function Portfolio() {
             </div>
           </>
         )}
-        {visibleView === 'charts' && !stats && <EmptyState onUploadClick={() => setActiveView('add')} />}
+        {visibleView === 'charts' && !stats && <EmptyState onUploadClick={() => openAdd()} />}
 
         {visibleView === 'holdings' && (
-          <HoldingsView rows={rows} accounts={accountEntries} onUploadClick={() => setActiveView('add')} />
+          <HoldingsView rows={rows} accounts={accountEntries} onUploadClick={() => openAdd()} />
         )}
         {visibleView === 'trade' && (
           <TradeView rows={rows} />
         )}
         {visibleView === 'add' && (
-          <AddAccountView
-            accounts={accountEntries}
-            error={error}
-            loading={loading}
-            loadingMsg={loadingMsg}
-            inputRef={inputRef}
-            isDragging={isDragging}
-            userId={uid}
-            pending={pending}
-            preview={preview}
-            busy={merging}
-            onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
-            onDragLeave={() => setIsDragging(false)}
-            onDrop={onDrop}
-            onFile={handleFile}
-            onPlaidSuccess={handlePlaidSuccess}
-            onPlaidConnecting={handlePlaidConnecting}
-            onChooseDestination={handleChooseDestination}
-            onConfirm={handleConfirmMerge}
-            onCancel={handleCancelMerge}
-          />
+          <AccountsView accounts={accountEntries} onAdd={openAdd} />
         )}      </div>
+
+      <AddAccountModal
+        open={addOpen}
+        onClose={closeAdd}
+        accounts={accountEntries}
+        error={error}
+        loading={loading}
+        loadingMsg={loadingMsg}
+        inputRef={inputRef}
+        isDragging={isDragging}
+        userId={uid}
+        pending={pending}
+        preview={preview}
+        busy={merging}
+        onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={onDrop}
+        onFile={handleFile}
+        onPlaidSuccess={handlePlaidSuccess}
+        onPlaidConnecting={handlePlaidConnecting}
+        onChooseDestination={handleChooseDestination}
+        onConfirm={handleConfirmMerge}
+        onCancel={handleCancelMerge}
+      />
     </div>
   )
 }
