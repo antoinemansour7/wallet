@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { fmtCurrency, fmtNumber, fmtPct, parseNum } from '../../utils/portfolioStats'
 import CompanyLogo from '../../components/CompanyLogo'
 import Reveal from '../../components/Reveal'
 import EmptyState from './EmptyState'
+import { sortPositionsByValue } from './helpers'
 
 function normalizePct(val) {
   if (val == null || val === '') return null
@@ -88,6 +89,14 @@ function PositionRow({ row, expanded, onToggle }) {
 export default function HoldingsView({ rows, accounts, onUploadClick }) {
   const [expandedKey, setExpandedKey] = useState(null)
 
+  const sortedAccounts = useMemo(
+    () => accounts.map((account) => ({
+      ...account,
+      positions: sortPositionsByValue(account.positions),
+    })),
+    [accounts],
+  )
+
   if (!accounts.length && !rows.length) return <EmptyState onUploadClick={onUploadClick} />
 
   return (
@@ -99,7 +108,7 @@ export default function HoldingsView({ rows, accounts, onUploadClick }) {
         </span>
       </div>
 
-      {accounts.map((account, accountIndex) => {
+      {sortedAccounts.map((account, accountIndex) => {
         const acct = account.accountNumber
         const acctRows = account.positions
         const acctStats = account.stats
@@ -141,7 +150,7 @@ export default function HoldingsView({ rows, accounts, onUploadClick }) {
                 <div className="px-5 py-4 text-sm text-white/40">No open positions in this account.</div>
               )}
               {acctRows.map((row, i) => {
-                const key = `${acct}:${i}`
+                const key = `${acct}:${row.SYMBOL ?? i}`
                 return (
                   <PositionRow
                     key={key}

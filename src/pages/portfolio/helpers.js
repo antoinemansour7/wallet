@@ -29,6 +29,23 @@ export function getTopPositions(rows, limit = 6) {
     .slice(0, limit)
 }
 
+/**
+ * Largest holding first — what every broker does, because position size is the
+ * first thing anyone looks for. The file order the broker happened to export in
+ * carries no meaning.
+ *
+ * Ties break on symbol so the order is stable: without it, two equal-valued
+ * positions could swap places on any re-render, and a live price refresh runs
+ * every five minutes.
+ */
+export function sortPositionsByValue(rows) {
+  return [...rows].sort((a, b) => {
+    const diff = parseNum(b['MARKET VALUE']) - parseNum(a['MARKET VALUE'])
+    if (diff !== 0) return diff
+    return String(a.SYMBOL ?? '').localeCompare(String(b.SYMBOL ?? ''))
+  })
+}
+
 export function aggregatePositionsBySymbol(rows) {
   const bySymbol = new Map()
 
