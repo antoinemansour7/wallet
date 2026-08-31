@@ -24,6 +24,9 @@
     --gain: #34d399;
     --loss: #fb7185;
     --line: rgba(255, 255, 255, 0.1);
+    --nav-line: rgba(255, 255, 255, 0.075);
+    --nav-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+    --nav-shadow-mobile: 0 -12px 32px rgba(0, 0, 0, 0.2);
   }
 
   html {
@@ -165,6 +168,14 @@
     background-color: rgba(10, 10, 12, 0.72);
     backdrop-filter: blur(16px) saturate(1.4);
     -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  }
+
+  .shadow-nav {
+    box-shadow: var(--nav-shadow);
+  }
+
+  .shadow-nav-mobile {
+    box-shadow: var(--nav-shadow-mobile);
   }
 
   /* Subtle metallic text for hero phrases and key labels (monochrome) */

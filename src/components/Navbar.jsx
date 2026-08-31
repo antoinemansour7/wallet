@@ -122,36 +122,46 @@ export default function Navbar() {
 
   return (
     <>
-      <header className="glass sticky top-0 z-40 border-b border-white/[0.06]">
-        <div className="mx-auto flex h-16 max-w-7xl items-center gap-6 px-4 sm:px-6">
+      <header className="glass sticky top-0 z-40 border-b border-white/[0.06] shadow-nav">
+        <div className="mx-auto flex h-16 max-w-7xl items-center gap-8 px-4 sm:px-6">
+          {/* Brand / Home */}
           <NavLink
             to="/portfolio"
             aria-label="WallAI home"
-            className="shrink-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+            className="shrink-0 rounded-lg transition-opacity duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 hover:opacity-80"
           >
             <Logo />
           </NavLink>
 
-          {/* Primary nav — a filled pill for the active view, so it never reads
-              as the same control as the page-level underlined tabs below it. */}
-          <nav className="hidden items-center gap-1 lg:flex">
-            {NAV_ITEMS.map(({ to, label }) => (
-              <NavLink
-                key={to}
-                to={to}
-                className={({ isActive }) =>
-                  `rounded-lg px-3.5 py-2 text-[13.5px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 ${
-                    isActive
-                      ? 'bg-white/[0.08] text-white'
-                      : 'text-white/50 hover:bg-white/[0.04] hover:text-white/90'
-                  }`
-                }
-              >
-                {label}
-              </NavLink>
-            ))}
+          {/* Primary navigation — accent indicator instead of filled pill */}
+          <nav className="hidden items-center lg:flex">
+            <div className="flex items-center gap-0.5">
+              {NAV_ITEMS.map(({ to, label }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  className={({ isActive }) => {
+                    return `relative px-4 py-2 text-[13px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 rounded-md ${
+                      isActive
+                        ? 'text-white'
+                        : 'text-white/60 hover:text-white/90'
+                    }`
+                  }}
+                >
+                  {({ isActive }) => (
+                    <>
+                      {label}
+                      {isActive && (
+                        <span className="nav-active-indicator absolute bottom-0 left-4 right-4 h-0.5 rounded-t-sm bg-gradient-accent" />
+                      )}
+                    </>
+                  )}
+                </NavLink>
+              ))}
+            </div>
           </nav>
 
+          {/* Account menu */}
           <div className="ml-auto flex shrink-0 items-center">
             {user && <AccountMenu user={user} onSignOut={signOut} />}
           </div>
@@ -159,23 +169,25 @@ export default function Navbar() {
       </header>
 
       {/* ── Mobile bottom tab bar ────────────────────────────────────── */}
-      <nav className="glass fixed inset-x-0 bottom-0 z-50 border-t border-white/[0.06] pb-[env(safe-area-inset-bottom)] lg:hidden">
+      <nav className="glass fixed inset-x-0 bottom-0 z-50 border-t border-white/[0.06] pb-[env(safe-area-inset-bottom)] shadow-nav-mobile lg:hidden">
         <div className="grid grid-cols-3">
           {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
               className={({ isActive }) =>
-                `relative flex flex-col items-center gap-1.5 py-2.5 text-[10px] font-medium transition-colors duration-150 ${
-                  isActive ? 'text-accent' : 'text-white/40'
+                `relative flex flex-col items-center justify-center gap-1 py-3.5 text-[10px] font-medium transition-colors duration-150 ${
+                  isActive ? 'text-accent' : 'text-white/40 hover:text-white/60'
                 }`
               }
             >
               {({ isActive }) => (
                 <>
-                  {isActive && <span className="absolute top-0 h-[2px] w-7 rounded-full bg-gradient-accent" />}
+                  {isActive && (
+                    <span className="absolute top-0 h-0.5 w-6 rounded-b-sm bg-gradient-accent" />
+                  )}
                   <Icon />
-                  {label}
+                  <span>{label}</span>
                 </>
               )}
             </NavLink>
