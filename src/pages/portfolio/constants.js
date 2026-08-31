@@ -16,7 +16,7 @@ export const TABS = [
   { id: 'charts',   label: 'Charts'   },
   { id: 'holdings', label: 'Holdings' },
   { id: 'trade',    label: 'Live Trade' },
-  { id: 'upload',   label: 'Upload'   },
+  { id: 'add',      label: 'Add account' },
 ]
 
 // Monochrome greyscale ramp for categorical UI charts (account allocation, etc.)

@@ -4,7 +4,7 @@ export default function TabNav({ activeView, hasData, onChange }) {
   return (
     <nav className="mb-8 flex gap-6 overflow-x-auto border-b border-white/[0.06] scrollbar-none">
       {TABS.map((tab) => {
-        const disabled = !hasData && tab.id !== 'upload'
+        const disabled = !hasData && tab.id !== 'add'
         const isActive = activeView === tab.id
         return (
           <button

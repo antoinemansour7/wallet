@@ -5,7 +5,8 @@ import { loadLocalPortfolio, loadSavedPortfolioWithTimeout, savePortfolio } from
 import { recordIntradayPoint, saveDailySnapshot } from '../utils/portfolioHistory'
 import { useAuth } from '../context/AuthContext'
 import Reveal from '../components/Reveal'
-import { buildAccountPortfolio, getAccountEntries, hasAccountPortfolio } from '../utils/accountPortfolio'
+import { buildAccountPortfolio, flattenAccountRows, getAccountEntries, hasAccountPortfolio } from '../utils/accountPortfolio'
+import { applyMerge, previewMerge, sourceIdFor } from '../utils/accountMerge'
 import { computeStats } from '../utils/portfolioStats'
 import { AUTO_PRICE_REFRESH_MS } from './portfolio/constants'
 import TabNav from './portfolio/TabNav'
@@ -18,7 +19,7 @@ import PnlBreakdownChart from './portfolio/PnlBreakdownChart'
 import PerformanceChart from './portfolio/PerformanceChart'
 import AllocationDonut from './portfolio/AllocationDonut'
 import HoldingsView from './portfolio/HoldingsView'
-import UploadView from './portfolio/UploadView'
+import AddAccountView from './portfolio/AddAccountView'
 import EmptyState from './portfolio/EmptyState'
 import TradeView from './portfolio/TradeView'
 
@@ -30,7 +31,7 @@ export default function Portfolio() {
   const [loading, setLoading]             = useState(false)
   const [loadingMsg, setLoadingMsg]       = useState('')
   const [isDragging, setIsDragging]       = useState(false)
-  const [activeView, setActiveView]       = useState('upload')
+  const [activeView, setActiveView]       = useState('add')
   const [liveStatus, setLiveStatus]       = useState('idle')
   const [liveMessage, setLiveMessage]     = useState('')
   const [lastUpdatedAt, setLastUpdatedAt] = useState(null)
@@ -53,7 +54,7 @@ export default function Portfolio() {
       ? computeStats(rows, { cashValue: totalCashValue, realizedPnl: totalRealizedPnl })
       : null
   ), [hasData, rows, totalCashValue, totalRealizedPnl])
-  const visibleView = hasData ? activeView : 'upload'
+  const visibleView = hasData ? activeView : 'add'
 
   const applyPortfolioRows = useCallback((nextRows, {
     previousAccounts = accounts,
@@ -194,38 +195,20 @@ export default function Portfolio() {
     if (!file) return
     setError('')
     setLoading(true)
-    setLoadingMsg('Analyzing with AI…')
+    setLoadingMsg('Reading your statement…')
     try {
-      const parsed     = await parseSpreadsheet(file)
-      const parsedRows = parsed.rows ?? []
-      const cashEntries = parsed.cashEntries ?? []
-      const nextAccounts = applyPortfolioRows(parsedRows, {
-        previousAccounts: accounts,
-        cashEntries,
+      const parsed = await parseSpreadsheet(file)
+      stageStatement({
+        name: file.name, kind: 'file',
+        rows: parsed.rows ?? [], cashEntries: parsed.cashEntries ?? [],
       })
-      setFileName(file.name)
-      setActiveView(parsedRows.length > 0 || cashEntries.length > 0 ? 'overview' : 'upload')
-      if (parsedRows.length > 0) {
-        setLoadingMsg('Fetching live prices…')
-        await refreshRowsWithLivePrices(parsedRows, {
-          previousAccounts: nextAccounts,
-          cashEntries,
-        })
-      } else if (cashEntries.length > 0) {
-        setLiveStatus('success')
-        setLiveMessage('Cash balances imported from the uploaded file.')
-      } else {
-        setLiveStatus('idle')
-        setLiveMessage('No positions found in the uploaded file.')
-      }
     } catch (err) {
-      setError(err.message); setLiveStatus('idle'); setLiveMessage('')
+      setError(err.message)
     } finally {
       setLoading(false); setLoadingMsg('')
       if (inputRef.current) inputRef.current.value = ''
     }
   }
-
   const handleCashOverride = useCallback((newCashTotal) => {
     setAccounts((prev) => {
       const keys = Object.keys(prev)
@@ -244,45 +227,106 @@ export default function Portfolio() {
     })
   }, [])
 
+  // ── Adding an account ──────────────────────────────────────────────────────
+  // A statement is staged rather than applied. Nothing touches the portfolio
+  // until the merge has been previewed and confirmed, which is what makes
+  // "add this to my existing TFSA" a safe thing to do.
+  const [pending, setPending] = useState(null)
+  const [preview, setPreview] = useState(null)
+  const [merging, setMerging] = useState(false)
+
+  const stageStatement = useCallback(({ name, kind, rows: incoming, cashEntries }) => {
+    if (incoming.length === 0 && cashEntries.length === 0) {
+      setError('No holdings found in that statement.')
+      return
+    }
+    setError('')
+    setPreview(null)
+    setPending({
+      name,
+      rows: incoming,
+      cashEntries,
+      sourceId: sourceIdFor({ kind, name }),
+      // What the file called the account, offered as the name for a new one.
+      suggestedAccountNumber: String(incoming[0]?.['ACCOUNT NUMBER'] ?? name).trim() || name,
+    })
+  }, [])
+
+  const handleChooseDestination = useCallback((destination) => {
+    if (!pending) return
+    setPreview({
+      ...previewMerge({
+        accounts,
+        accountNumber: destination.accountNumber,
+        sourceId: pending.sourceId,
+        rows: pending.rows,
+      }),
+      destination,
+    })
+  }, [accounts, pending])
+
+  const handleCancelMerge = useCallback(() => {
+    setPending(null)
+    setPreview(null)
+    setError('')
+  }, [])
+
+  const handleConfirmMerge = useCallback(async () => {
+    if (!pending || !preview) return
+    setMerging(true)
+    try {
+      const cashForAccount = pending.cashEntries.length > 0
+        ? pending.cashEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0)
+        : null
+
+      const nextAccounts = applyMerge({
+        accounts,
+        accountNumber: preview.accountNumber,
+        sourceId: pending.sourceId,
+        rows: pending.rows,
+        cash: cashForAccount,
+      })
+      const nextRows = flattenAccountRows(nextAccounts)
+      setAccounts(nextAccounts)
+      setRows(nextRows)
+      setFileName(pending.name)
+      setPending(null)
+      setPreview(null)
+      setActiveView('overview')
+
+      if (nextRows.length > 0) {
+        setLoadingMsg('Fetching live prices…')
+        await refreshRowsWithLivePrices(nextRows, { previousAccounts: nextAccounts })
+      }
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setMerging(false)
+      setLoadingMsg('')
+    }
+  }, [accounts, pending, preview, refreshRowsWithLivePrices])
+
   const handlePlaidConnecting = useCallback(() => {
     setLoading(true)
     setLoadingMsg('Connecting to your brokerage…')
   }, [])
 
-  const handlePlaidSuccess = useCallback(async (holdingsData, institutionName, err) => {
+  const handlePlaidSuccess = useCallback((holdingsData, institutionName, err) => {
+    setLoading(false)
+    setLoadingMsg('')
     if (err || !holdingsData) {
       setError(err?.message || 'Failed to connect brokerage')
-      setLoading(false)
-      setLoadingMsg('')
       return
     }
-    try {
-      const plaidRows = holdingsData.rows || []
-      const cashEntries = holdingsData.cashEntries || []
-      if (plaidRows.length === 0 && cashEntries.length === 0) {
-        setError('No holdings found in the connected account.')
-        setLoading(false)
-        setLoadingMsg('')
-        return
-      }
-      const nextAccounts = applyPortfolioRows(plaidRows, { previousAccounts: accounts, cashEntries })
-      setFileName(`${institutionName || 'Plaid'} (connected)`)
-      setActiveView('overview')
-      if (plaidRows.length > 0) {
-        setLoadingMsg('Fetching live prices…')
-        await refreshRowsWithLivePrices(plaidRows, { previousAccounts: nextAccounts, cashEntries })
-      } else {
-        setLiveStatus('success')
-        setLiveMessage('Cash balances imported from connected account.')
-      }
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
-      setLoadingMsg('')
-    }
-  }, [accounts, applyPortfolioRows, refreshRowsWithLivePrices])
-
+    // A connection is staged and previewed exactly like a file, so choosing
+    // the destination account is the same decision either way.
+    stageStatement({
+      name: institutionName || 'Connected brokerage',
+      kind: 'plaid',
+      rows: holdingsData.rows || [],
+      cashEntries: holdingsData.cashEntries || [],
+    })
+  }, [stageStatement])
   const onDrop = (e) => { e.preventDefault(); setIsDragging(false); handleFile(e.dataTransfer.files[0]) }
 
   return (
@@ -304,7 +348,7 @@ export default function Portfolio() {
             </div>
           </>
         )}
-        {visibleView === 'overview' && !stats && <EmptyState onUploadClick={() => setActiveView('upload')} />}
+        {visibleView === 'overview' && !stats && <EmptyState onUploadClick={() => setActiveView('add')} />}
 
         {visibleView === 'charts' && stats && (
           <>
@@ -316,28 +360,37 @@ export default function Portfolio() {
             </div>
           </>
         )}
-        {visibleView === 'charts' && !stats && <EmptyState onUploadClick={() => setActiveView('upload')} />}
+        {visibleView === 'charts' && !stats && <EmptyState onUploadClick={() => setActiveView('add')} />}
 
         {visibleView === 'holdings' && (
-          <HoldingsView rows={rows} accounts={accountEntries} onUploadClick={() => setActiveView('upload')} />
+          <HoldingsView rows={rows} accounts={accountEntries} onUploadClick={() => setActiveView('add')} />
         )}
         {visibleView === 'trade' && (
           <TradeView rows={rows} />
         )}
-        {visibleView === 'upload' && (
-          <UploadView
-            error={error} fileName={fileName} hasData={hasData} isDragging={isDragging}
-            loading={loading} loadingMsg={loadingMsg} rows={rows} inputRef={inputRef}
+        {visibleView === 'add' && (
+          <AddAccountView
+            accounts={accountEntries}
+            error={error}
+            loading={loading}
+            loadingMsg={loadingMsg}
+            inputRef={inputRef}
+            isDragging={isDragging}
             userId={uid}
-            onDrop={onDrop}
+            pending={pending}
+            preview={preview}
+            busy={merging}
             onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
             onDragLeave={() => setIsDragging(false)}
+            onDrop={onDrop}
             onFile={handleFile}
             onPlaidSuccess={handlePlaidSuccess}
             onPlaidConnecting={handlePlaidConnecting}
+            onChooseDestination={handleChooseDestination}
+            onConfirm={handleConfirmMerge}
+            onCancel={handleCancelMerge}
           />
-        )}
-      </div>
+        )}      </div>
     </div>
   )
 }
