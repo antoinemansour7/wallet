@@ -140,14 +140,19 @@ export default function Navbar() {
                 key={to}
                 to={to}
                 className={({ isActive }) =>
-                  `rounded-lg px-3.5 py-2 text-[13.5px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30 ${
+                  `relative rounded-lg px-3.5 py-2 text-[13.5px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30 ${
                     isActive
-                      ? 'bg-ink/[0.08] text-ink'
+                      ? 'bg-accent/[0.12] text-ink'
                       : 'text-ink/50 hover:bg-ink/[0.04] hover:text-ink/90'
                   }`
                 }
               >
-                {label}
+                {({ isActive }) => (
+                  <>
+                    {label}
+                    {isActive && <span aria-hidden="true" className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-accent" />}
+                  </>
+                )}
               </NavLink>
             ))}
           </nav>
