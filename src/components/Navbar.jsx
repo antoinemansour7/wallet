@@ -6,10 +6,14 @@ export function Logo({ size = 30, withWordmark = true }) {
   return (
     <span className="flex items-center gap-2.5">
       <span
-        className="flex shrink-0 items-center justify-center rounded-[9px] bg-gradient-accent font-bold leading-none text-brand"
-        style={{ width: size, height: size, fontSize: size * 0.5 }}
+        className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-[11px] bg-gradient-accent text-brand shadow-[0_8px_24px_rgba(52,211,153,0.16)]"
+        style={{ width: size, height: size }}
+        aria-hidden="true"
       >
-        W
+        <svg viewBox="0 0 32 32" className="size-[72%]" fill="none">
+          <path d="M5 8.5 9.5 23 14.8 11.5 20.2 23 27 8.5" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M18.2 8.5h5.2a3.6 3.6 0 0 1 0 7.2h-5.2m0 0h5.8a3.6 3.6 0 0 1 0 7.2h-5.8V8.5Z" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" opacity=".58" />
+        </svg>
       </span>
       {withWordmark && (
         <span className="text-[15px] font-semibold tracking-[-0.02em] text-white">
