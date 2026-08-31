@@ -36,7 +36,7 @@ function Avatar({ user, size = 32 }) {
   return (
     <div
       style={{ width: size, height: size, fontSize: size * 0.38 }}
-      className="flex shrink-0 items-center justify-center rounded-full bg-gradient-accent font-semibold text-brand"
+      className="flex shrink-0 items-center justify-center rounded-full bg-accent font-semibold text-surface shadow-[0_2px_8px_rgba(33,107,80,0.18)]"
     >
       {user?.displayName?.[0] ?? '?'}
     </div>
