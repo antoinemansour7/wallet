@@ -1010,6 +1010,17 @@ export async function extractTickers(signals, articles, options = {}) {
       if (Array.isArray(parsed)) break
       throw new Error('Claude did not return a JSON array')
     } catch (err) {
+      // This was swallowed, so a first attempt that fails to parse looked
+      // identical to one that was never made — and it costs a full extra call
+      // on every run. Log where it broke and the text around that offset.
+      const marker = 'position '
+      const cut = String(err.message).indexOf(marker)
+      const at = cut < 0 ? NaN : parseInt(String(err.message).slice(cut + marker.length), 10)
+      const near = Number.isFinite(at) ? raw.slice(Math.max(0, at - 90), at + 60) : raw.slice(-150)
+      console.warn(
+        `[researchEngine] attempt ${attempt + 1} parse failed: ${err.message}`
+        + ` | near: ${JSON.stringify(near)}`,
+      )
       if (attempt < 2) {
         messages.push({ role: 'assistant', content: raw })
         messages.push({ role: 'user', content: 'That was not valid JSON. Return ONLY a valid JSON array, no explanation.' })
