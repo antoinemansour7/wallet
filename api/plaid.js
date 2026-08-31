@@ -41,11 +41,32 @@ function getPlaidClient() {
   return new PlaidApi(config)
 }
 
+/**
+ * Service-account JSON arrives as an environment variable, which means it has
+ * been through a shell, a clipboard and a dashboard field before it gets here.
+ * A Windows toolchain will happily prepend a byte-order mark on the way, and
+ * JSON.parse then fails on an invisible character with a message that names
+ * neither the variable nor the cause. Strip it, and say what is wrong when the
+ * value is missing rather than letting cert() complain about `project_id`.
+ */
+function loadServiceAccount() {
+  const raw = (process.env.FIREBASE_SERVICE_ACCOUNT || '').replace(/^﻿/, '').trim()
+  if (!raw) {
+    throw new Error(
+      'FIREBASE_SERVICE_ACCOUNT is not set. Generate a key in Firebase Console → '
+      + 'Project Settings → Service Accounts and add it to the environment.',
+    )
+  }
+  try {
+    return JSON.parse(raw)
+  } catch (err) {
+    throw new Error(`FIREBASE_SERVICE_ACCOUNT is not valid JSON: ${err.message}`)
+  }
+}
+
 function getDb() {
   if (!getApps().length) {
-    initializeApp({
-      credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}')),
-    })
+    initializeApp({ credential: cert(loadServiceAccount()) })
   }
   return getFirestore()
 }
