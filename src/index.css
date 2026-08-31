@@ -17,6 +17,15 @@
 }
 
 @layer base {
+  :root {
+    --ink: #080b10;
+    --surface: #11161d;
+    --accent: #72e6c1;
+    --gain: #34d399;
+    --loss: #fb7185;
+    --line: rgba(255, 255, 255, 0.1);
+  }
+
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -122,6 +131,28 @@
 .grow-x {
   transform-origin: left;
   animation: grow-x 0.35s cubic-bezier(0.76, 0, 0.24, 1) forwards;
+}
+
+.login-shell {
+  background: var(--ink);
+  color: #fff;
+}
+.login-grid {
+  background-image: linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: linear-gradient(to bottom, black, transparent 78%);
+}
+.login-orbit {
+  border: 1px solid rgba(114,230,193,0.12);
+  border-radius: 9999px;
+  transform: rotate(-22deg);
+}
+.login-orbit-one { width: 720px; height: 280px; left: -120px; top: 47%; }
+.login-orbit-two { width: 520px; height: 200px; left: -20px; top: 52%; opacity: .6; }
+
+@media (max-width: 1023px) {
+  .login-orbit-one { left: -260px; top: 44%; }
+  .login-orbit-two { left: -180px; top: 49%; }
 }
 
 @layer utilities {
