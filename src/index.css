@@ -124,6 +124,55 @@
   animation: grow-x 0.35s cubic-bezier(0.76, 0, 0.24, 1) forwards;
 }
 
+/* ── Login surface ─────────────────────────────────────────────────────── */
+.login-grid {
+  opacity: 0.34;
+  background-image: linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: linear-gradient(to bottom, black, transparent 78%);
+}
+.login-halo {
+  border-radius: 9999px;
+  filter: blur(100px);
+  pointer-events: none;
+}
+.login-halo-primary {
+  top: 8%;
+  left: 22%;
+  width: 260px;
+  height: 260px;
+  background: rgba(52, 211, 153, 0.06);
+}
+.login-halo-secondary {
+  right: 8%;
+  bottom: 4%;
+  width: 280px;
+  height: 280px;
+  background: rgba(255, 255, 255, 0.035);
+}
+.login-reveal {
+  opacity: 0;
+  transform: translateY(12px);
+  animation: login-rise 0.75s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes login-rise {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 1023px) {
+  .login-shell { min-height: 100svh; }
+}
+
+@media (max-width: 639px) {
+  .login-grid { background-size: 48px 48px; }
+  .login-halo-primary { left: -80px; top: 12%; }
+  .login-halo-secondary { right: -100px; bottom: 10%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-reveal { opacity: 1; transform: none; animation: none; }
+}
+
 @layer utilities {
   .tabular {
     font-variant-numeric: tabular-nums;
