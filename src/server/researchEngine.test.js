@@ -19,19 +19,22 @@ describe('fetchAllYahooNews', () => {
     vi.unstubAllGlobals()
   })
 
+  // Dates are relative so the fixture cannot age past the freshness cutoff.
+  const hoursAgo = (h) => new Date(Date.now() - h * 60 * 60 * 1000).toUTCString()
+
   it('parses RSS XML items from Yahoo feeds', async () => {
     const xml = `<?xml version="1.0"?>
     <rss><channel>
       <item>
         <title><![CDATA[Stock Market Rally Continues]]></title>
         <link>https://finance.yahoo.com/news/stock-rally</link>
-        <pubDate>Mon, 19 May 2026 10:00:00 GMT</pubDate>
+        <pubDate>${hoursAgo(2)}</pubDate>
         <description><![CDATA[Markets moved higher today.]]></description>
       </item>
       <item>
         <title><![CDATA[Tech Sector Leads Gains]]></title>
         <link>https://finance.yahoo.com/news/tech-gains</link>
-        <pubDate>Mon, 19 May 2026 09:00:00 GMT</pubDate>
+        <pubDate>${hoursAgo(3)}</pubDate>
         <description><![CDATA[Technology stocks outperformed.]]></description>
       </item>
     </channel></rss>`
@@ -45,6 +48,23 @@ describe('fetchAllYahooNews', () => {
       title: 'Stock Market Rally Continues',
       source: 'Yahoo Finance',
     })
+  })
+
+  it('drops articles older than the freshness window but keeps undated ones', async () => {
+    const xml = `<rss><channel>
+      <item><title>Fresh Headline</title><link>a</link><pubDate>${hoursAgo(5)}</pubDate></item>
+      <item><title>Two Year Old Evergreen</title><link>b</link><pubDate>${hoursAgo(24 * 730)}</pubDate></item>
+      <item><title>No Date Given</title><link>c</link></item>
+    </channel></rss>`
+
+    fetch.mockResolvedValue({ ok: true, text: async () => xml })
+
+    const titles = (await fetchAllYahooNews()).map((a) => a.title)
+
+    expect(titles).toContain('Fresh Headline')
+    expect(titles).not.toContain('Two Year Old Evergreen')
+    // A missing pubDate is not evidence of staleness, so it stays.
+    expect(titles).toContain('No Date Given')
   })
 
   it('deduplicates articles with the same title', async () => {

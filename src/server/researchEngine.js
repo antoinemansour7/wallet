@@ -38,14 +38,29 @@ async function fetchFeed(url) {
   }
 }
 
+// Yahoo's feeds carry a long tail of evergreen content — the oldest item in a
+// live pull was over two years old, and the median was already past the 30h
+// signal window. Untouched, all of it reached the ranking prompt weighted the
+// same as breaking news. Anything without a usable date is kept, since a missing
+// pubDate is not evidence the item is stale.
+const ARTICLE_MAX_AGE_MS = Number(process.env.NEWS_MAX_AGE_HOURS || 48) * 60 * 60 * 1000
+
 export async function fetchAllYahooNews() {
   const results = await Promise.all(YAHOO_FEEDS.map(fetchFeed))
   const seen = new Set()
-  return results.flat().filter((item) => {
+  const cutoff = Date.now() - ARTICLE_MAX_AGE_MS
+  let stale = 0
+
+  const fresh = results.flat().filter((item) => {
     if (!item.title || seen.has(item.title)) return false
+    const published = Date.parse(item.pubDate)
+    if (Number.isFinite(published) && published < cutoff) { stale += 1; return false }
     seen.add(item.title)
     return true
   })
+
+  if (stale > 0) console.log(`[researchEngine] dropped ${stale} articles older than ${ARTICLE_MAX_AGE_MS / 36e5}h`)
+  return fresh
 }
 
 // ─── Claude Sonnet: extract tickers ───────────────────────────────────────────

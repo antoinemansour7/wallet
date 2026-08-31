@@ -3,11 +3,20 @@ import { Redis } from '@upstash/redis'
 const SCREENER_CACHE_KEY = 'screener:breakout-candidates'
 const SCREENER_CACHE_TTL = 43200 // 12 hours
 
+// Finviz paginates at 20 rows and, without an explicit sort, orders results
+// alphabetically. Requesting only the first page therefore returned nothing but
+// A- and B-tickers — 20 of ~137 matches, with a total alphabetical bias. Sort by
+// descending relative volume (the most active names first, which is the whole
+// point of these screens) and walk several pages.
+const RESULTS_PER_PAGE = 20
+const MAX_PAGES = Number(process.env.SCREENER_MAX_PAGES || 4)
+const SORT = 'o=-relativevolume'
+
 // Squeeze: small-cap+, avg vol >300k, rel vol >1, up this week, low volatility, not overbought (RSI <70), monthly perf under 50%
-const SQUEEZE_URL = 'https://finviz.com/screener.ashx?v=111&f=cap_smallover,sh_avgvol_o300,sh_relvol_o1,ta_perf_1wup,ta_perf_4w_u50,ta_rsi_nos70,ta_volatility_wo3&ft=4&r=1'
+const SQUEEZE_URL = `https://finviz.com/screener.ashx?v=111&f=cap_smallover,sh_avgvol_o300,sh_relvol_o1,ta_perf_1wup,ta_perf_4w_u50,ta_rsi_nos70,ta_volatility_wo3&ft=4&${SORT}`
 
 // Breakout: small-cap+, avg vol >300k, new 50d high, above SMA20 + SMA50, not overbought (RSI <70), monthly perf under 50%
-const BREAKOUT_URL = 'https://finviz.com/screener.ashx?v=111&f=cap_smallover,sh_avgvol_o300,ta_highlow50d_nh,ta_perf_4w_u50,ta_rsi_nos70,ta_sma20_pa,ta_sma50_pa&ft=4&r=1'
+const BREAKOUT_URL = `https://finviz.com/screener.ashx?v=111&f=cap_smallover,sh_avgvol_o300,ta_highlow50d_nh,ta_perf_4w_u50,ta_rsi_nos70,ta_sma20_pa,ta_sma50_pa&ft=4&${SORT}`
 
 function getRedis() {
   return new Redis({
@@ -16,7 +25,23 @@ function getRedis() {
   })
 }
 
-async function fetchFinvizScreener(url) {
+// Read tickers out of the result rows' own hrefs. The previous `>([A-Z]{1,5})</a>`
+// pattern matched any short uppercase link text, so it swallowed the view-switcher
+// buttons ("TA", "ETF") and short company names ("AECOM") as if they were tickers.
+// Result links point at `stock?t=`; the nav buttons point at `screener?v=`, so
+// keying on the href makes the two impossible to confuse.
+export function parseFinvizTickers(html) {
+  return [...new Set(
+    [...html.matchAll(/stock\?t=([A-Z][A-Z0-9.\-]{0,5})[&"]/g)].map((m) => m[1]),
+  )]
+}
+
+function totalMatches(html) {
+  const m = html.match(/#\d+\s*\/\s*(\d+)\s*Total/i)
+  return m ? Number(m[1]) : null
+}
+
+async function fetchFinvizPage(url) {
   const res = await fetch(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
@@ -27,26 +52,34 @@ async function fetchFinvizScreener(url) {
 
   if (!res.ok) {
     console.error(`[technicalScreener] Finviz returned ${res.status} for ${url}`)
-    return []
+    return { tickers: [], total: null }
   }
 
   const html = await res.text()
+  return { tickers: parseFinvizTickers(html), total: totalMatches(html) }
+}
 
-  // With Googlebot UA, Finviz serves server-rendered HTML with ticker links
-  const tickers = []
+async function fetchFinvizScreener(baseUrl) {
+  const all = []
   const seen = new Set()
-  const SKIP = new Set(['USA', 'JSON', 'HTML', 'DARK', 'ETF', 'RSS', 'API', 'SEC', 'CEO', 'IPO', 'NYSE', 'FAQ'])
-  const re = />([A-Z]{1,5})<\/a>/g
-  let match
-  while ((match = re.exec(html)) !== null) {
-    const ticker = match[1]
-    if (ticker.length >= 2 && !seen.has(ticker) && !SKIP.has(ticker)) {
+
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const offset = page * RESULTS_PER_PAGE + 1
+    const { tickers, total } = await fetchFinvizPage(`${baseUrl}&r=${offset}`)
+    if (tickers.length === 0) break
+
+    for (const ticker of tickers) {
+      if (seen.has(ticker)) continue
       seen.add(ticker)
-      tickers.push(ticker)
+      all.push(ticker)
     }
+
+    // Stop once the whole result set is covered, or the page came back short.
+    if (tickers.length < RESULTS_PER_PAGE) break
+    if (total !== null && offset + RESULTS_PER_PAGE > total) break
   }
 
-  return tickers
+  return all
 }
 
 export async function fetchBreakoutCandidates() {

@@ -283,7 +283,7 @@ export default function Portfolio() {
     <div className="relative min-h-screen overflow-hidden bg-wall-bg">
       <div className="glow-orb blob-drift absolute -top-64 left-1/3 h-[560px] w-[560px]" />
       <div className="relative mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10">
-        <PortfolioHeader fileName={fileName} hasData={hasData} lastUpdatedAt={lastUpdatedAt} />
+        <PortfolioHeader />
         <TabNav activeView={visibleView} hasData={hasData} onChange={setActiveView} />
 
         {visibleView === 'overview' && stats && (

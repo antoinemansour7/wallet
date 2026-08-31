@@ -113,7 +113,12 @@ export default async function handler(req, res) {
     signals = xResult.signals
     queries = xResult.queries
     signalStats = xResult.stats
-    console.log(`[nightly-research] collected ${signals.length} X signals across ${queries.length} adaptive queries`)
+    console.log(`[nightly-research] collected ${signals.length} X signals across ${queries.length} adaptive queries via ${signalStats.provider}`)
+    // Per-account failures are caught inside collectXSignals; promote them here
+    // so a silently dead X leg shows up in the run log instead of as a zero.
+    if (signals.length === 0) {
+      errors.push({ step: 'x', error: `no X signals from ${signalStats.provider}`, detail: (signalStats.errors || []).slice(0, 5) })
+    }
   } catch (err) {
     console.error('[nightly-research] x signal collection failed:', err.message)
     errors.push({ step: 'x', error: err.message })

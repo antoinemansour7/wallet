@@ -25,8 +25,9 @@ function AppLayout({ children }) {
   return (
     <>
       <Navbar collapsed={collapsed} onToggleSidebar={toggleSidebar} />
-      {/* offset for desktop sidebar + mobile bottom tab bar, animated with the rail */}
-      <main className={`pb-20 transition-[padding] duration-ws ease-ws lg:pb-0 ${collapsed ? 'lg:pl-[72px]' : 'lg:pl-[244px]'}`}>
+      {/* offset for desktop sidebar + mobile bottom tab bar, animated with the
+          rail — same duration and curve as the sidebar so they move as one */}
+      <main className={`pb-20 transition-[padding] duration-[220ms] ease-[cubic-bezier(0.32,0.72,0,1)] lg:pb-0 ${collapsed ? 'lg:pl-16' : 'lg:pl-[260px]'}`}>
         {children}
       </main>
     </>

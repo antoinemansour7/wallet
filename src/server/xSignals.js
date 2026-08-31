@@ -1,29 +1,51 @@
 import { Redis } from '@upstash/redis'
+import * as twitterApiIo from './xProviders/twitterApiIo.js'
 
 const X_API_BASE_URL = process.env.X_API_BASE_URL || 'https://api.x.com'
 
-const CURATED_ACCOUNTS = [
+// Read path selection. Explicit X_PROVIDER wins; otherwise fall back to
+// twitterapi.io whenever it is configured and the official bearer token is not,
+// so a missing X_BEARER_TOKEN degrades to the cheap provider instead of silence.
+function activeProvider() {
+  const choice = (process.env.X_PROVIDER || '').toLowerCase()
+  if (choice === 'x' || choice === 'official') return null
+  if (choice === 'twitterapi.io' || choice === 'twitterapiio') return twitterApiIo
+  if (!process.env.X_BEARER_TOKEN && twitterApiIo.isConfigured()) return twitterApiIo
+  return null
+}
+
+export function activeProviderName() {
+  return activeProvider() ? 'twitterapi.io' : 'x-official'
+}
+
+// Every handle below was verified live on 2026-08-31: the account resolves, and
+// its post timestamps were cross-checked against X's snowflake IDs. Six entries
+// were removed because they were failing silently — four ("ripaborern",
+// "chartaborern", "biaborern", "INArteCarlworx") do not exist as X accounts at
+// all, and two ("DarkPoolAlerts", "NorthmanTrader") resolve to empty shells with
+// zero posts. "unusualwhales" was a typo for "unusual_whales" (5.2M followers);
+// the version without the underscore is a different, empty account, so the
+// highest-weighted flow source had been contributing nothing.
+// Re-verify any time with: node scripts/probe-x-provider.mjs
+export const CURATED_ACCOUNTS = [
   // Flow / unusual activity
-  { username: 'unusualwhales',   lane: 'flow',         weight: 1.35, role: 'conviction' },
+  { username: 'unusual_whales',  lane: 'flow',         weight: 1.35, role: 'conviction' },
+  { username: 'Mr_Derivatives',  lane: 'flow',         weight: 1.3,  role: 'conviction' },
   { username: 'GRDecter',        lane: 'flow',         weight: 1.18, role: 'conviction' },
   { username: 'optionshawk',     lane: 'flow',         weight: 1.15, role: 'conviction' },
-  { username: 'DarkPoolAlerts',  lane: 'flow',         weight: 1.12, role: 'conviction' },
   // US equities + growth
-  { username: 'aleabitoreddit', lane: 'growth',       weight: 1.45, role: 'conviction' },
-  { username: 'amitisinvesting', lane: 'growth',       weight: 1.1, role: 'context' },
-  { username: 'TraderLion',      lane: 'growth',       weight: 1.1, role: 'conviction' },
+  { username: 'aleabitoreddit',  lane: 'growth',       weight: 1.45, role: 'conviction' },
+  { username: 'amitisinvesting', lane: 'growth',       weight: 1.1,  role: 'context' },
+  { username: 'TraderLion',      lane: 'growth',       weight: 1.1,  role: 'conviction' },
   { username: 'IncredibleTrade', lane: 'growth',       weight: 1.08, role: 'conviction' },
-  { username: 'ripaborern',      lane: 'growth',       weight: 1.0, role: 'conviction' },
-  // Macro + rates (top 2 only)
+  { username: 'CKCapitalxx',     lane: 'growth',       weight: 1.05, role: 'conviction' },
+  // Macro + rates
   { username: 'LizAnnSonders',   lane: 'macro',        weight: 0.95, role: 'context' },
   { username: 'MacroAlf',        lane: 'macro',        weight: 0.94, role: 'context' },
   // Technical analysis
-  { username: 'NorthmanTrader',  lane: 'technical',    weight: 0.9, role: 'conviction' },
-  { username: 'MMatters22596',   lane: 'technical',    weight: 1.0, role: 'conviction' },
-  { username: 'chartaborern',    lane: 'technical',    weight: 0.92, role: 'conviction' },
+  { username: 'MMatters22596',   lane: 'technical',    weight: 1.0,  role: 'conviction' },
   // Catalyst / event-driven
-  { username: 'biaborern',       lane: 'catalyst',     weight: 1.05, role: 'conviction' },
-  { username: 'INArteCarlworx',  lane: 'catalyst',     weight: 0.96, role: 'conviction' },
+  { username: 'wallstengine',    lane: 'catalyst',     weight: 1.1,  role: 'conviction' },
 ]
 
 const BASE_SEARCH_QUERIES = [
@@ -120,7 +142,10 @@ const USER_ID_CACHE_TTL = 7 * 24 * 60 * 60 // 7 days — account IDs never chang
 const TIMELINE_CACHE_TTL = 4 * 60 * 60 // 4 hours — refresh more frequently for fresher signals
 
 const TICKER_STOPWORDS = new Set([
-  'A', 'AI', 'ALL', 'AMD', 'AM', 'API', 'ARE', 'AS', 'AT', 'ATH', 'BE', 'BEAT', 'BLS', 'BULL', 'BEAR', 'BUY', 'BY',
+  // NOTE: real tickers must never appear in this list. 'AMD' was here, which
+  // silently made one of the pipeline's core semiconductor names unextractable
+  // from any signal text.
+  'A', 'AI', 'ALL', 'AM', 'API', 'ARE', 'AS', 'AT', 'ATH', 'BE', 'BEAT', 'BLS', 'BULL', 'BEAR', 'BUY', 'BY',
   'CALL', 'CASH', 'CEO', 'CFO', 'CNBC', 'COME', 'CPI', 'CTA', 'CUT',
   'DATA', 'DAY', 'DD', 'DEAL', 'DM', 'DOE', 'DOJ', 'DREAM', 'DROP', 'DUMP',
   'EDIT', 'EPS', 'ETF', 'ETFS', 'EU', 'EV',
@@ -145,6 +170,13 @@ const TICKER_STOPWORDS = new Set([
   'X',
   'YEAR', 'YOY',
   'ZERO',
+  // Corporate suffixes and financial shorthand. Yahoo headlines and Exa results
+  // are full of these, and every one of them was being scored as a ticker:
+  // "Barclays PLC" produced $PLC, "Nike Inc LLC ... PE ratio" produced LLC + PE.
+  // Deliberately conservative — anything that is also a live ticker stays out,
+  // so AG (First Majestic), PB (Prosperity), SNAP, MOAT and NAV are NOT listed.
+  'LLC', 'PLC', 'INC', 'CORP', 'LTD', 'GROUP', 'HOLD', 'CHIPS',
+  'PE', 'EV', 'ROE', 'ROI', 'ROIC', 'EBIT', 'EBITDA', 'FCF', 'YTD', 'QOQ', 'TTM', 'CAGR', 'DCF', 'MOIC', 'AUM',
 ])
 
 const SEED_TICKER_EXCLUSIONS = new Set([
@@ -483,7 +515,41 @@ function mergeSignals(existing, incoming) {
   }
 }
 
-async function fetchAccountSignals(token, { perAccount = 25 } = {}) {
+async function fetchAccountSignals(token, { perAccount = 25, errors = [] } = {}) {
+  const provider = activeProvider()
+
+  // twitterapi.io addresses accounts by handle, so the /2/users/by lookup (and
+  // its Redis id cache) is skipped entirely — one fewer billed call per run.
+  if (provider) {
+    const signals = []
+    const sinceMs = Date.now() - SIGNAL_MAX_AGE_MS
+    for (const account of CURATED_ACCOUNTS) {
+      try {
+        const tweets = await provider.fetchUserTweets({
+          username: account.username,
+          sinceMs,
+          maxPosts: perAccount,
+        })
+        if (tweets.length === 0) {
+          errors.push({ scope: 'account', username: account.username, error: 'no posts in window' })
+        }
+        for (const tweet of tweets) {
+          signals.push(toSignal(tweet, {
+            username: tweet.username || account.username,
+            sourceType: 'account',
+            sourceRole: account.role || 'conviction',
+            sourceLabel: `@${tweet.username || account.username}`,
+            sourceWeight: account.weight,
+          }))
+        }
+      } catch (err) {
+        console.error(`[xSignals] ${account.username} failed:`, err.message)
+        errors.push({ scope: 'account', username: account.username, error: err.message })
+      }
+    }
+    return signals
+  }
+
   const users = await lookupUsersByUsername(CURATED_ACCOUNTS.map((account) => account.username), token)
   const signals = []
   const redis = getRedis()
@@ -537,9 +603,35 @@ async function fetchAccountSignals(token, { perAccount = 25 } = {}) {
   return signals
 }
 
-async function fetchSearchSignals(queries, token, { perQuery = 20 } = {}) {
+async function fetchSearchSignals(queries, token, { perQuery = 20, errors = [] } = {}) {
+  const provider = activeProvider()
   const signals = []
   const startTime = new Date(Date.now() - SIGNAL_MAX_AGE_MS).toISOString()
+
+  if (provider) {
+    const sinceMs = Date.now() - SIGNAL_MAX_AGE_MS
+    for (const query of queries) {
+      try {
+        const tweets = await provider.searchTweets({ query: query.query, sinceMs, maxPosts: perQuery })
+        for (const tweet of tweets) {
+          signals.push(toSignal(tweet, {
+            username: tweet.username,
+            sourceType: 'search',
+            sourceLabel: query.label,
+            queryLabel: query.label,
+            queryType: query.type,
+            sourceWeight: query.weight,
+            ticker: query.ticker,
+            theme: query.theme,
+          }))
+        }
+      } catch (err) {
+        console.error(`[xSignals] search "${query.label}" failed:`, err.message)
+        errors.push({ scope: 'search', query: query.label, error: err.message })
+      }
+    }
+    return signals
+  }
 
   for (const query of queries) {
     try {
@@ -575,16 +667,32 @@ async function fetchSearchSignals(queries, token, { perQuery = 20 } = {}) {
 }
 
 export async function collectXSignals({ articles = [], useNewsSeed = false } = {}) {
+  const provider = activeProvider()
+  const providerName = activeProviderName()
   const token = process.env.X_BEARER_TOKEN
-  if (!token) {
-    console.warn('[xSignals] X_BEARER_TOKEN is not set; skipping X collection')
-    return { signals: [], queries: [], seed: { topThemes: [], topTickers: [] }, stats: { accountSignals: 0, searchSignals: 0 } }
+
+  if (!provider && !token) {
+    const error = 'no X provider configured (set TWITTERAPI_IO_KEY or X_BEARER_TOKEN)'
+    console.warn(`[xSignals] ${error}`)
+    return {
+      signals: [], queries: [], seed: { topThemes: [], topTickers: [] },
+      stats: { accountSignals: 0, searchSignals: 0, provider: providerName, errors: [{ scope: 'config', error }] },
+    }
   }
 
-  const accountSignals = await fetchAccountSignals(token)
+  // Collected rather than swallowed: the previous silent per-account catch is
+  // why a fully dead X leg went unnoticed for a week.
+  const errors = []
+
+  const accountSignals = await fetchAccountSignals(token, { errors })
   const seed = deriveAdaptiveSeed({ articles: useNewsSeed ? articles : [], baseSignals: accountSignals })
   const queries = buildAdaptiveQueries(seed)
-  const searchSignals = await fetchSearchSignals(queries, token)
+  const searchSignals = await fetchSearchSignals(queries, token, { errors })
+
+  if (accountSignals.length === 0 && searchSignals.length === 0) {
+    errors.push({ scope: 'x', error: `${providerName} returned zero signals across ${CURATED_ACCOUNTS.length} accounts and ${queries.length} queries` })
+  }
+  console.log(`[xSignals] provider=${providerName} accounts=${accountSignals.length} search=${searchSignals.length} errors=${errors.length}`)
 
   const merged = new Map()
   for (const signal of [...accountSignals, ...searchSignals]) {
@@ -606,6 +714,8 @@ export async function collectXSignals({ articles = [], useNewsSeed = false } = {
     stats: {
       accountSignals: accountSignals.length,
       searchSignals: searchSignals.length,
+      provider: providerName,
+      errors,
     },
   }
 }

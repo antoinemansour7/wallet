@@ -9,24 +9,16 @@ const FINVIZ_HEADERS = {
   'Accept': 'text/html',
 }
 
-const FINVIZ_SKIP = new Set(['USA', 'JSON', 'HTML', 'DARK', 'ETF', 'RSS', 'API', 'SEC', 'CEO', 'IPO', 'NYSE', 'FAQ'])
-
+// Result rows link to `stock?t=`; the view-switcher buttons link to `screener?v=`.
+// Keying on the href is what stops "TA" (the Technical Analysis button) being
+// ingested as an earnings candidate — which it previously was, twice per run.
 async function fetchFinvizTickers(url) {
   const res = await fetch(url, { headers: FINVIZ_HEADERS, signal: AbortSignal.timeout(15000) })
   if (!res.ok) return []
   const html = await res.text()
-  const tickers = []
-  const seen = new Set()
-  const re = />([A-Z]{1,5})<\/a>/g
-  let match
-  while ((match = re.exec(html)) !== null) {
-    const ticker = match[1]
-    if (ticker.length >= 2 && !seen.has(ticker) && !FINVIZ_SKIP.has(ticker)) {
-      seen.add(ticker)
-      tickers.push(ticker)
-    }
-  }
-  return tickers
+  return [...new Set(
+    [...html.matchAll(/stock\?t=([A-Z][A-Z0-9.\-]{0,5})[&"]/g)].map((m) => m[1]),
+  )]
 }
 
 /**

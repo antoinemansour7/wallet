@@ -1,8 +1,16 @@
+import { useState } from 'react'
 import { LIVE_META } from './constants'
 
 // Quiet one-line status — brokers never show a banner card for "prices ok".
-// Only errors get the full message treatment.
+// Only errors get the full message treatment, and those are dismissible:
+// a partial refresh is information, not a blocker.
 export default function LiveBanner({ liveStatus, liveMessage, lastUpdatedAt }) {
+  // Dismissal is remembered against the message itself, not a boolean. Prices
+  // re-refresh every few minutes, and a boolean would resurrect the identical
+  // banner on each cycle; a genuinely different problem still gets through.
+  const [dismissedKey, setDismissedKey] = useState(null)
+  const bannerKey = `${liveStatus}:${liveMessage}`
+
   if (liveStatus === 'idle' && !liveMessage) return null
   const meta = LIVE_META[liveStatus] ?? LIVE_META.idle
   const isProblem = liveStatus === 'error' || liveStatus === 'partial'
@@ -21,8 +29,10 @@ export default function LiveBanner({ liveStatus, liveMessage, lastUpdatedAt }) {
     )
   }
 
+  if (dismissedKey === bannerKey) return null
+
   return (
-    <div className={`mb-5 flex items-start gap-3 rounded-xl border px-4 py-3 ${meta.cls}`}>
+    <div className={`mb-5 flex items-start gap-3 rounded-xl border py-3 pl-4 pr-2.5 ${meta.cls}`}>
       <span className={`mt-[5px] h-2 w-2 shrink-0 rounded-full ${meta.dot}`} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-0.5">
@@ -35,6 +45,18 @@ export default function LiveBanner({ liveStatus, liveMessage, lastUpdatedAt }) {
         </div>
         {liveMessage && <p className="mt-0.5 text-xs leading-relaxed opacity-75">{liveMessage}</p>}
       </div>
+      <button
+        type="button"
+        onClick={() => setDismissedKey(bannerKey)}
+        aria-label="Dismiss"
+        title="Dismiss"
+        className="-mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg opacity-50 transition-all duration-150 hover:bg-white/10 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
     </div>
   )
 }

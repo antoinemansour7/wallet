@@ -13,12 +13,10 @@ const SEGMENT_COLORS = [
   '#f59e0b',
   '#fb7185',
   '#60a5fa',
-  '#94a3b8',
 ]
+const OTHER_COLOR = '#64748b'
 
-function segmentColor(index) {
-  return SEGMENT_COLORS[index % SEGMENT_COLORS.length]
-}
+const MAX_SLICES = 8
 
 function polarToCartesian(cx, cy, r, deg) {
   const rad = ((deg - 90) * Math.PI) / 180
@@ -26,9 +24,17 @@ function polarToCartesian(cx, cy, r, deg) {
 }
 
 function arcPath(cx, cy, r, startDeg, endDeg) {
+  const sweep = endDeg - startDeg
+  // A full circle can't be expressed as a single arc — its start and end points
+  // coincide, so the renderer draws nothing. Split it into two halves.
+  if (sweep >= 359.99) {
+    const a = polarToCartesian(cx, cy, r, 0)
+    const b = polarToCartesian(cx, cy, r, 180)
+    return `M${a.x},${a.y} A${r},${r},0,1,1,${b.x},${b.y} A${r},${r},0,1,1,${a.x},${a.y}`
+  }
   const start = polarToCartesian(cx, cy, r, startDeg)
   const end = polarToCartesian(cx, cy, r, endDeg)
-  const large = endDeg - startDeg > 180 ? 1 : 0
+  const large = sweep > 180 ? 1 : 0
   return `M${start.x},${start.y} A${r},${r},0,${large},1,${end.x},${end.y}`
 }
 
@@ -37,10 +43,34 @@ export default function AllocationDonut({ rows, stats }) {
   const [clicked, setClicked] = useState(null)
   const active = clicked ?? hovered
 
-  const items = aggregatePositionsBySymbol(rows)
+  const all = aggregatePositionsBySymbol(rows)
     .filter((item) => item.value > 0)
     .sort((a, b) => b.value - a.value)
-    .slice(0, 10)
+
+  // Tail positions are each a sliver too thin to label or hover. Rolling them
+  // into one "Other" slice is what every broker does — it keeps the ring
+  // readable instead of fraying into a dozen 0.4% shards.
+  const items = all.length > MAX_SLICES
+    ? [
+        ...all.slice(0, MAX_SLICES),
+        all.slice(MAX_SLICES).reduce(
+          (acc, item) => ({
+            ...acc,
+            value: acc.value + item.value,
+            dayChange: acc.dayChange + item.dayChange,
+            previousValue: acc.previousValue + item.previousValue,
+          }),
+          {
+            symbol: 'Other',
+            description: `${all.length - MAX_SLICES} smaller positions`,
+            value: 0,
+            dayChange: 0,
+            previousValue: 0,
+            isOther: true,
+          },
+        ),
+      ]
+    : all
 
   const total = items.reduce((s, i) => s + i.value, 0)
   const totalDayChange = stats?.totalDayChange ?? items.reduce((s, i) => s + i.dayChange, 0)
@@ -49,126 +79,155 @@ export default function AllocationDonut({ rows, stats }) {
 
   if (items.length === 0) return null
 
-  // Build segments
-  const GAP = 3
-  const totalGap = GAP * items.length
-  const usable = 360 - totalGap
+  const viewSize = 300
+  const cx = viewSize / 2
+  const cy = viewSize / 2
+  const r = 108
+  const strokeW = 22
+
+  // Butt caps, not round. A round cap adds (strokeW / 2) of arc length at each
+  // end — here ~5.8° per end, which is wider than any sensible gap, so rounded
+  // slices always grow over their neighbours. Butt caps make the gap exact.
+  const GAP = items.length > 1 ? 2.2 : 0
+  const usable = 360 - GAP * items.length
+  // Every slice stays visible and hoverable even at a fraction of a percent.
+  const MIN_SWEEP = 1.6
 
   let cursor = 0
+  const rawSweeps = items.map((item) => (total > 0 ? (item.value / total) * usable : 0))
+  const deficit = rawSweeps.reduce((s, sweep) => s + Math.max(0, MIN_SWEEP - sweep), 0)
+  const shrinkable = rawSweeps.reduce((s, sweep) => s + Math.max(0, sweep - MIN_SWEEP), 0)
+
   const segments = items.map((item, index) => {
-    const pct = total > 0 ? item.value / total : 0
-    const sweep = usable * pct
+    const raw = rawSweeps[index]
+    // Pay for the minimum-width slices proportionally out of the ones that can
+    // spare it, so the sweeps still add up to exactly `usable`.
+    const sweep = raw < MIN_SWEEP
+      ? MIN_SWEEP
+      : shrinkable > 0
+        ? raw - (raw - MIN_SWEEP) * (deficit / shrinkable)
+        : raw
     const start = cursor
     const end = cursor + sweep
     cursor = end + GAP
-    const midAngle = (start + end) / 2
-    return { ...item, pct: pct * 100, start, end, midAngle, color: segmentColor(index) }
+    const dayChangePct = item.previousValue > 0 ? (item.dayChange / item.previousValue) * 100 : 0
+    return {
+      ...item,
+      dayChangePct,
+      pct: total > 0 ? (item.value / total) * 100 : 0,
+      start,
+      end,
+      color: item.isOther ? OTHER_COLOR : SEGMENT_COLORS[index % SEGMENT_COLORS.length],
+    }
   })
 
-  const viewSize = 420
-  const cx = viewSize / 2
-  const cy = viewSize / 2
-  const r = 120
-  const strokeW = 28
-  const badgeR = r + 50
-
+  const activeSeg = active != null ? segments[active] : null
   const handleClick = (i) => setClicked(clicked === i ? null : i)
 
   return (
-    <div>
-      <div className="flex flex-col items-center gap-8 lg:flex-row lg:items-center lg:justify-center lg:gap-12">
-        {/* Ring with badges */}
-        <div className="relative shrink-0" style={{ width: viewSize, height: viewSize, overflow: 'visible' }}>
-          <svg viewBox={`0 0 ${viewSize} ${viewSize}`} className="h-full w-full" style={{ overflow: 'visible' }}>
-            {/* Track */}
-            <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.035)" strokeWidth={strokeW} />
+    <div className="flex flex-col items-center gap-8 lg:flex-row lg:items-center lg:justify-center lg:gap-14">
+      {/* Ring — no floating labels. The centre reads out whatever is hovered,
+          which is what keeps a 9-slice donut legible at any size. */}
+      <div className="shrink-0" style={{ width: viewSize, maxWidth: '100%' }}>
+        <svg
+          viewBox={`0 0 ${viewSize} ${viewSize}`}
+          className="h-auto w-full"
+          role="img"
+          aria-label="Allocation by position"
+          onMouseLeave={() => setHovered(null)}
+        >
+          {/* Track */}
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.035)" strokeWidth={strokeW} />
 
-            {/* Arc segments */}
+          {/* Leave is handled on the <svg>, not per-slice and not on a <g>.
+              Per-slice fired leave-then-enter when crossing between slices, and
+              a <g> has no geometry of its own, so the 2.2deg gaps between arcs
+              counted as leaving it. Either way the centre flashed back to the
+              total mid-sweep. The svg has a real hit box, so the readout only
+              resets when the pointer leaves the chart entirely. */}
+          <g>
             {segments.map((seg, i) => {
               const isActive = active === i
               const dimmed = active !== null && !isActive
               return (
                 <path
-                  key={i}
-                  d={arcPath(cx, cy, isActive ? r + 4 : r, seg.start, seg.end)}
+                  key={seg.symbol}
+                  // Radius only — the stroke width is constant, so an active
+                  // slice grows outward without ever crossing into its neighbour.
+                  d={arcPath(cx, cy, isActive ? r + 5 : r, seg.start, seg.end)}
                   fill="none"
-                  stroke={isActive ? '#ffffff' : seg.color}
-                  strokeWidth={isActive ? strokeW + 6 : strokeW}
-                  strokeLinecap="round"
-                  opacity={dimmed ? 0.2 : isActive ? 1 : 0.75}
-                  style={{ cursor: 'pointer', transition: 'opacity 0.2s' }}
+                  stroke={seg.color}
+                  strokeWidth={strokeW}
+                  strokeLinecap="butt"
+                  opacity={dimmed ? 0.22 : isActive ? 1 : 0.8}
+                  style={{ cursor: 'pointer', transition: 'opacity 0.2s ease' }}
                   onClick={() => handleClick(i)}
                   onMouseEnter={() => setHovered(i)}
-                  onMouseLeave={() => setHovered(null)}
                 />
               )
             })}
+          </g>
 
-            {/* Center text */}
-            <text x={cx} y={cy - 12} textAnchor="middle" className="fill-white text-[16px] font-bold" style={{ fontFamily: 'Inter, system-ui' }}>
-              {fmtCurrency(totalValue)}
-            </text>
-            <text x={cx} y={cy + 8} textAnchor="middle" className={`text-[11px] font-medium ${totalDayChange >= 0 ? 'fill-[#5eead4]' : 'fill-[#fca5a5]'}`}>
-              {totalDayChange >= 0 ? '+' : ''}{fmtCurrency(totalDayChange)}
-            </text>
-            <text x={cx} y={cy + 24} textAnchor="middle" className="fill-white/30 text-[10px]">
-              {dayPct >= 0 ? '+' : ''}{dayPct.toFixed(2)}% today
-            </text>
-          </svg>
+          {/* Centre readout — always the same three lines at the same three
+              positions, so switching between slices swaps text content rather
+              than remounting nodes at new coordinates. */}
+          <text x={cx} y={cy - 14} textAnchor="middle" className="fill-white/40 text-[10px] font-medium uppercase tracking-[0.14em]">
+            {activeSeg ? activeSeg.symbol : 'Total value'}
+          </text>
+          <text x={cx} y={cy + 8} textAnchor="middle" className="fill-white text-[17px] font-bold tabular">
+            {fmtCurrency(activeSeg ? activeSeg.value : totalValue)}
+          </text>
+          <text
+            x={cx}
+            y={cy + 26}
+            textAnchor="middle"
+            className={`text-[11px] tabular ${
+              activeSeg ? 'fill-white/35' : totalDayChange >= 0 ? 'fill-[#5eead4]' : 'fill-[#fca5a5]'
+            }`}
+          >
+            {activeSeg
+              ? `${activeSeg.pct.toFixed(1)}% of book`
+              : `${totalDayChange >= 0 ? '+' : ''}${fmtCurrency(totalDayChange)} (${dayPct >= 0 ? '+' : ''}${dayPct.toFixed(2)}%)`}
+          </text>
+        </svg>
+      </div>
 
-          {/* Outside badges — pointer-events-none to prevent hover glitches */}
+      {/* Holdings list — the legend does the labelling work */}
+      <div className="w-full max-w-md flex-1">
+        <h3 className="mb-3 text-[11px] font-medium uppercase tracking-wider text-white/30">Holdings</h3>
+        {/* Leave handled once on the list, not per row — same reason as the ring. */}
+        <div onMouseLeave={() => setHovered(null)}>
           {segments.map((seg, i) => {
-            const pos = polarToCartesian(cx, cy, badgeR, seg.midAngle)
             const isActive = active === i
             const dimmed = active !== null && !isActive
             return (
-              <div
-                key={i}
-                className={`pointer-events-none absolute flex items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-medium transition-all duration-200 ${
-                  isActive
-                    ? 'border-white/20 bg-white/10 text-white shadow-lg scale-105'
-                    : dimmed
-                    ? 'border-white/[0.04] bg-wall-surface/80 text-white/25'
-                    : 'border-white/[0.06] bg-wall-surface text-white/60'
+              <button
+                key={seg.symbol}
+                type="button"
+                onClick={() => handleClick(i)}
+                onMouseEnter={() => setHovered(i)}
+                className={`flex w-full items-center gap-3 rounded-lg border-b border-white/[0.04] px-3 py-2.5 text-left transition-colors duration-150 last:border-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 ${
+                  isActive ? 'bg-white/[0.06]' : dimmed ? 'opacity-40' : 'hover:bg-white/[0.03]'
                 }`}
-                style={{ left: pos.x, top: pos.y, transform: 'translate(-50%, -50%)' }}
               >
-                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: seg.color, opacity: dimmed ? 0.3 : 1 }} />
-                <span>{seg.symbol}</span>
-                <span className="tabular text-white/35">{seg.pct.toFixed(0)}%</span>
-              </div>
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: seg.color }} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13px] font-medium text-white/80">{seg.symbol}</p>
+                  {seg.description && <p className="truncate text-[10px] text-white/30">{seg.description}</p>}
+                </div>
+                <span className="w-12 shrink-0 text-right font-mono text-[11px] tabular text-white/40">
+                  {seg.pct.toFixed(1)}%
+                </span>
+                <span
+                  className={`w-16 shrink-0 text-right font-mono text-[11px] tabular ${
+                    seg.dayChangePct >= 0 ? 'text-[#5eead4]' : 'text-[#fca5a5]'
+                  }`}
+                >
+                  {seg.dayChangePct >= 0 ? '+' : ''}{seg.dayChangePct.toFixed(2)}%
+                </span>
+              </button>
             )
           })}
-        </div>
-
-        {/* Holdings list */}
-        <div className="w-full flex-1 max-w-sm">
-          <h3 className="mb-4 text-[11px] font-medium uppercase tracking-wider text-white/30">Holdings</h3>
-          <div className="space-y-0">
-            {segments.map((seg, i) => {
-              const isActive = active === i
-              const dimmed = active !== null && !isActive
-              return (
-                <div
-                  key={i}
-                  className={`flex items-center gap-3 border-b border-white/[0.04] px-3 py-3 transition-all duration-150 last:border-0 cursor-pointer rounded-lg ${
-                    isActive ? 'bg-white/[0.06]' : dimmed ? 'opacity-40' : 'hover:bg-white/[0.03]'
-                  }`}
-                  onClick={() => handleClick(i)}
-                >
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: seg.color }} />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-medium text-white/80">{seg.symbol}</p>
-                    {seg.description && <p className="truncate text-[10px] text-white/30">{seg.description}</p>}
-                  </div>
-                  <span className="font-mono text-[11px] tabular text-white/40">{seg.pct.toFixed(1)}%</span>
-                  <span className={`w-14 text-right font-mono text-[11px] tabular ${seg.dayChangePct >= 0 ? 'text-[#5eead4]' : 'text-[#fca5a5]'}`}>
-                    {seg.dayChangePct >= 0 ? '+' : ''}{seg.dayChangePct.toFixed(2)}%
-                  </span>
-                </div>
-              )
-            })}
-          </div>
         </div>
       </div>
     </div>

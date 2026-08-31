@@ -35,7 +35,18 @@ function Sparkline({ data, positive }) {
         </linearGradient>
       </defs>
       <path d={area} fill={`url(#${gid})`} />
-      <path d={line} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      {/* The viewBox is deliberately stretched to the card width, which scales
+          x and y unequally — without this the 2px stroke renders thinner
+          horizontally than vertically. */}
+      <path
+        d={line}
+        fill="none"
+        stroke={color}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
     </svg>
   )
 }
