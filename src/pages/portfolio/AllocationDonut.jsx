@@ -196,10 +196,10 @@ export default function AllocationDonut({ rows, stats }) {
           {/* Centre readout — always the same three lines at the same three
               positions, so switching between slices swaps text content rather
               than remounting nodes at new coordinates. */}
-          <text x={cx} y={cy - 14} textAnchor="middle" pointerEvents="none" className="fill-white/40 text-[10px] font-medium uppercase tracking-[0.14em]">
+          <text x={cx} y={cy - 14} textAnchor="middle" pointerEvents="none" className="fill-muted-foreground text-[10px] font-medium uppercase tracking-[0.14em]">
             {activeSeg ? activeSeg.symbol : 'Total value'}
           </text>
-          <text x={cx} y={cy + 8} textAnchor="middle" pointerEvents="none" className="fill-white text-[17px] font-bold tabular">
+          <text x={cx} y={cy + 8} textAnchor="middle" pointerEvents="none" className="fill-ink text-[17px] font-bold tabular">
             {fmtCurrency(activeSeg ? activeSeg.value : totalValue)}
           </text>
           <text

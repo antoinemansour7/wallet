@@ -60,9 +60,9 @@ function CashEditor({ totalCash, onSave }) {
 
 function Stat({ label, value, valueCls = 'text-white', sub, action }) {
   return (
-    <div className="min-w-0 flex-1 px-4 py-3.5 sm:px-5">
-      <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-white/30">{label}</p>
-      <p className={`mt-1 truncate text-[15px] font-semibold tabular ${valueCls}`}>{value}</p>
+    <div className="min-w-0 flex-1 px-4 py-4 sm:px-5">
+      <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-white/35">{label}</p>
+      <p className={`mt-1 truncate text-base font-semibold tabular ${valueCls}`}>{value}</p>
       {sub && <p className="mt-0.5 truncate text-[11px] tabular text-white/30">{sub}</p>}
       {action && <div className="mt-1.5">{action}</div>}
     </div>
@@ -74,11 +74,9 @@ function Stat({ label, value, valueCls = 'text-white', sub, action }) {
 export default function KpiGrid({ rows, stats, accounts, onCashOverride }) {
   const cashShare = stats.totalMarketValue > 0 ? (stats.totalCashValue / stats.totalMarketValue) * 100 : 0
   const dayCls = stats.totalDayChange > 0 ? 'text-gain' : stats.totalDayChange < 0 ? 'text-loss' : 'text-white'
-  const pnlCls = stats.totalPnl > 0 ? 'text-gain' : stats.totalPnl < 0 ? 'text-loss' : 'text-white'
-
   return (
     <Reveal>
-      <div className="mb-5 mt-6 grid grid-cols-2 divide-white/[0.05] rounded-card border border-white/[0.06] bg-wall-surface shadow-card sm:flex sm:divide-x">
+      <div className="mb-5 mt-5 grid grid-cols-2 divide-white/[0.06] rounded-card border border-white/[0.08] bg-wall-surface shadow-card sm:flex sm:divide-x">
         <Stat
           label="Today"
           value={`${stats.totalDayChange >= 0 ? '+' : ''}${fmtCurrency(stats.totalDayChange)}`}
@@ -86,10 +84,10 @@ export default function KpiGrid({ rows, stats, accounts, onCashOverride }) {
           sub={fmtPct(stats.dayChangePct)}
         />
         <Stat
-          label="All-time return"
+          label="Return"
           value={`${stats.totalPnl >= 0 ? '+' : ''}${fmtCurrency(stats.totalPnl)}`}
-          valueCls={pnlCls}
-          sub={fmtPct(stats.totalPnlPct)}
+          valueCls={stats.totalPnl > 0 ? 'text-gain' : stats.totalPnl < 0 ? 'text-loss' : 'text-white'}
+          sub={`${fmtPct(stats.totalPnlPct)} all time`}
         />
         <Stat
           label="Cash"

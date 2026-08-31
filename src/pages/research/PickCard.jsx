@@ -54,19 +54,19 @@ function money(value) {
 function ScoreMeter({ score, max = 10, tone = 'conviction', className = '' }) {
   const pct = Math.max(0, Math.min(100, (score / max) * 100))
   const bar = tone === 'risk'
-    ? (score >= 7 ? 'bg-loss/70' : score >= 5 ? 'bg-warning/60' : 'bg-white/30')
-    : (score >= 8 ? 'bg-gain' : score >= 6 ? 'bg-white/75' : 'bg-white/35')
+    ? (score >= 7 ? 'bg-loss/70' : score >= 5 ? 'bg-warning/60' : 'bg-ink/30')
+    : (score >= 8 ? 'bg-gain' : score >= 6 ? 'bg-ink/75' : 'bg-ink/35')
   const text = tone === 'risk'
-    ? (score >= 7 ? 'text-loss' : score >= 5 ? 'text-warning' : 'text-white/50')
-    : (score >= 8 ? 'text-gain' : score >= 6 ? 'text-white' : 'text-white/50')
+    ? (score >= 7 ? 'text-loss' : score >= 5 ? 'text-warning' : 'text-ink/50')
+    : (score >= 8 ? 'text-gain' : score >= 6 ? 'text-ink' : 'text-ink/50')
 
   return (
     <div className={`flex items-center gap-2.5 ${className}`}>
-      <div className="hidden h-1.5 w-16 overflow-hidden rounded-full bg-white/[0.08] sm:block">
+      <div className="hidden h-1.5 w-16 overflow-hidden rounded-full bg-ink/[0.08] sm:block">
         <div className={`h-full rounded-full ${bar}`} style={{ width: `${pct}%` }} />
       </div>
       <span className={`font-mono text-[18px] font-semibold tabular leading-none ${text}`}>{score}</span>
-      <span className="font-mono text-[12px] leading-none text-white/25">/{max}</span>
+      <span className="font-mono text-[12px] leading-none text-ink/25">/{max}</span>
     </div>
   )
 }
@@ -90,16 +90,16 @@ function SourceChips({ sources = [] }) {
           key={source}
           className={`rounded-md px-2 py-0.5 text-[11.5px] font-medium leading-[1.6] ${
             i >= MOBILE_CHIPS ? 'hidden sm:inline-block' : ''
-          } ${isHandle(source) ? 'bg-white/[0.08] text-white/70' : 'bg-white/[0.04] text-white/45'}`}
+          } ${isHandle(source) ? 'bg-ink/[0.08] text-ink/70' : 'bg-ink/[0.04] text-ink/45'}`}
         >
           {sourceLabel(source)}
         </span>
       ))}
       {sources.length > MOBILE_CHIPS && (
-        <span className="text-[11.5px] text-white/30 sm:hidden">+{sources.length - MOBILE_CHIPS}</span>
+        <span className="text-[11.5px] text-ink/30 sm:hidden">+{sources.length - MOBILE_CHIPS}</span>
       )}
       {sources.length > DESKTOP_CHIPS && (
-        <span className="hidden text-[11.5px] text-white/30 sm:inline">+{sources.length - DESKTOP_CHIPS}</span>
+        <span className="hidden text-[11.5px] text-ink/30 sm:inline">+{sources.length - DESKTOP_CHIPS}</span>
       )}
     </div>
   )
@@ -109,7 +109,7 @@ function Section({ label, trailing, children }) {
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between gap-3">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/40">{label}</span>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink/40">{label}</span>
         {trailing}
       </div>
       {children}
@@ -139,26 +139,26 @@ export default function PickCard({ pick, rank, defaultOpen = false }) {
   return (
     <div
       className={`overflow-hidden rounded-2xl border bg-wall-surface transition-colors duration-200 ${
-        open ? 'border-white/[0.12]' : 'border-white/[0.06] hover:border-white/[0.10]'
+        open ? 'border-ink/[0.12]' : 'border-ink/[0.06] hover:border-ink/[0.10]'
       }`}
     >
       <button
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        className="flex w-full items-center gap-3.5 px-4 py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/20 sm:gap-4 sm:px-5 sm:py-5"
+        className="flex w-full items-center gap-3.5 px-4 py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/20 sm:gap-4 sm:px-5 sm:py-5"
       >
         <span className="relative shrink-0">
           <CompanyLogo symbol={ticker} size={44} />
-          <span className="absolute -bottom-1 -right-1 flex h-[19px] w-[19px] items-center justify-center rounded-full bg-wall-elevated text-[10.5px] font-semibold text-white/70 ring-2 ring-wall-surface">
+          <span className="absolute -bottom-1 -right-1 flex h-[19px] w-[19px] items-center justify-center rounded-full bg-wall-elevated text-[10.5px] font-semibold text-ink/70 ring-2 ring-wall-surface">
             {rank}
           </span>
         </span>
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="text-[19px] font-semibold tracking-[-0.02em] text-white">{ticker}</span>
+            <span className="text-[19px] font-semibold tracking-[-0.02em] text-ink">{ticker}</span>
             {setupType && (
-              <span className="rounded-md bg-white/[0.07] px-2 py-0.5 text-[11.5px] font-medium text-white/55">
+              <span className="rounded-md bg-ink/[0.07] px-2 py-0.5 text-[11.5px] font-medium text-ink/55">
                 {SETUP_LABELS[setupType] || setupType}
               </span>
             )}
@@ -171,7 +171,7 @@ export default function PickCard({ pick, rank, defaultOpen = false }) {
         <div className="flex shrink-0 items-center gap-3.5 sm:gap-5">
           {priceLabel && (
             <div className="text-right">
-              <p className="text-[17px] font-semibold tabular leading-none text-white">{priceLabel}</p>
+              <p className="text-[17px] font-semibold tabular leading-none text-ink">{priceLabel}</p>
               {change != null && (
                 <p className={`mt-1.5 text-[13px] font-semibold tabular leading-none ${change >= 0 ? 'text-gain' : 'text-loss'}`}>
                   {change >= 0 ? '+' : ''}{change.toFixed(2)}%
@@ -183,7 +183,7 @@ export default function PickCard({ pick, rank, defaultOpen = false }) {
           <svg
             width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-            className={`shrink-0 text-white/30 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+            className={`shrink-0 text-ink/30 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
           >
             <path d="M6 9l6 6 6-6" />
           </svg>
@@ -191,20 +191,20 @@ export default function PickCard({ pick, rank, defaultOpen = false }) {
       </button>
 
       {open && (
-        <div className="space-y-5 border-t border-white/[0.06] px-4 py-5 sm:px-5 sm:py-6">
+        <div className="space-y-5 border-t border-ink/[0.06] px-4 py-5 sm:px-5 sm:py-6">
           <Section label="Why this one">
-            <p className="text-[14.5px] leading-[1.8] text-white/75">{reason}</p>
+            <p className="text-[14.5px] leading-[1.8] text-ink/75">{reason}</p>
           </Section>
 
           {hasPlan && (
             <div className="grid grid-cols-3 gap-2">
               {[
-                { k: 'Buy near', v: money(entry), cls: 'text-white', bg: 'bg-white/[0.04]' },
+                { k: 'Buy near', v: money(entry), cls: 'text-ink', bg: 'bg-ink/[0.04]' },
                 { k: 'Cut losses at', v: money(stop), cls: 'text-loss', bg: 'bg-loss/[0.07]' },
                 { k: 'Take profit at', v: money(tgt), cls: 'text-gain', bg: 'bg-gain/[0.07]' },
               ].map((c) => (
                 <div key={c.k} className={`rounded-xl px-3 py-2.5 text-center ${c.bg}`}>
-                  <p className="text-[10.5px] font-semibold uppercase tracking-[0.1em] text-white/45">{c.k}</p>
+                  <p className="text-[10.5px] font-semibold uppercase tracking-[0.1em] text-ink/45">{c.k}</p>
                   <p className={`mt-1.5 text-[15px] font-semibold tabular ${c.cls}`}>{c.v}</p>
                 </div>
               ))}
@@ -215,23 +215,23 @@ export default function PickCard({ pick, rank, defaultOpen = false }) {
             <Section label="What the chart shows">
               <div className="flex flex-wrap gap-1.5">
                 {technicals.trend && (
-                  <span className="rounded-md border border-white/[0.08] px-2.5 py-1.5 text-[12.5px] text-white/60">
+                  <span className="rounded-md border border-ink/[0.08] px-2.5 py-1.5 text-[12.5px] text-ink/60">
                     {TREND_LABELS[technicals.trend] || technicals.trend}
                   </span>
                 )}
                 {technicals.rsi != null && (
-                  <span className="rounded-md border border-white/[0.08] px-2.5 py-1.5 text-[12.5px] text-white/55">
+                  <span className="rounded-md border border-ink/[0.08] px-2.5 py-1.5 text-[12.5px] text-ink/55">
                     {technicals.rsi >= 70 ? 'Possibly overbought' : technicals.rsi <= 30 ? 'Possibly oversold' : 'Neither cheap nor stretched'}
-                    <span className="ml-1.5 font-mono text-white/30">{technicals.rsi}</span>
+                    <span className="ml-1.5 font-mono text-ink/30">{technicals.rsi}</span>
                   </span>
                 )}
                 {technicals.pctFrom52wHigh != null && (
-                  <span className="rounded-md border border-white/[0.08] px-2.5 py-1.5 text-[12.5px] text-white/55">
+                  <span className="rounded-md border border-ink/[0.08] px-2.5 py-1.5 text-[12.5px] text-ink/55">
                     <span className="font-mono">{Math.abs(technicals.pctFrom52wHigh)}%</span> below its 12-month high
                   </span>
                 )}
                 {technicals.relativeVolume > 1.3 && (
-                  <span className="rounded-md border border-white/[0.08] px-2.5 py-1.5 text-[12.5px] text-white/55">
+                  <span className="rounded-md border border-ink/[0.08] px-2.5 py-1.5 text-[12.5px] text-ink/55">
                     <span className="font-mono">{technicals.relativeVolume}×</span> its normal volume
                   </span>
                 )}
@@ -245,36 +245,36 @@ export default function PickCard({ pick, rank, defaultOpen = false }) {
                 label="What could go wrong"
                 trailing={riskScore != null && <ScoreMeter score={riskScore} tone="risk" />}
               >
-                <p className="text-[13.5px] leading-[1.8] text-white/65">{bearCase}</p>
+                <p className="text-[13.5px] leading-[1.8] text-ink/65">{bearCase}</p>
               </Section>
             </div>
           )}
 
           {catalystVerified != null && (
-            <div className={`rounded-xl px-3.5 py-3 ${catalystVerified ? 'bg-gain/[0.05]' : 'bg-white/[0.03]'}`}>
+            <div className={`rounded-xl px-3.5 py-3 ${catalystVerified ? 'bg-gain/[0.05]' : 'bg-ink/[0.03]'}`}>
               <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                <span className={`text-[10px] font-semibold uppercase tracking-[0.1em] ${catalystVerified ? 'text-gain/80' : 'text-white/35'}`}>
+                <span className={`text-[10px] font-semibold uppercase tracking-[0.1em] ${catalystVerified ? 'text-gain/80' : 'text-ink/35'}`}>
                   {catalystVerified ? 'We confirmed this event' : "We couldn't confirm this event"}
                 </span>
-                {catalystTimeline && <span className="text-[10.5px] text-white/35">{catalystTimeline}</span>}
+                {catalystTimeline && <span className="text-[10.5px] text-ink/35">{catalystTimeline}</span>}
                 {catalystPricedIn && (
-                  <span className="rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[9.5px] font-medium text-white/40">Market likely expects it</span>
+                  <span className="rounded-md bg-ink/[0.06] px-1.5 py-0.5 text-[9.5px] font-medium text-ink/40">Market likely expects it</span>
                 )}
               </div>
-              {catalystDetail && <p className="text-[13.5px] leading-[1.8] text-white/65">{catalystDetail}</p>}
+              {catalystDetail && <p className="text-[13.5px] leading-[1.8] text-ink/65">{catalystDetail}</p>}
             </div>
           )}
 
           {/* Evidence trail, so the score above is auditable rather than asserted. */}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-white/[0.05] pt-3.5 text-[12px] text-white/40">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-ink/[0.05] pt-3.5 text-[12px] text-ink/40">
             <span>
               Found by {sources.length} source{sources.length === 1 ? '' : 's'} that don't share a feed
               {signalCount > 0 && ` · ${signalCount} mention${signalCount === 1 ? '' : 's'}`}
             </span>
             {themes.length > 0 && (
-              <span className="text-white/25">About: {themes.slice(0, 4).join(', ')}</span>
+              <span className="text-ink/25">About: {themes.slice(0, 4).join(', ')}</span>
             )}
-            {quoteVerified && <span className="text-white/25">Price checked just now</span>}
+            {quoteVerified && <span className="text-ink/25">Price checked just now</span>}
           </div>
         </div>
       )}

@@ -2,18 +2,15 @@ import { fmtCurrency } from '../../utils/portfolioStats'
 import ChartPanel from './ChartPanel'
 import { barWidth } from './helpers'
 
-function GradientBar({ label, value, max, from, to }) {
+function ValueBar({ label, value, max, muted = false }) {
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-sm text-white/40">{label}</span>
-        <span className="font-mono text-sm tabular font-semibold text-white">{fmtCurrency(value)}</span>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <span className="text-sm text-white/55">{label}</span>
+        <span className="font-mono text-sm font-semibold tabular text-white">{fmtCurrency(value)}</span>
       </div>
-      <div className="h-2 overflow-hidden rounded-full bg-white/[0.06]">
-        <div
-          className="h-full rounded-full transition-all duration-700"
-          style={{ width: barWidth(value, max), background: `linear-gradient(90deg, ${from}, ${to})` }}
-        />
+      <div className="h-2 overflow-hidden rounded-full bg-white/[0.07]">
+        <div className={`h-full rounded-full transition-all duration-700 ${muted ? 'bg-white/25' : 'bg-accent'}`} style={{ width: barWidth(value, max) }} />
       </div>
     </div>
   )
@@ -21,19 +18,18 @@ function GradientBar({ label, value, max, from, to }) {
 
 export default function ValueVsBookChart({ stats }) {
   const max = Math.max(stats.totalMarketValue, stats.totalBookValue, stats.totalCashValue, 1)
-
+  const pnl = stats.totalPnl
   return (
-    <ChartPanel title="Value vs Book" meta={fmtCurrency(stats.totalPnl)}>
-      <div className="space-y-5">
-        <GradientBar label="Portfolio value" value={stats.totalMarketValue} max={max} from="#fafafa" to="#d4d4d8" />
-        <GradientBar label="Book value" value={stats.totalBookValue} max={max} from="#a1a1aa" to="#818188" />
-        <GradientBar label="Cash reserve" value={stats.totalCashValue} max={max} from="#71717a" to="#52525b" />
+    <ChartPanel title="Portfolio value" meta="Today">
+      <div className="mb-7">
+        <p className="font-display text-3xl font-medium tracking-tight tabular text-white">{fmtCurrency(stats.totalMarketValue)}</p>
+        <p className={`mt-2 text-sm ${pnl >= 0 ? 'text-gain' : 'text-loss'}`}>
+          {fmtCurrency(Math.abs(pnl))} {pnl >= 0 ? 'above' : 'below'} amount invested
+        </p>
       </div>
-      <div className="mt-5 rounded-lg border border-white/[0.06] bg-white/[0.06] px-4 py-3">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-xs font-medium text-white/40">Total P&L</span>
-          <span className={`font-mono text-sm tabular font-bold ${stats.totalPnl >= 0 ? 'text-gain' : 'text-loss'}`}>{fmtCurrency(stats.totalPnl)}</span>
-        </div>
+      <div className="flex flex-col gap-5">
+        <ValueBar label="Amount invested" value={stats.totalBookValue} max={max} muted />
+        <ValueBar label="Cash" value={stats.totalCashValue} max={max} muted />
       </div>
     </ChartPanel>
   )
