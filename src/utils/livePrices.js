@@ -37,6 +37,30 @@ export function getQuoteSymbolsForRow(row) {
   return [symbol]
 }
 
+// TSX-listed securities are reported by the broker without an exchange suffix,
+// and Yahoo does not resolve them from the bare ticker: asking for "HSU" returns
+// a 200 with a NasdaqGS stub carrying a null currency and zero candles at every
+// range, rather than an error. Nothing downstream distinguished that from a real
+// quote, so those holdings were priced at nothing — dropped from the chart and
+// frozen at their CSV values in the table. It hits Canadian leveraged ETFs
+// hardest (the BetaPro/Global X 2x products are TSX-only), which is where it was
+// first noticed. Verified 2026-08-31: HSU/HXU/HQD/HNU all return 0 candles bare
+// and 220-251 candles with .TO.
+//
+// Kept as a *fallback* rather than a second primary: plenty of tickers are valid
+// on both exchanges, and the bare form is the right answer whenever it resolves.
+// Only rows the first pass could not price pay for the retry.
+export function getFallbackQuoteSymbolsForRow(row) {
+  const symbol = String(row.SYMBOL ?? '').trim()
+  if (!symbol || isCdr(row) || hasExchangeSuffix(symbol)) return []
+  return [`${symbol.toUpperCase()}.TO`]
+}
+
+/** Inverse of the .TO the fallback resolver appends. */
+function stripTsxSuffix(symbol) {
+  return symbol.endsWith('.TO') ? symbol.slice(0, -'.TO'.length) : symbol
+}
+
 function isSafeQuoteForRow(row, quote) {
   const quoteCurrency = symbolKey(quote.currency)
 
@@ -109,9 +133,12 @@ export function applyLivePrices(rows, quotes, usdCadRate = null) {
   let updatedRows = 0
 
   const nextRows = rows.map((row) => {
-    const quote = getQuoteSymbolsForRow(row)
+    // First *usable* quote, not merely the first one that exists. Yahoo returns
+    // a stub with no price for an unresolvable ticker, and picking that stub
+    // shadowed the .TO quote that actually had the price.
+    const quote = [...getQuoteSymbolsForRow(row), ...getFallbackQuoteSymbolsForRow(row)]
       .map((symbol) => quoteMap.get(symbolKey(symbol)))
-      .find(Boolean)
+      .find((candidate) => candidate && Number.isFinite(candidate.price))
     const quantity = parseNum(row.QUANTITY)
 
     if (!quote || !Number.isFinite(quote.price) || quantity <= 0 || !isSafeQuoteForRow(row, quote)) {
@@ -170,16 +197,62 @@ export function applyLivePrices(rows, quotes, usdCadRate = null) {
   return { rows: nextRows, updatedRows }
 }
 
+/** True when this row found a usable quote among the ones already fetched. */
+function rowIsPriced(row, quoteMap) {
+  return [...getQuoteSymbolsForRow(row), ...getFallbackQuoteSymbolsForRow(row)]
+    .some((symbol) => quoteMap.has(symbolKey(symbol)))
+}
+
 export async function enrichRowsWithLivePrices(rows, { cachedOnly = false } = {}) {
   const symbols = collectSymbols(rows)
-  const { quotes, missing, errors, cache, usdCadRate } = await fetchLivePrices(symbols, { cachedOnly })
-  const result = applyLivePrices(rows, quotes, usdCadRate)
+  const first = await fetchLivePrices(symbols, { cachedOnly })
+
+  let quotes = first.quotes
+  let missing = first.missing
+  const errors = [...(first.errors || [])]
+
+  // Second pass, only for rows the primary symbol could not price. Retrying
+  // every symbol on .TO would double the quote load to rescue a handful of
+  // Canadian listings, so the retry is scoped to what actually failed.
+  // Only a quote carrying a usable price counts as priced. Yahoo answers an
+  // unknown ticker with a stub object rather than an error, and treating that
+  // as a hit would suppress the retry that rescues the symbol.
+  const priced = new Map(quotes
+    .filter((quote) => Number.isFinite(quote.price))
+    .flatMap((quote) => [
+      [symbolKey(quote.symbol), quote],
+      ...(quote.requestedSymbol ? [[symbolKey(quote.requestedSymbol), quote]] : []),
+    ]))
+  const retrySymbols = [...new Set(
+    rows
+      .filter((row) => parseNum(row.QUANTITY) > 0 && !rowIsPriced(row, priced))
+      .flatMap(getFallbackQuoteSymbolsForRow),
+  )]
+
+  if (retrySymbols.length > 0) {
+    try {
+      const second = await fetchLivePrices(retrySymbols, { cachedOnly })
+      quotes = [...quotes, ...second.quotes]
+      errors.push(...(second.errors || []))
+      // A symbol rescued on .TO is no longer missing, and must stop being
+      // reported as "not found by market providers" in the refresh banner.
+      const rescued = new Set(second.quotes.flatMap((quote) => [
+        stripTsxSuffix(symbolKey(quote.symbol)),
+        stripTsxSuffix(symbolKey(quote.requestedSymbol || '')),
+      ]))
+      missing = missing.filter((symbol) => !rescued.has(symbolKey(symbol)))
+    } catch {
+      // The primary pass already succeeded; a failed retry must not lose it.
+    }
+  }
+
+  const result = applyLivePrices(rows, quotes, first.usdCadRate)
 
   return {
     ...result,
     quotes,
     missing,
     errors,
-    cache,
+    cache: first.cache,
   }
 }

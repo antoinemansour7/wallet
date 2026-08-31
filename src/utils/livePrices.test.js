@@ -4,6 +4,7 @@ import {
   collectSymbols,
   enrichRowsWithLivePrices,
   fetchLivePrices,
+  getFallbackQuoteSymbolsForRow,
 } from './livePrices'
 
 const ROWS = [
@@ -143,5 +144,110 @@ describe('enrichRowsWithLivePrices', () => {
     expect(result.updatedRows).toBe(1)
     expect(result.missing).toEqual(['NVDA.NE'])
     expect(result.rows[0]['MARKET VALUE']).toBe('1500.00')
+  })
+})
+
+// Yahoo answers a bare TSX ticker with a 200 and an empty NasdaqGS stub rather
+// than an error, so "HSU" produced no price and no candles while "HSU.TO"
+// returns a full year. Canadian leveraged ETFs are TSX-only, which is why they
+// were the holdings that appeared broken.
+describe('TSX fallback symbols', () => {
+  const TSX_ROW = { SYMBOL: 'HSU', QUANTITY: '200', 'BOOK VALUE': '5000.00', 'MARKET VALUE': '5294.00' }
+
+  it('offers a .TO fallback for a bare symbol', () => {
+    expect(getFallbackQuoteSymbolsForRow(TSX_ROW)).toEqual(['HSU.TO'])
+  })
+
+  it('offers none when the symbol already carries an exchange suffix', () => {
+    expect(getFallbackQuoteSymbolsForRow({ SYMBOL: 'NVDA.NE' })).toEqual([])
+  })
+
+  it('offers none for CDRs, which are already routed to .NE', () => {
+    expect(getFallbackQuoteSymbolsForRow(CDR_ROW)).toEqual([])
+  })
+
+  it('keeps the bare symbol as the primary request', () => {
+    expect(collectSymbols([TSX_ROW])).toEqual(['HSU'])
+  })
+
+  it('prices a row from the .TO quote when the bare symbol returned nothing', () => {
+    const { rows, updatedRows } = applyLivePrices([TSX_ROW], [
+      { symbol: 'HSU.TO', requestedSymbol: 'HSU.TO', currency: 'CAD', price: 26.47, previousClose: 26.00 },
+    ])
+
+    expect(updatedRows).toBe(1)
+    expect(rows[0]['MARKET VALUE']).toBe('5294.00')
+    expect(rows[0]['DAY CHANGE']).toBe('94.00')
+  })
+
+  it('prefers the bare quote when both resolve', () => {
+    const { rows } = applyLivePrices([TSX_ROW], [
+      { symbol: 'HSU', requestedSymbol: 'HSU', currency: 'USD', price: 10 },
+      { symbol: 'HSU.TO', requestedSymbol: 'HSU.TO', currency: 'CAD', price: 26.47 },
+    ])
+    expect(rows[0]['MARKET PRICE']).toBe('10.00')
+  })
+
+  it('retries only the unpriced rows and clears them from missing', async () => {
+    const calls = []
+    vi.stubGlobal('fetch', vi.fn(async (_url, options) => {
+      const body = JSON.parse(options.body)
+      calls.push(body.symbols)
+      if (body.symbols.includes('HSU.TO')) {
+        return { ok: true, json: async () => ({ quotes: [{ symbol: 'HSU.TO', requestedSymbol: 'HSU.TO', currency: 'CAD', price: 26.47 }], missing: [] }) }
+      }
+      return { ok: true, json: async () => ({ quotes: [{ symbol: 'AAPL', requestedSymbol: 'AAPL', currency: 'USD', price: 150 }], missing: ['HSU'] }) }
+    }))
+
+    const result = await enrichRowsWithLivePrices([{ SYMBOL: 'AAPL', QUANTITY: '10' }, TSX_ROW])
+
+    expect(calls).toHaveLength(2)
+    expect(calls[1]).toEqual(['HSU.TO', 'USDCAD=X'])
+    expect(result.missing).toEqual([])
+    expect(result.updatedRows).toBe(2)
+  })
+
+  it('does not fire a second request when everything already priced', async () => {
+    const calls = []
+    vi.stubGlobal('fetch', vi.fn(async (_url, options) => {
+      calls.push(JSON.parse(options.body).symbols)
+      return { ok: true, json: async () => ({ quotes: [{ symbol: 'AAPL', requestedSymbol: 'AAPL', currency: 'USD', price: 150 }], missing: [] }) }
+    }))
+
+    await enrichRowsWithLivePrices([{ SYMBOL: 'AAPL', QUANTITY: '10' }])
+
+    expect(calls).toHaveLength(1)
+  })
+
+  it('keeps the first-pass prices when the retry itself fails', async () => {
+    let call = 0
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      call += 1
+      if (call === 1) return { ok: true, json: async () => ({ quotes: [{ symbol: 'AAPL', requestedSymbol: 'AAPL', currency: 'USD', price: 150 }], missing: ['HSU'] }) }
+      return { ok: false, status: 500, json: async () => ({ error: 'provider down' }) }
+    }))
+
+    const result = await enrichRowsWithLivePrices([{ SYMBOL: 'AAPL', QUANTITY: '10' }, TSX_ROW])
+
+    expect(result.updatedRows).toBe(1)
+    expect(result.missing).toEqual(['HSU'])
+  })
+
+  it("retries when the first pass returned a priceless stub", async () => {
+    const calls = []
+    vi.stubGlobal("fetch", vi.fn(async (_url, options) => {
+      const body = JSON.parse(options.body)
+      calls.push(body.symbols)
+      if (body.symbols.includes("HSU.TO")) {
+        return { ok: true, json: async () => ({ quotes: [{ symbol: "HSU.TO", requestedSymbol: "HSU.TO", currency: "CAD", price: 26.47 }], missing: [] }) }
+      }
+      // Yahoo answers an unknown ticker with a stub carrying no price
+      return { ok: true, json: async () => ({ quotes: [{ symbol: "HSU", requestedSymbol: "HSU", currency: null }], missing: [] }) }
+    }))
+
+    const result = await enrichRowsWithLivePrices([TSX_ROW])
+
+    expect(calls).toHaveLength(2)
+    expect(result.updatedRows).toBe(1)
   })
 })

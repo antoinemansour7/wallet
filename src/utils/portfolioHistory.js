@@ -53,7 +53,22 @@ export function mergeHistory(remote, local) {
  * Firestore when permitted. Cloud failures are logged loudly — a silent
  * failure here cost two weeks of history once.
  */
-export async function saveDailySnapshot(uid, { totalMarketValue, totalBookValue, totalPnl }) {
+/**
+ * Cash is stored alongside the total rather than folded into it. A snapshot
+ * that only records one number cannot tell a deposit apart from a gain, so a
+ * day where $5k was paid in looks identical to a day where the holdings rose
+ * $5k — which is exactly the ambiguity the reconstructed chart inherits when it
+ * applies today's cash balance across all of history. Recording the split now
+ * is what makes a contribution-adjusted return possible later; it cannot be
+ * backfilled once the day has passed.
+ */
+export async function saveDailySnapshot(uid, {
+  totalMarketValue,
+  totalBookValue,
+  totalPnl,
+  totalCashValue,
+  positionMarketValue,
+}) {
   if (!uid || !totalMarketValue) return
 
   const entry = {
@@ -61,6 +76,8 @@ export async function saveDailySnapshot(uid, { totalMarketValue, totalBookValue,
     marketValue: totalMarketValue,
     bookValue: totalBookValue ?? 0,
     pnl: totalPnl ?? 0,
+    cashValue: totalCashValue ?? 0,
+    positionValue: positionMarketValue ?? (totalMarketValue - (totalCashValue ?? 0)),
     ts: Date.now(),
   }
 

@@ -93,3 +93,62 @@ describe('buildIntradaySeries', () => {
     expect(buildIntradaySeries([])).toEqual([])
   })
 })
+
+// A holding the price provider cannot value must never quietly become zero:
+// that understated the whole portfolio, and because the daily and intraday
+// paths failed on different symbols, the total visibly changed with the range.
+describe('unpriceable and stale holdings', () => {
+  const priced = { quantity: 1, currency: 'CAD', accountCurrency: 'CAD', closesByDate: { '2026-06-01': 100, '2026-06-02': 110 } }
+
+  it('holds a position with no candles at its last known value', () => {
+    const series = buildPortfolioSeries([
+      priced,
+      { quantity: 5, currency: '', accountCurrency: 'CAD', closesByDate: {}, staticValue: 500 },
+    ])
+
+    expect(series).toEqual([
+      { date: '2026-06-01', marketValue: 600 },
+      { date: '2026-06-02', marketValue: 610 },
+    ])
+  })
+
+  it('drops it to zero only when there is no known value either', () => {
+    const series = buildPortfolioSeries([priced, { quantity: 5, closesByDate: {} }])
+    expect(series[0].marketValue).toBe(100)
+  })
+
+  it('does the same on the intraday path, where TSX ETFs have no bars at all', () => {
+    const series = buildIntradaySeries([
+      { quantity: 1, currency: 'CAD', accountCurrency: 'CAD', closesByTs: { 1000: 100, 2000: 120 } },
+      { quantity: 5, currency: '', accountCurrency: 'CAD', closesByTs: {}, staticValue: 500 },
+    ])
+    expect(series.map((p) => p.marketValue)).toEqual([600, 620])
+  })
+
+  // The bug this exists for: HSU.TO returns a live quote but no daily candle
+  // after 2026-07-17, so the old carry-forward valued it at a six-week-old
+  // price indefinitely — roughly 20% high, every single day.
+  it('stops carrying a stale close once the symbol goes quiet', () => {
+    const series = buildPortfolioSeries([
+      { quantity: 1, currency: 'CAD', accountCurrency: 'CAD',
+        closesByDate: { '2026-06-01': 100, '2026-06-02': 100, '2026-06-03': 100, '2026-06-04': 100,
+                        '2026-06-05': 100, '2026-06-06': 100, '2026-06-07': 100, '2026-06-20': 100 } },
+      { quantity: 1, currency: 'CAD', accountCurrency: 'CAD',
+        closesByDate: { '2026-06-01': 900 }, staticValue: 700 },
+    ])
+
+    // within the tolerance the real close still carries
+    expect(series.find((p) => p.date === '2026-06-05').marketValue).toBe(1000)
+    // past it, the broker value wins over an invented price
+    expect(series.find((p) => p.date === '2026-06-20').marketValue).toBe(800)
+  })
+
+  it('still carries a real close across an ordinary weekend gap', () => {
+    const series = buildPortfolioSeries([
+      { quantity: 1, currency: 'CAD', accountCurrency: 'CAD', closesByDate: { '2026-06-05': 10, '2026-06-08': 12 } },
+      { quantity: 1, currency: 'CAD', accountCurrency: 'CAD', closesByDate: { '2026-06-05': 100 }, staticValue: 1 },
+    ])
+    // 06-08 is 3 days later — inside the tolerance, so 100 is still used, not 1
+    expect(series.find((p) => p.date === '2026-06-08').marketValue).toBe(112)
+  })
+})

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { loadHistory, loadIntradayPoints } from '../../utils/portfolioHistory'
 import { getQuoteSymbolsForRow } from '../../utils/livePrices'
-import { fmtCurrency } from '../../utils/portfolioStats'
+import { fmtCurrency, parseNum } from '../../utils/portfolioStats'
 import { useCountUp } from '../../utils/useCountUp'
 import ChartPanel from './ChartPanel'
 
@@ -146,6 +146,22 @@ function RangeSelector({ range, onChange, className = '' }) {
   )
 }
 
+// The last point of the chart is the number the rest of the page is showing,
+// on every range. Previously the daily path appended it only when the series
+// had no point for today (so effectively never, since the reconstruction runs
+// to the current close) while the 1D path always appended it — so switching
+// between 1D and any other range moved the headline value by however much the
+// two disagreed. Anchoring both to the live total removes the discrepancy at
+// the source instead of hiding it.
+function withLiveEndpoint(points, liveValue, makePoint) {
+  if (!Number.isFinite(liveValue) || liveValue <= 0) return points
+  const next = [...points]
+  const last = next[next.length - 1]
+  if (last && makePoint.isSameSlot(last)) next[next.length - 1] = { ...last, marketValue: liveValue }
+  else next.push(makePoint.create(liveValue))
+  return next
+}
+
 export default function PerformanceChart({ stats, rows = [], hero = false }) {
   const { user } = useAuth()
   const [snapshots, setSnapshots] = useState([])
@@ -172,6 +188,9 @@ export default function PerformanceChart({ stats, rows = [], hero = false }) {
         symbol: getQuoteSymbolsForRow(row)[0],
         quantity: parseQty(row.QUANTITY),
         accountCurrency: row['ACCOUNT CURRENCY'] || '',
+        // Lets the server hold a holding it cannot price flat at its known
+        // value rather than dropping it out of the total entirely.
+        marketValue: parseNum(row['MARKET VALUE']),
       }))
       .filter((p) => p.symbol && p.quantity > 0)
   ), [rows])
@@ -201,11 +220,10 @@ export default function PerformanceChart({ stats, rows = [], hero = false }) {
   const fullData = useMemo(() => {
     const base = series.length >= 2 ? series : snapshots
     const today = new Date().toISOString().slice(0, 10)
-    const data = [...base]
-    if (stats?.totalMarketValue && !data.some((d) => d.date === today)) {
-      data.push({ date: today, marketValue: stats.totalMarketValue })
-    }
-    return data
+    return withLiveEndpoint([...base], stats?.totalMarketValue, {
+      isSameSlot: (point) => point.date === today,
+      create: (value) => ({ date: today, marketValue: value }),
+    })
   }, [series, snapshots, stats])
 
   // 1D reconstructs today's line from each holding's 5-min bars server-side,
@@ -232,11 +250,12 @@ export default function PerformanceChart({ stats, rows = [], hero = false }) {
   const intradayPoints = useMemo(() => {
     if (!isIntraday) return []
     const base = intradaySeries.length >= 2 ? [...intradaySeries] : [...loadIntradayPoints()]
-    const last = base[base.length - 1]
-    if (stats?.totalMarketValue && (!last || last.marketValue !== stats.totalMarketValue)) {
-      base.push({ ts: Date.now(), marketValue: stats.totalMarketValue })
-    }
-    return base
+    return withLiveEndpoint(base, stats?.totalMarketValue, {
+      // Within the last bar, refresh it in place rather than stacking a new
+      // point every poll, which drew a cluster of dots at the right edge.
+      isSameSlot: (point) => Date.now() - point.ts < 5 * 60 * 1000,
+      create: (value) => ({ ts: Date.now(), marketValue: value }),
+    })
   }, [isIntraday, intradaySeries, stats])
 
   const selectedRange = RANGES.find((r) => r.key === range)

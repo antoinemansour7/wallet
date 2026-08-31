@@ -10,11 +10,39 @@ const MAX_POSITIONS = 30
 const FETCH_CONCURRENCY = 4
 const CACHE_TTL = 30 * 60 // 30 minutes
 
+// Carrying the last known close across a gap is right for holidays and halts.
+// It is wrong once a symbol simply stops reporting: HSU.TO and HXU.TO return a
+// live quote but no daily candle after 2026-07-17, and carrying that stale
+// close forward valued those holdings ~20% above what they are actually worth,
+// every day, for six weeks. Past this many days without a print, fall back to
+// the value the broker reports instead of inventing prices.
+const STALE_CARRY_DAYS = 5
+
 function getRedis() {
   if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
     return Redis.fromEnv()
   }
   return null
+}
+
+// Yahoo does not resolve TSX listings from the bare ticker the broker reports:
+// "HSU" comes back 200 with a NasdaqGS stub carrying no candles at all, while
+// "HSU.TO" returns a full year. Retry once with the suffix before giving up —
+// without it every Canadian holding contributed zero to the chart, and since
+// the daily and intraday paths dropped different sets of them, the portfolio
+// total visibly changed as you switched range.
+async function withTsxFallback(symbol, fetcher) {
+  const direct = await fetcher(symbol)
+  if (hasCloses(direct)) return direct
+  if (symbol.includes('.')) return direct
+  const viaTsx = await fetcher(`${symbol.toUpperCase()}.TO`)
+  return hasCloses(viaTsx) ? viaTsx : direct
+}
+
+function hasCloses(candles) {
+  if (!candles) return false
+  const closes = candles.closesByDate ?? candles.closesByTs ?? {}
+  return Object.keys(closes).length > 0
 }
 
 async function fetchDailyCloses(symbol, days = 365) {
@@ -99,7 +127,13 @@ export function buildIntradaySeries(positionSeries, fxByTs = {}, cashValue = 0) 
       const pos = positionSeries[i]
       const close = pos.closesByTs?.[ts]
       if (Number.isFinite(close)) carries[i] = close
-      if (!Number.isFinite(carries[i])) continue
+      if (!Number.isFinite(carries[i])) {
+        // Same carry as the daily builder. This matters more here: TSX ETFs
+        // return no 5-minute bars at all, so without it the 1D total and the
+        // 3M total disagreed by the entire value of those holdings.
+        total += pos.staticValue || 0
+        continue
+      }
 
       const needsFx = pos.currency === 'USD' && String(pos.accountCurrency || '').toUpperCase() === 'CAD'
       total += pos.quantity * carries[i] * (needsFx ? fxCarry : 1)
@@ -133,6 +167,9 @@ export function buildPortfolioSeries(positionSeries, fxByDate = {}, cashValue = 
     const firstDate = Object.keys(pos.closesByDate || {}).sort()[0]
     return firstDate != null ? pos.closesByDate[firstDate] : null
   })
+  const lastDates = positionSeries.map(
+    (pos) => Object.keys(pos.closesByDate || {}).sort().at(-1) ?? null,
+  )
 
   const series = []
   for (const date of dates) {
@@ -143,7 +180,23 @@ export function buildPortfolioSeries(positionSeries, fxByDate = {}, cashValue = 
       const pos = positionSeries[i]
       const close = pos.closesByDate?.[date]
       if (Number.isFinite(close)) carries[i] = close
-      if (!Number.isFinite(carries[i])) continue
+      if (!Number.isFinite(carries[i])) {
+        // No candles for this symbol at all. Contributing zero silently
+        // understated the whole portfolio; hold it flat at its last known
+        // value instead, so the level is right even though its shape is not.
+        total += pos.staticValue || 0
+        continue
+      }
+      // Stopped reporting a while ago — prefer the broker value over a price
+      // we would otherwise carry forward indefinitely.
+      if (
+        pos.staticValue
+        && lastDates[i]
+        && (Date.parse(date) - Date.parse(lastDates[i])) / 86400000 > STALE_CARRY_DAYS
+      ) {
+        total += pos.staticValue
+        continue
+      }
 
       const needsFx = pos.currency === 'USD' && String(pos.accountCurrency || '').toUpperCase() === 'CAD'
       total += pos.quantity * carries[i] * (needsFx ? fxCarry : 1)
@@ -161,12 +214,20 @@ export function buildPortfolioSeries(positionSeries, fxByDate = {}, cashValue = 
  * changes intraday.
  */
 export async function getPortfolioSeries({ positions = [], cashValue = 0, days = 365 } = {}) {
-  const valid = positions
+  const eligible = positions
     .filter((p) => p.symbol && Number.isFinite(Number(p.quantity)) && Number(p.quantity) > 0)
-    .slice(0, MAX_POSITIONS)
+  const valid = eligible.slice(0, MAX_POSITIONS)
   if (valid.length === 0) return []
 
-  const cacheKey = `portfolio-series:${days}:${valid.map((p) => `${p.symbol}x${p.quantity}`).sort().join(',')}:${Math.round(cashValue)}`
+  // Anything past the cap used to vanish from the total outright. Carry the
+  // overflow at its known market value so a 31st holding changes the shape of
+  // the line but never the level.
+  const untrackedValue = eligible
+    .slice(MAX_POSITIONS)
+    .reduce((sum, p) => sum + (Number(p.marketValue) || 0), 0)
+  const baseValue = cashValue + untrackedValue
+
+  const cacheKey = `portfolio-series:${days}:${valid.map((p) => `${p.symbol}x${p.quantity}`).sort().join(',')}:${Math.round(baseValue)}`
   const redis = getRedis()
   if (redis) {
     try {
@@ -177,22 +238,24 @@ export async function getPortfolioSeries({ positions = [], cashValue = 0, days =
 
   const queue = [...valid]
   const results = []
+  const unpriced = []
   async function worker() {
     while (queue.length > 0) {
       const pos = queue.shift()
+      let candles = null
       try {
-        const candles = await fetchDailyCloses(pos.symbol, days)
-        if (candles) {
-          results.push({
-            quantity: Number(pos.quantity),
-            currency: candles.currency,
-            accountCurrency: pos.accountCurrency || '',
-            closesByDate: candles.closesByDate,
-          })
-        }
+        candles = await withTsxFallback(pos.symbol, (sym) => fetchDailyCloses(sym, days))
       } catch (err) {
         console.error(`[portfolioSeries] candles failed for ${pos.symbol}:`, err.message)
       }
+      if (!hasCloses(candles)) unpriced.push(pos.symbol)
+      results.push({
+        quantity: Number(pos.quantity),
+        currency: candles?.currency || '',
+        accountCurrency: pos.accountCurrency || '',
+        closesByDate: candles?.closesByDate || {},
+        staticValue: Number(pos.marketValue) || 0,
+      })
     }
   }
   await Promise.all(Array.from({ length: Math.min(FETCH_CONCURRENCY, valid.length) }, () => worker()))
@@ -206,7 +269,11 @@ export async function getPortfolioSeries({ positions = [], cashValue = 0, days =
     } catch { /* fall back to carry of 1 */ }
   }
 
-  const series = buildPortfolioSeries(results, fxByDate, cashValue)
+  if (unpriced.length > 0) {
+    console.warn(`[portfolioSeries] no candles for ${unpriced.join(', ')} — held flat at last known value`)
+  }
+
+  const series = buildPortfolioSeries(results, fxByDate, baseValue)
 
   if (redis && series.length > 0) {
     try { await redis.set(cacheKey, series, { ex: CACHE_TTL }) } catch { /* non-critical */ }
@@ -221,12 +288,20 @@ export async function getPortfolioSeries({ positions = [], cashValue = 0, days =
  * needing to have been open. Short cache TTL since it moves during the day.
  */
 export async function getIntradaySeries({ positions = [], cashValue = 0 } = {}) {
-  const valid = positions
+  const eligible = positions
     .filter((p) => p.symbol && Number.isFinite(Number(p.quantity)) && Number(p.quantity) > 0)
-    .slice(0, MAX_POSITIONS)
+  const valid = eligible.slice(0, MAX_POSITIONS)
   if (valid.length === 0) return []
 
-  const cacheKey = `portfolio-intraday:${valid.map((p) => `${p.symbol}x${p.quantity}`).sort().join(',')}:${Math.round(cashValue)}`
+  // Anything past the cap used to vanish from the total outright. Carry the
+  // overflow at its known market value so a 31st holding changes the shape of
+  // the line but never the level.
+  const untrackedValue = eligible
+    .slice(MAX_POSITIONS)
+    .reduce((sum, p) => sum + (Number(p.marketValue) || 0), 0)
+  const baseValue = cashValue + untrackedValue
+
+  const cacheKey = `portfolio-intraday:${valid.map((p) => `${p.symbol}x${p.quantity}`).sort().join(',')}:${Math.round(baseValue)}`
   const redis = getRedis()
   if (redis) {
     try {
@@ -237,22 +312,24 @@ export async function getIntradaySeries({ positions = [], cashValue = 0 } = {}) 
 
   const queue = [...valid]
   const results = []
+  const unpriced = []
   async function worker() {
     while (queue.length > 0) {
       const pos = queue.shift()
+      let candles = null
       try {
-        const candles = await fetchIntradayCloses(pos.symbol)
-        if (candles) {
-          results.push({
-            quantity: Number(pos.quantity),
-            currency: candles.currency,
-            accountCurrency: pos.accountCurrency || '',
-            closesByTs: candles.closesByTs,
-          })
-        }
+        candles = await withTsxFallback(pos.symbol, fetchIntradayCloses)
       } catch (err) {
         console.error(`[portfolioSeries] intraday candles failed for ${pos.symbol}:`, err.message)
       }
+      if (!hasCloses(candles)) unpriced.push(pos.symbol)
+      results.push({
+        quantity: Number(pos.quantity),
+        currency: candles?.currency || '',
+        accountCurrency: pos.accountCurrency || '',
+        closesByTs: candles?.closesByTs || {},
+        staticValue: Number(pos.marketValue) || 0,
+      })
     }
   }
   await Promise.all(Array.from({ length: Math.min(FETCH_CONCURRENCY, valid.length) }, () => worker()))
@@ -266,7 +343,11 @@ export async function getIntradaySeries({ positions = [], cashValue = 0 } = {}) 
     } catch { /* fall back to carry of 1 */ }
   }
 
-  const series = buildIntradaySeries(results, fxByTs, cashValue)
+  if (unpriced.length > 0) {
+    console.warn(`[portfolioSeries] no intraday bars for ${unpriced.join(', ')} — held flat at last known value`)
+  }
+
+  const series = buildIntradaySeries(results, fxByTs, baseValue)
 
   if (redis && series.length > 0) {
     try { await redis.set(cacheKey, series, { ex: 180 }) } catch { /* non-critical */ }

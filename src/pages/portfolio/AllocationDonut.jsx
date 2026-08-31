@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { fmtCurrency } from '../../utils/portfolioStats'
 import { aggregatePositionsBySymbol } from './helpers'
 
@@ -42,6 +42,28 @@ export default function AllocationDonut({ rows, stats }) {
   const [hovered, setHovered] = useState(null)
   const [clicked, setClicked] = useState(null)
   const active = clicked ?? hovered
+  const rootRef = useRef(null)
+
+  // A pinned slice had exactly one way out: clicking the very same row again.
+  // Clicking a different row just moved the pin, clicking anywhere else did
+  // nothing, and hover stopped responding entirely because `clicked` takes
+  // precedence over it — so the readout read as stuck on whatever was picked
+  // last. Dismiss on an outside press and on Escape, the same way every other
+  // popover here behaves.
+  useEffect(() => {
+    if (clicked === null) return undefined
+    const clear = () => { setClicked(null); setHovered(null) }
+    const onPointerDown = (event) => {
+      if (!rootRef.current?.contains(event.target)) clear()
+    }
+    const onKeyDown = (event) => { if (event.key === 'Escape') clear() }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [clicked])
 
   const all = aggregatePositionsBySymbol(rows)
     .filter((item) => item.value > 0)
@@ -125,7 +147,7 @@ export default function AllocationDonut({ rows, stats }) {
   const handleClick = (i) => setClicked(clicked === i ? null : i)
 
   return (
-    <div className="flex flex-col items-center gap-8 lg:flex-row lg:items-center lg:justify-center lg:gap-14">
+    <div ref={rootRef} className="flex flex-col items-center gap-8 lg:flex-row lg:items-center lg:justify-center lg:gap-14">
       {/* Ring — no floating labels. The centre reads out whatever is hovered,
           which is what keeps a 9-slice donut legible at any size. */}
       <div className="shrink-0" style={{ width: viewSize, maxWidth: '100%' }}>
@@ -135,6 +157,9 @@ export default function AllocationDonut({ rows, stats }) {
           role="img"
           aria-label="Allocation by position"
           onMouseLeave={() => setHovered(null)}
+          // Empty space inside the ring (the hole, the corners) targets the
+          // svg itself rather than a slice, so it reads as "clear".
+          onClick={(event) => { if (event.target === event.currentTarget) { setClicked(null); setHovered(null) } }}
         >
           {/* Track */}
           <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.035)" strokeWidth={strokeW} />
@@ -171,16 +196,17 @@ export default function AllocationDonut({ rows, stats }) {
           {/* Centre readout — always the same three lines at the same three
               positions, so switching between slices swaps text content rather
               than remounting nodes at new coordinates. */}
-          <text x={cx} y={cy - 14} textAnchor="middle" className="fill-white/40 text-[10px] font-medium uppercase tracking-[0.14em]">
+          <text x={cx} y={cy - 14} textAnchor="middle" pointerEvents="none" className="fill-white/40 text-[10px] font-medium uppercase tracking-[0.14em]">
             {activeSeg ? activeSeg.symbol : 'Total value'}
           </text>
-          <text x={cx} y={cy + 8} textAnchor="middle" className="fill-white text-[17px] font-bold tabular">
+          <text x={cx} y={cy + 8} textAnchor="middle" pointerEvents="none" className="fill-white text-[17px] font-bold tabular">
             {fmtCurrency(activeSeg ? activeSeg.value : totalValue)}
           </text>
           <text
             x={cx}
             y={cy + 26}
             textAnchor="middle"
+            pointerEvents="none"
             className={`text-[11px] tabular ${
               activeSeg ? 'fill-white/35' : totalDayChange >= 0 ? 'fill-[#5eead4]' : 'fill-[#fca5a5]'
             }`}
@@ -204,6 +230,7 @@ export default function AllocationDonut({ rows, stats }) {
               <button
                 key={seg.symbol}
                 type="button"
+                aria-pressed={clicked === i}
                 onClick={() => handleClick(i)}
                 onMouseEnter={() => setHovered(i)}
                 className={`flex w-full items-center gap-3 rounded-lg border-b border-white/[0.04] px-3 py-2.5 text-left transition-colors duration-150 last:border-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 ${
