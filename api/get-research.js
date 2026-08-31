@@ -1,4 +1,5 @@
 import { Redis } from '@upstash/redis'
+import { getMarketRegime } from '../src/server/marketRegime.js'
 
 const RESEARCH_KEY = 'research:latest'
 const EMPTY_RESPONSE = { empty: true, picks: [], articles: [], signalCount: 0, tweetCount: 0, queryCount: 0, generatedAt: null, errors: [] }
@@ -8,6 +9,24 @@ function getRedis() {
     return Redis.fromEnv()
   }
   return null
+}
+
+// Computed live rather than read out of the overnight payload. The tape this
+// describes moves during the session, so a score frozen at 03:00 UTC would be
+// stale by the open — and tying it to the nightly meant it showed nothing at all
+// until the next cron fired. getMarketRegime caches for an hour, so this is a
+// Redis read on nearly every request. Never fatal: the picks matter more than
+// the gauge above them.
+//
+// Each pick still carries the regimeScore it was made under, so the historical
+// record for calibration is unaffected by showing the current one here.
+async function safeRegime() {
+  try {
+    return await getMarketRegime()
+  } catch (err) {
+    console.error('[get-research] regime failed:', err.message)
+    return null
+  }
 }
 
 export default async function handler(req, res) {
@@ -33,11 +52,12 @@ export default async function handler(req, res) {
   }
 
   try {
-    const data = await redis.get(RESEARCH_KEY)
+    const [data, regime] = await Promise.all([redis.get(RESEARCH_KEY), safeRegime()])
+    // Market conditions are worth showing even on a day with no picks.
     if (!data) {
-      return res.status(200).json(EMPTY_RESPONSE)
+      return res.status(200).json({ ...EMPTY_RESPONSE, regime })
     }
-    return res.status(200).json(data)
+    return res.status(200).json({ ...data, regime })
   } catch (err) {
     console.error('[get-research] Redis error:', err.message)
     return res.status(200).json(EMPTY_RESPONSE)
