@@ -102,7 +102,11 @@ export async function runContrarianAgent(picks, technicals = new Map()) {
 
   const response = await client.messages.create({
     model: CLAUDE_MODEL,
-    max_tokens: 1500,
+    // Sonnet 5 answers the same prompt at noticeably greater length than
+    // 4.6 did, and these budgets were sized for 4.6. Verified in production:
+    // this call stopped mid-string at exactly its old ceiling and the whole
+    // response was discarded as malformed JSON.
+    max_tokens: 4000,
     stream: false,
     system: CONTRARIAN_SYSTEM_PROMPT,
     messages: [{ role: 'user', content: userMessage }],

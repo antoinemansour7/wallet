@@ -957,7 +957,13 @@ export async function extractTickers(signals, articles, options = {}) {
   for (let attempt = 0; attempt < 3; attempt++) {
     const response = await client.messages.create({
       model: CLAUDE_MODEL,
-      max_tokens: 8000,
+      // Thinking tokens are drawn from this same budget, so the answer can be
+      // truncated even when the text itself is short — which is what happened
+      // on the first production run: 1685 chars of valid JSON cut mid-string,
+      // reported as a parse error and silently costing a whole retry. 16000 is
+      // as high as this can go while stream:false, above which the SDK refuses
+      // the request outright.
+      max_tokens: 16000,
       // Ranking 30 candidates against six rejection criteria, sector trends and
       // per-ticker technicals is exactly the shape of work extended thinking is
       // for, and it had never been switched on — the block below has always
@@ -979,7 +985,15 @@ export async function extractTickers(signals, articles, options = {}) {
       .replace(/^```\s*/i, '')
       .replace(/\s*```$/, '')
 
-    console.log(`[researchEngine] Claude attempt ${attempt + 1} raw (${raw.length} chars):`, raw.slice(0, 200))
+    console.log(
+      `[researchEngine] Claude attempt ${attempt + 1} raw (${raw.length} chars, `
+      + `stop=${message.stop_reason}):`, raw.slice(0, 200),
+    )
+    // Truncation and malformed output need different fixes, and reporting the
+    // first as the second sent us looking at the prompt instead of the budget.
+    if (message.stop_reason === 'max_tokens') {
+      console.warn(`[researchEngine] attempt ${attempt + 1} hit max_tokens — output truncated, not malformed`)
+    }
     if (!raw) console.log('[researchEngine] content blocks:', JSON.stringify((message.content || []).map(b => ({ type: b.type, len: b.text?.length }))))
 
     if (!raw) {
