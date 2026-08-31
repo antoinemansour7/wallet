@@ -7,9 +7,30 @@ import { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } fro
 import { initializeApp, cert, getApps } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
 
+/**
+ * Plaid retired the `development` environment; the SDK now ships only
+ * `sandbox` and `production`. An unrecognised name made PlaidEnvironments
+ * return undefined, so basePath was undefined and every call failed with a
+ * generic transport error that named neither the cause nor the setting.
+ */
+function resolvePlaidBasePath() {
+  const requested = (process.env.PLAID_ENV || 'sandbox').toLowerCase()
+  const basePath = PlaidEnvironments[requested]
+  if (basePath) return basePath
+
+  const known = Object.keys(PlaidEnvironments).join(', ')
+  throw new Error(
+    `PLAID_ENV is "${requested}", which this Plaid SDK does not recognise. `
+    + `Use one of: ${known}.`
+    + (requested === 'development'
+      ? ' Plaid retired the development environment — sandbox for test data, production for real accounts.'
+      : ''),
+  )
+}
+
 function getPlaidClient() {
   const config = new Configuration({
-    basePath: PlaidEnvironments[process.env.PLAID_ENV || 'sandbox'],
+    basePath: resolvePlaidBasePath(),
     baseOptions: {
       headers: {
         'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID,
@@ -237,7 +258,16 @@ export default async function handler(req, res) {
   try {
     return await actionHandler(req, res)
   } catch (err) {
-    console.error(`[plaid:${action}] error:`, err.response?.data || err.message)
-    return res.status(500).json({ error: `Plaid ${action} failed` })
+    // Plaid says exactly what went wrong in err.response.data; returning a bare
+    // "Plaid exchange-token failed" threw that away and left the real cause
+    // visible only in server logs nobody was reading.
+    const plaid = err.response?.data
+    console.error(`[plaid:${action}] error:`, plaid || err.message)
+    return res.status(500).json({
+      error: plaid?.error_message || err.message || `Plaid ${action} failed`,
+      code: plaid?.error_code ?? null,
+      type: plaid?.error_type ?? null,
+      action,
+    })
   }
 }

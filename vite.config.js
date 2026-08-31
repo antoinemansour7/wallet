@@ -317,6 +317,13 @@ export default defineConfig(({ mode }) => {
       getResearchPlugin(),
       nightlyResearchPlugin(env),
     ],
+    server: {
+      // Vite rejects Host headers it does not recognise, which blocks the dev
+      // server whenever it is reached through a tunnel rather than localhost —
+      // Vercel's preview sandboxes (*.vercel.run), ngrok, Codespaces. Allowing
+      // those hosts by suffix keeps the protection against arbitrary hosts.
+      allowedHosts: ['.vercel.run', '.ngrok-free.app', '.github.dev', 'localhost'],
+    },
     test: {
       environment: 'jsdom',
       globals: true,
