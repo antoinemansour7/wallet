@@ -36,15 +36,16 @@ function SignalTrail({ research }) {
   if (parts.length === 0) return null
 
   return (
-    <div className="mt-10 rounded-2xl border border-white/[0.05] bg-wall-surface/60 px-5 py-4">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-white/30">What fed this run</p>
-      <div className="mt-3 flex flex-wrap gap-x-8 gap-y-3">
+    <div className="rounded-2xl border border-white/[0.05] bg-wall-surface/60 px-5 py-4">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/40">What fed this run</p>
+      {/* Two columns so this reads the same in a 320px rail as it does full width. */}
+      <div className="mt-3.5 grid grid-cols-2 gap-x-4 gap-y-3.5">
         {parts.map((p) => (
           <div key={p.label}>
-            <p className="font-mono text-[15px] font-semibold tabular leading-none text-white/80">
+            <p className="font-mono text-[19px] font-semibold tabular leading-none text-white/85">
               {p.value.toLocaleString()}
             </p>
-            <p className="mt-1 text-[11px] text-white/35">{p.label}</p>
+            <p className="mt-1.5 text-[12px] text-white/40">{p.label}</p>
           </div>
         ))}
       </div>
@@ -113,27 +114,36 @@ export default function Research() {
   return (
     <div className="relative min-h-screen overflow-hidden bg-wall-bg">
       <div className="glow-orb blob-drift absolute -top-72 left-1/2 h-[520px] w-[520px] -translate-x-1/2" />
-      <div className="relative mx-auto max-w-2xl px-4 py-10 sm:px-6 sm:py-14">
+      <div className="relative mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-14">
 
         <header className="mb-7">
           <div className="flex items-baseline justify-between gap-4">
-            <h1 className="text-[22px] font-semibold tracking-[-0.03em] text-white sm:text-[26px]">Research</h1>
+            <h1 className="text-[28px] font-semibold tracking-[-0.03em] text-white sm:text-[34px]">Research</h1>
             {timeLabel && (
-              <span className="flex shrink-0 items-center gap-1.5 text-[11.5px] text-white/35">
+              <span className="flex shrink-0 items-center gap-2 text-[12.5px] text-white/40">
                 <span className="h-1.5 w-1.5 rounded-full bg-gain/70" />
                 {timeLabel}
               </span>
             )}
           </div>
-          <p className="mt-1.5 text-[13px] text-white/45">
+          <p className="mt-2 text-[15px] leading-relaxed text-white/50">
             {hasAnything
               ? `${picks.length + below.length} pick${picks.length + below.length === 1 ? '' : 's'} from ${signalCount.toLocaleString()} signals across X, screeners, media and news`
               : 'Overnight picks from X, screeners, media and news'}
           </p>
         </header>
 
-        {!loadingResearch && <RegimeGauge regime={research?.regime} />}
+        {/* Two columns above lg: the picks carry the page, the rail holds the
+            context that used to stack underneath them and leave a 672px column
+            marooned in the middle of a wide screen. Grid placement rather than
+            source order, so a phone still reads conditions → picks → context. */}
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start lg:gap-6">
 
+        <div className="lg:col-start-2 lg:row-start-1">
+          {!loadingResearch && <RegimeGauge regime={research?.regime} defaultOpen />}
+        </div>
+
+        <div className="lg:col-start-1 lg:row-start-1 lg:row-span-3">
         {loadingResearch ? (
           <div className="space-y-2.5">
             {[...Array(3)].map((_, i) => (
@@ -151,7 +161,10 @@ export default function Research() {
             <div className="space-y-2.5">
               {picks.map((pick, i) => (
                 <Reveal key={pick.ticker} delay={i * 60}>
-                  <PickCard pick={pick} rank={i + 1} />
+                  {/* Lead with the top pick already open: the page opens on an
+                      argument rather than on a row you have to discover is
+                      clickable, and it balances the context rail beside it. */}
+                  <PickCard pick={pick} rank={i + 1} defaultOpen={i === 0} />
                 </Reveal>
               ))}
             </div>
@@ -194,14 +207,15 @@ export default function Research() {
             )}
           </>
         )}
+        </div>
 
         {picks.length > 0 && user && (
-          <div className="mt-8">
+          <div className="lg:col-start-2 lg:row-start-2">
             {!sizing && (
               <button
                 onClick={() => loadPositionSizing(picks)}
                 disabled={sizingLoading}
-                className="w-full rounded-xl border border-white/[0.07] bg-wall-surface py-3 text-[12.5px] font-medium text-white/60 transition-colors duration-200 hover:border-white/[0.14] hover:text-white/85 disabled:opacity-50 sm:w-auto sm:px-5"
+                className="w-full rounded-xl border border-white/[0.07] bg-wall-surface py-3.5 text-[13.5px] font-medium text-white/65 transition-colors duration-200 hover:border-white/[0.14] hover:text-white/90 disabled:opacity-50"
               >
                 {sizingLoading ? 'Analyzing…' : 'Size against my portfolio'}
               </button>
@@ -237,7 +251,11 @@ export default function Research() {
           </div>
         )}
 
-        {!loadingResearch && hasAnything && <SignalTrail research={research} />}
+        <div className="lg:col-start-2 lg:row-start-3">
+          {!loadingResearch && hasAnything && <SignalTrail research={research} />}
+        </div>
+
+        </div>
       </div>
     </div>
   )

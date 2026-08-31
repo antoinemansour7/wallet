@@ -58,12 +58,12 @@ function ScoreMeter({ score, max = 10, tone = 'conviction', className = '' }) {
     : (score >= 8 ? 'text-gain' : score >= 6 ? 'text-white' : 'text-white/50')
 
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
-      <div className="hidden h-1 w-14 overflow-hidden rounded-full bg-white/[0.08] sm:block">
+    <div className={`flex items-center gap-2.5 ${className}`}>
+      <div className="hidden h-1.5 w-16 overflow-hidden rounded-full bg-white/[0.08] sm:block">
         <div className={`h-full rounded-full ${bar}`} style={{ width: `${pct}%` }} />
       </div>
-      <span className={`font-mono text-[15px] font-semibold tabular leading-none ${text}`}>{score}</span>
-      <span className="font-mono text-[11px] leading-none text-white/25">/{max}</span>
+      <span className={`font-mono text-[18px] font-semibold tabular leading-none ${text}`}>{score}</span>
+      <span className="font-mono text-[12px] leading-none text-white/25">/{max}</span>
     </div>
   )
 }
@@ -85,18 +85,18 @@ function SourceChips({ sources = [] }) {
       {shown.map((source, i) => (
         <span
           key={source}
-          className={`rounded-md px-1.5 py-0.5 text-[10.5px] font-medium leading-[1.5] ${
+          className={`rounded-md px-2 py-0.5 text-[11.5px] font-medium leading-[1.6] ${
             i >= MOBILE_CHIPS ? 'hidden sm:inline-block' : ''
-          } ${isHandle(source) ? 'bg-white/[0.07] text-white/60' : 'bg-white/[0.03] text-white/40'}`}
+          } ${isHandle(source) ? 'bg-white/[0.08] text-white/70' : 'bg-white/[0.04] text-white/45'}`}
         >
           {sourceLabel(source)}
         </span>
       ))}
       {sources.length > MOBILE_CHIPS && (
-        <span className="text-[10.5px] text-white/25 sm:hidden">+{sources.length - MOBILE_CHIPS}</span>
+        <span className="text-[11.5px] text-white/30 sm:hidden">+{sources.length - MOBILE_CHIPS}</span>
       )}
       {sources.length > DESKTOP_CHIPS && (
-        <span className="hidden text-[10.5px] text-white/25 sm:inline">+{sources.length - DESKTOP_CHIPS}</span>
+        <span className="hidden text-[11.5px] text-white/30 sm:inline">+{sources.length - DESKTOP_CHIPS}</span>
       )}
     </div>
   )
@@ -106,7 +106,7 @@ function Section({ label, trailing, children }) {
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between gap-3">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-white/35">{label}</span>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/40">{label}</span>
         {trailing}
       </div>
       {children}
@@ -116,8 +116,8 @@ function Section({ label, trailing, children }) {
 
 // ─── Card ──────────────────────────────────────────────────────────────────────
 
-export default function PickCard({ pick, rank }) {
-  const [open, setOpen] = useState(false)
+export default function PickCard({ pick, rank, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen)
   const {
     ticker, conviction, reason, setupType, sources = [], themes = [],
     signalCount, technicals, bearCase, riskScore, quoteVerified,
@@ -142,35 +142,35 @@ export default function PickCard({ pick, rank }) {
       <button
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        className="flex w-full items-center gap-3 px-4 py-3.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/20 sm:gap-4 sm:px-5 sm:py-4"
+        className="flex w-full items-center gap-3.5 px-4 py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/20 sm:gap-4 sm:px-5 sm:py-5"
       >
         <span className="relative shrink-0">
-          <CompanyLogo symbol={ticker} size={38} />
-          <span className="absolute -bottom-1 -right-1 flex h-[17px] w-[17px] items-center justify-center rounded-full bg-wall-elevated text-[9.5px] font-semibold text-white/70 ring-2 ring-wall-surface">
+          <CompanyLogo symbol={ticker} size={44} />
+          <span className="absolute -bottom-1 -right-1 flex h-[19px] w-[19px] items-center justify-center rounded-full bg-wall-elevated text-[10.5px] font-semibold text-white/70 ring-2 ring-wall-surface">
             {rank}
           </span>
         </span>
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="text-[16px] font-semibold tracking-[-0.02em] text-white">{ticker}</span>
+            <span className="text-[19px] font-semibold tracking-[-0.02em] text-white">{ticker}</span>
             {setupType && (
-              <span className="rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[10.5px] font-medium text-white/50">
+              <span className="rounded-md bg-white/[0.07] px-2 py-0.5 text-[11.5px] font-medium text-white/55">
                 {SETUP_LABELS[setupType] || setupType}
               </span>
             )}
           </div>
-          <div className="mt-1.5">
+          <div className="mt-2">
             <SourceChips sources={sources} />
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-3 sm:gap-5">
+        <div className="flex shrink-0 items-center gap-3.5 sm:gap-5">
           {priceLabel && (
             <div className="text-right">
-              <p className="text-[14px] font-semibold tabular leading-none text-white">{priceLabel}</p>
+              <p className="text-[17px] font-semibold tabular leading-none text-white">{priceLabel}</p>
               {change != null && (
-                <p className={`mt-1 text-[11.5px] font-medium tabular leading-none ${change >= 0 ? 'text-gain' : 'text-loss'}`}>
+                <p className={`mt-1.5 text-[13px] font-semibold tabular leading-none ${change >= 0 ? 'text-gain' : 'text-loss'}`}>
                   {change >= 0 ? '+' : ''}{change.toFixed(2)}%
                 </p>
               )}
@@ -178,9 +178,9 @@ export default function PickCard({ pick, rank }) {
           )}
           <ScoreMeter score={conviction} />
           <svg
-            width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-            className={`shrink-0 text-white/25 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+            className={`shrink-0 text-white/30 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
           >
             <path d="M6 9l6 6 6-6" />
           </svg>
@@ -188,9 +188,9 @@ export default function PickCard({ pick, rank }) {
       </button>
 
       {open && (
-        <div className="space-y-5 border-t border-white/[0.06] px-4 py-5 sm:px-5">
+        <div className="space-y-5 border-t border-white/[0.06] px-4 py-5 sm:px-5 sm:py-6">
           <Section label="Thesis">
-            <p className="text-[13px] leading-[1.75] text-white/70">{reason}</p>
+            <p className="text-[14.5px] leading-[1.8] text-white/75">{reason}</p>
           </Section>
 
           {hasPlan && (
@@ -201,8 +201,8 @@ export default function PickCard({ pick, rank }) {
                 { k: 'Target', v: money(tgt), cls: 'text-gain', bg: 'bg-gain/[0.07]' },
               ].map((c) => (
                 <div key={c.k} className={`rounded-xl px-3 py-2.5 text-center ${c.bg}`}>
-                  <p className="text-[9.5px] font-semibold uppercase tracking-[0.1em] text-white/40">{c.k}</p>
-                  <p className={`mt-1 text-[13px] font-semibold tabular ${c.cls}`}>{c.v}</p>
+                  <p className="text-[10.5px] font-semibold uppercase tracking-[0.1em] text-white/45">{c.k}</p>
+                  <p className={`mt-1.5 text-[15px] font-semibold tabular ${c.cls}`}>{c.v}</p>
                 </div>
               ))}
             </div>
@@ -212,22 +212,22 @@ export default function PickCard({ pick, rank }) {
             <Section label="Technicals">
               <div className="flex flex-wrap gap-1.5">
                 {technicals.trend && (
-                  <span className="rounded-md border border-white/[0.08] px-2 py-1 text-[11px] text-white/55">
+                  <span className="rounded-md border border-white/[0.08] px-2.5 py-1.5 text-[12.5px] text-white/60">
                     {TREND_LABELS[technicals.trend] || technicals.trend}
                   </span>
                 )}
                 {technicals.rsi != null && (
-                  <span className="rounded-md border border-white/[0.08] px-2 py-1 font-mono text-[11px] text-white/50">
+                  <span className="rounded-md border border-white/[0.08] px-2.5 py-1.5 font-mono text-[12.5px] text-white/55">
                     RSI {technicals.rsi}
                   </span>
                 )}
                 {technicals.pctFrom52wHigh != null && (
-                  <span className="rounded-md border border-white/[0.08] px-2 py-1 font-mono text-[11px] text-white/50">
+                  <span className="rounded-md border border-white/[0.08] px-2.5 py-1.5 font-mono text-[12.5px] text-white/55">
                     {technicals.pctFrom52wHigh}% from high
                   </span>
                 )}
                 {technicals.relativeVolume > 1.3 && (
-                  <span className="rounded-md border border-white/[0.08] px-2 py-1 font-mono text-[11px] text-white/50">
+                  <span className="rounded-md border border-white/[0.08] px-2.5 py-1.5 font-mono text-[12.5px] text-white/55">
                     {technicals.relativeVolume}× vol
                   </span>
                 )}
@@ -241,7 +241,7 @@ export default function PickCard({ pick, rank }) {
                 label="Bear case"
                 trailing={riskScore != null && <ScoreMeter score={riskScore} tone="risk" />}
               >
-                <p className="text-[12.5px] leading-[1.75] text-white/60">{bearCase}</p>
+                <p className="text-[13.5px] leading-[1.8] text-white/65">{bearCase}</p>
               </Section>
             </div>
           )}
@@ -257,12 +257,12 @@ export default function PickCard({ pick, rank }) {
                   <span className="rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[9.5px] font-medium text-white/40">Priced in</span>
                 )}
               </div>
-              {catalystDetail && <p className="text-[12.5px] leading-[1.75] text-white/60">{catalystDetail}</p>}
+              {catalystDetail && <p className="text-[13.5px] leading-[1.8] text-white/65">{catalystDetail}</p>}
             </div>
           )}
 
           {/* Evidence trail, so the score above is auditable rather than asserted. */}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-white/[0.05] pt-3.5 text-[11px] text-white/35">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-white/[0.05] pt-3.5 text-[12px] text-white/40">
             <span>
               {sources.length} independent source{sources.length === 1 ? '' : 's'}
               {signalCount > 0 && ` · ${signalCount} signal${signalCount === 1 ? '' : 's'}`}
