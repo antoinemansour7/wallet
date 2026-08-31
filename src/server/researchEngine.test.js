@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import {
   rankHighUpsideBoard,
   fetchAllYahooNews,
+  CATALYST_REGEX,
   postProcessCandidates,
   technicalAdjustment,
   setupPerformanceAdjustment,
@@ -395,5 +396,33 @@ describe('finalizePicks', () => {
     const finalized = finalizePicks(picks)
 
     expect(finalized[0].ticker).toBe('CALM')
+  })
+})
+
+// The loose original matched bare topic words, so nearly every financial
+// headline classified as a catalyst — flooding the board with one setup type
+// and mislabelling the setup-performance learning loop.
+describe('CATALYST_REGEX', () => {
+  it.each([
+    'Rocket Lab awarded a $515 million contract from the Space Force',
+    'Company reports Q3 earnings on Tuesday before the bell',
+    'FDA approval granted for the lead candidate',
+    'Beats estimates by 12 cents, raises full-year guidance',
+    'Announces definitive agreement to be acquired at $42/share',
+    'PDUFA date set for November',
+    'Phase 3 trial met its primary endpoint',
+  ])('matches the concrete event in: %s', (text) => {
+    expect(CATALYST_REGEX.test(text)).toBe(true)
+  })
+
+  it.each([
+    'Is Costco Stock Underperforming the Dow?',
+    'Best Of The 2026 Small Cap Winners: Monday 31st August 2026',
+    'Analysts discuss the upcoming earnings season outlook',
+    'The company launched a redesigned website last week',
+    'A $2 Billion Reason to Buy UPS Stock',
+    'Contract manufacturers are seeing margin pressure',
+  ])('does not fire on generic vocabulary in: %s', (text) => {
+    expect(CATALYST_REGEX.test(text)).toBe(false)
   })
 })

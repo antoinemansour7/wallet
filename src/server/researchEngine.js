@@ -74,7 +74,42 @@ const CLAUDE_MODEL = 'claude-sonnet-4-6'
 const SQUEEZE_REGEX = /(short squeeze|short interest|gamma squeeze|squeez(?:e|ing)|days to cover|float rotation|covering)/i
 const VOLUME_REGEX = /(unusual volume|relative volume|rvol|options sweep|dark pool|heavy volume|flow|accumulation)/i
 const BREAKOUT_REGEX = /(breakout|reclaim|range expansion|trend continuation|flag breakout|base breakout|higher highs|momentum ignition|squeezing higher)/i
-const CATALYST_REGEX = /(earnings|guidance|beat|miss|partnership|contract|launch|approval|fda|pdufa|trial|phase [123]|acquisition|merger|buyout|uplisting|backlog|deal win)/i
+// A catalyst has to be a concrete, dated or contractual event. The previous
+// pattern matched bare topic words — earnings, guidance, beat, miss, contract,
+// launch — which appear in almost every financial headline, so nearly every
+// media signal classified as "catalyst". That flooded the board with one setup
+// type and fed the same mislabel into the setup-performance learning loop.
+export const CATALYST_REGEX = new RegExp([
+  // Regulatory and clinical events, specific by nature
+  'pdufa',
+  'phase [123]\\b',
+  'fda (approval|clearance|decision|filing|submission)',
+  'breakthrough (therapy )?designation',
+  'orphan drug',
+  // Corporate actions
+  'definitive agreement',
+  'tender offer',
+  'takeover (bid|offer)',
+  'buyout (bid|offer)',
+  '(to be|agreed to be) acquired',
+  'agreed to acquire',
+  'merger (agreement|with)',
+  'uplisting',
+  'stock split',
+  'special dividend',
+  // Earnings tied to an actual event or surprise, not the topic
+  'reports? (q[1-4]|fq[1-4]|earnings|results)',
+  'earnings (call|date|report) (on|is|scheduled|set)',
+  '(beats?|missed|misses) (estimates|consensus|expectations|the street)',
+  '(raise[sd]?|lift(s|ed)?|cuts?|lowered|slashed) [a-z ]{0,14}guidance',
+  'guidance (above|below|ahead of|raised|cut)',
+  // Contracts and orders with substance attached
+  '(awarded|wins|won|secures|secured|lands|landed) [a-z ]{0,24}(contract|order|deal|mandate)',
+  '\\$[\\d.]+ ?(million|billion|[mb])\\b[a-z ,]{0,24}(contract|order|deal|award|backlog)',
+  // Commercial launches, not "launched a blog"
+  '(product|commercial|global|nationwide) launch',
+  'launches? (its )?(new )?[a-z-]+ (platform|product|drug|service|chip|model)',
+].join('|'), 'i')
 const FAILURE_REGEX = /(collapse|collapsed|unwind|unwound|rug|rugged|bloodbath|dead cat|bagholder|dump|dumped|selloff|sell-off|guidance cut|cut guidance|secondary offering|offering|dilution|reverse split|halted|delisting|chapter 11|broken chart|crash|crashed|imploded|implosion)/i
 
 const MEGA_CAP_TICKERS = new Set(['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'GOOG', 'TSLA'])
@@ -132,8 +167,17 @@ function dominantSetupType(item) {
   return setupScores[0][1] > 0 ? setupScores[0][0] : 'momentum'
 }
 
+// Cheap pre-rank used to pick which tickers are worth spending a quote lookup
+// on. It has to mirror the archetype score's evidence types, or a weight there
+// can never take effect: screener hits arrive one signal per ticker, so without
+// a term of their own they lost every top-30 slot to media names carrying three
+// or four articles, and no technically-qualified setup was ever priced.
 function baseBoardSortScore(item) {
-  return (item.signalCount * 1.4) + (item.sources.length * 1.1) + (item.maxScore * 0.35) + (item.accountMentions * 0.3)
+  return (item.signalCount * 1.4)
+    + (item.sources.length * 1.1)
+    + (item.maxScore * 0.35)
+    + (item.accountMentions * 0.3)
+    + ((item.screenerMentions || 0) * 1.35)
 }
 
 function buildSignalBoard(signals, articles) {
@@ -160,6 +204,7 @@ function buildSignalBoard(signals, articles) {
           contextMentions: 0,
           searchMentions: 0,
           screenerMentions: 0,
+          mediaMentions: 0,
         })
       }
 
@@ -172,13 +217,32 @@ function buildSignalBoard(signals, articles) {
       if (signal.sourceType === 'account') item.accountMentions += 1
       if (signal.sourceRole === 'context') item.contextMentions += 1
       else item.convictionMentions += 1
-      if (signal.sourceType === 'search') item.searchMentions += 1
+      // Exa is curated financial media carrying an actual narrative, so it is
+      // counted apart from X keyword search, whose low weight exists to discount
+      // broad-match noise. Lumping them together scored Exa at a seventh of a
+      // bare Finviz hit.
+      const isMedia = (signal.sourceLabels || []).includes('exa-discovery')
+      if (isMedia) item.mediaMentions += 1
+      else if (signal.sourceType === 'search') item.searchMentions += 1
       if (signal.sourceType === 'screener') item.screenerMentions += 1
-      if (SQUEEZE_REGEX.test(signal.text)) item.squeezeSignals += 1
-      if (VOLUME_REGEX.test(signal.text)) item.volumeSignals += 1
-      if (BREAKOUT_REGEX.test(signal.text)) item.breakoutSignals += 1
-      if (CATALYST_REGEX.test(signal.text)) item.catalystSignals += 1
-      if (FAILURE_REGEX.test(signal.text)) item.negativeSignals += 1
+
+      if (signal.sourceType === 'screener') {
+        // Screener signals carry text this pipeline generated about itself
+        // ("identified as squeeze+breakout setup by technical screener"), which
+        // tripped both the squeeze and breakout regexes on top of the screener
+        // bonus — one mechanical hit scoring as three pieces of evidence.
+        // Classify from the declared theme instead.
+        const declared = new Set(signal.themes || [])
+        if (declared.has('squeeze')) item.squeezeSignals += 1
+        if (declared.has('breakout')) item.breakoutSignals += 1
+        if (declared.has('earnings')) item.catalystSignals += 1
+      } else {
+        if (SQUEEZE_REGEX.test(signal.text)) item.squeezeSignals += 1
+        if (VOLUME_REGEX.test(signal.text)) item.volumeSignals += 1
+        if (BREAKOUT_REGEX.test(signal.text)) item.breakoutSignals += 1
+        if (CATALYST_REGEX.test(signal.text)) item.catalystSignals += 1
+        if (FAILURE_REGEX.test(signal.text)) item.negativeSignals += 1
+      }
     }
   }
 
@@ -203,6 +267,7 @@ function buildSignalBoard(signals, articles) {
           contextMentions: 0,
           searchMentions: 0,
           screenerMentions: 0,
+          mediaMentions: 0,
         })
       }
 
@@ -222,6 +287,40 @@ function buildSignalBoard(signals, articles) {
       themes: [...item.themes],
     }))
     .sort((a, b) => baseBoardSortScore(b) - baseBoardSortScore(a))
+}
+
+/**
+ * Choose which tickers are worth a quote lookup.
+ *
+ * Taking the top N of one ranked list hands the whole pool to whichever source
+ * emitted the most signals — roughly 135 screener hits against 70 media names,
+ * so one lane always shut the other out entirely and no weight could fix it.
+ * Reserve a share for each lane instead, then let the archetype score rank
+ * what comes back.
+ */
+export function selectCandidates(board, limit = 30) {
+  const sorted = [...board].sort((a, b) => baseBoardSortScore(b) - baseBoardSortScore(a))
+  const picked = new Map()
+
+  const take = (predicate, count) => {
+    let taken = 0
+    for (const item of sorted) {
+      if (taken >= count || picked.size >= limit) break
+      if (picked.has(item.ticker) || !predicate(item)) continue
+      picked.set(item.ticker, item)
+      taken += 1
+    }
+  }
+
+  const lane = Math.floor(limit * 0.4)
+  // Corroboration across lanes is the strongest evidence the board produces.
+  take((i) => i.screenerMentions > 0 && i.mediaMentions > 0, limit)
+  take((i) => i.mediaMentions > 0, lane)
+  take((i) => i.screenerMentions > 0, lane)
+  // Remaining slots by overall rank — accounts, X search, news-only names.
+  take(() => true, limit)
+
+  return [...picked.values()]
 }
 
 function buildQuoteMap(quotes = []) {
@@ -253,6 +352,7 @@ function normalizeBoardItem(item) {
     contextMentions: num(item.contextMentions),
     searchMentions: num(item.searchMentions),
     screenerMentions: num(item.screenerMentions),
+    mediaMentions: num(item.mediaMentions),
     sources: item.sources || [],
     themes: item.themes || [],
   }
@@ -285,7 +385,11 @@ export function rankHighUpsideBoard(signalBoard, quotesByTicker = new Map(), sec
         + (item.accountMentions * 0.5)
         + (item.convictionMentions * 0.75)
         + (item.searchMentions * 0.35)
-        + (item.screenerMentions * 2.5)
+        // A Finviz hit says the chart qualifies — necessary, not sufficient, and
+        // 135 of them arrive per run. Media coverage is the scarcer input: it
+        // carries why anyone would buy. Weight accordingly.
+        + (item.screenerMentions * 1.6)
+        + (item.mediaMentions * 1.15)
         + (Math.min(item.articleCount, 2) * 0.22)
         + (repeatedAttention ? 1.0 : -0.5)
         + pricePreferenceScore(price)
@@ -366,7 +470,7 @@ export function rankHighUpsideBoard(signalBoard, quotesByTicker = new Map(), sec
 
 async function getRankedSignalBoard(signals, articles) {
   const baseBoard = buildSignalBoard(signals, articles)
-  const candidateTickers = baseBoard.slice(0, 30).map((item) => item.ticker)
+  const candidateTickers = selectCandidates(baseBoard).map((item) => item.ticker)
   let quotesByTicker = new Map()
   let sectorTrends = new Map()
 

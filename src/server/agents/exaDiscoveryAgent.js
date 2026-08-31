@@ -159,6 +159,11 @@ export async function runExaDiscovery({ topThemes = [], topTickers = [] } = {}) 
           queryLabels: [query.id],
           queryTypes: ['exa'],
           sourceWeight: query.weight,
+          // Without this the board's `maxScore * 0.42` term evaluated to zero
+          // for every Exa-only ticker, while a Finviz hit contributed 6.5.
+          // Scaled off the query's own weight so a stronger discovery query
+          // carries more, landing in the same band as the screener's 6.5.
+          score: Number((4.6 * query.weight).toFixed(2)),
           tickers: [ticker],
           themes: query.theme ? [query.theme] : [],
           publicMetrics: {},

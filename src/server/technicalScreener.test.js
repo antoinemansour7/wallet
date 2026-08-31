@@ -27,13 +27,21 @@ describe('candidatesToSignals', () => {
     expect(signals[1].themes).toEqual(['breakout'])
   })
 
-  it('sets squeeze theme for combined squeeze+breakout setups', () => {
+  // The board classifies screener signals from these themes rather than from
+  // the synthetic text, so a ticker that cleared both screens has to say so —
+  // collapsing to 'squeeze' would silently discard the breakout evidence.
+  it('declares both themes for combined squeeze+breakout setups', () => {
     const signals = candidatesToSignals([
       { ticker: 'MU', setupType: 'squeeze+breakout', source: 'finviz-screener' },
     ])
 
-    expect(signals[0].themes).toEqual(['squeeze'])
+    expect(signals[0].themes).toEqual(['squeeze', 'breakout'])
     expect(signals[0].text).toContain('squeeze+breakout')
+  })
+
+  it('declares a single theme when only one screen matched', () => {
+    expect(candidatesToSignals([{ ticker: 'MU', setupType: 'squeeze' }])[0].themes).toEqual(['squeeze'])
+    expect(candidatesToSignals([{ ticker: 'MU', setupType: 'breakout' }])[0].themes).toEqual(['breakout'])
   })
 
   it('returns empty array for empty input', () => {

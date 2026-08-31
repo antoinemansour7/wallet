@@ -141,7 +141,13 @@ export function candidatesToSignals(candidates) {
     id: `screener-${c.ticker}-${Date.now()}-${i}`,
     text: `${c.ticker} identified as ${c.setupType} setup by technical screener (Finviz)`,
     tickers: [c.ticker],
-    themes: [c.setupType.includes('squeeze') ? 'squeeze' : 'breakout'],
+    // Declare every screen the ticker actually passed. The board classifies
+    // screener signals from these themes rather than regexing the synthetic
+    // text above, so "squeeze+breakout" must not collapse to just "squeeze".
+    themes: [
+      ...(c.setupType.includes('squeeze') ? ['squeeze'] : []),
+      ...(c.setupType.includes('breakout') ? ['breakout'] : []),
+    ],
     score: 6.5,
     sourceType: 'screener',
     sourceRole: 'conviction',
