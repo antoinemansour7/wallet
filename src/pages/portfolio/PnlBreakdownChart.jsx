@@ -1,37 +1,34 @@
 import { fmtCurrency } from '../../utils/portfolioStats'
 import ChartPanel from './ChartPanel'
-import { barWidth, getPnlBuckets } from './helpers'
+import { getPnlBuckets } from './helpers'
 
 export default function PnlBreakdownChart({ rows }) {
   const buckets = getPnlBuckets(rows)
-  const max     = Math.max(...buckets.map((b) => b.value), 1)
+  const up = buckets.find((bucket) => bucket.id === 'gainers')
+  const down = buckets.find((bucket) => bucket.id === 'losers')
+  const flat = buckets.find((bucket) => bucket.id === 'flat')
+  const downCount = down?.count ?? 0
+  const total = Math.max(rows.length, 1)
+  const downWidth = `${(downCount / total) * 100}%`
+  const upWidth = `${((up?.count ?? 0) / total) * 100}%`
 
   return (
-    <ChartPanel title="P&L Breakdown" meta={`${rows.length} positions`}>
-      <div className="space-y-4">
-        {buckets.map((b) => (
-          <div key={b.id}>
-            <div className="mb-1.5 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: b.gradient[1] }} />
-                <span className="text-sm text-white/60">{b.label}</span>
-              </div>
-              <span className="font-mono text-sm tabular font-semibold text-white">
-                {b.count} · {fmtCurrency(b.value)}
-              </span>
-            </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
-              <div
-                className="h-full rounded-full transition-all duration-700"
-                style={{
-                  width: b.value > 0 ? barWidth(b.value, max) : b.count > 0 ? '8%' : '0%',
-                  background: `linear-gradient(90deg, ${b.gradient[0]}90, ${b.gradient[1]})`,
-                }}
-              />
-            </div>
-          </div>
-        ))}
+    <ChartPanel title="Position health" meta={`${rows.length} positions`}>
+      <div className="mb-6">
+        <p className="font-display text-3xl font-medium tracking-tight tabular text-white">{downCount} of {rows.length}</p>
+        <p className="mt-2 text-sm text-white/50">positions are down</p>
       </div>
+      <div className="mb-6">
+        <div className="flex h-3 overflow-hidden rounded-full bg-white/[0.07]" aria-label={`${downCount} positions down, ${up?.count ?? 0} positions up`}>
+          <div className="bg-loss" style={{ width: downWidth }} />
+          <div className="bg-gain" style={{ width: upWidth }} />
+        </div>
+        <div className="mt-3 flex justify-between text-xs text-white/40">
+          <span>{downCount} down · {fmtCurrency(down?.value ?? 0)}</span>
+          <span>{up?.count ?? 0} up · {fmtCurrency(up?.value ?? 0)}</span>
+        </div>
+      </div>
+      {flat?.count > 0 && <p className="text-xs text-white/35">{flat.count} unchanged position{flat.count === 1 ? '' : 's'} · {fmtCurrency(flat.value)}</p>}
     </ChartPanel>
   )
 }

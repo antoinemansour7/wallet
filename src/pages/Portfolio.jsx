@@ -346,9 +346,8 @@ export default function Portfolio() {
   const onDrop = (e) => { e.preventDefault(); setIsDragging(false); handleFile(e.dataTransfer.files[0]) }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-wall-bg">
-      <div className="glow-orb blob-drift absolute -top-64 left-1/3 h-[560px] w-[560px]" />
-      <div className="relative mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10">
+    <div className="min-h-screen bg-wall-bg">
+      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
         <TabNav activeView={visibleView} hasData={hasData} onChange={setActiveView} />
 
         {visibleView === 'overview' && stats && (
