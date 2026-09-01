@@ -12,8 +12,8 @@ function AddButton({ onClick, primary }) {
       type="button"
       onClick={onClick}
       className={primary
-        ? 'rounded-xl bg-white px-5 py-2.5 text-[13.5px] font-semibold text-black transition-opacity hover:opacity-90'
-        : 'flex items-center gap-1.5 rounded-xl border border-white/[0.08] px-3.5 py-2 text-[13px] font-medium text-white/70 transition-colors hover:border-white/[0.16] hover:text-white'}
+        ? 'rounded-xl bg-accent px-5 py-2.5 text-[13.5px] font-semibold text-white transition-opacity hover:opacity-90 dark:bg-white dark:text-black'
+        : 'flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[13px] font-medium text-ink/50 transition-colors duration-150 hover:bg-ink/[0.04] hover:text-ink/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30'}
     >
       {!primary && (
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
