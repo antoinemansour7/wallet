@@ -6,11 +6,31 @@ const X_API_BASE_URL = process.env.X_API_BASE_URL || 'https://api.x.com'
 // Read path selection. Explicit X_PROVIDER wins; otherwise fall back to
 // twitterapi.io whenever it is configured and the official bearer token is not,
 // so a missing X_BEARER_TOKEN degrades to the cheap provider instead of silence.
+//
+// The value is trimmed and punctuation-folded before matching. It arrives from
+// a dashboard field or a .env line, and an unmatched value used to fall through
+// to the official API in silence — with X_BEARER_TOKEN set the fallback below
+// cannot catch it either, so one trailing space cost a whole night of X signals
+// and reported only "x-official returned zero signals".
+const TWITTERAPI_ALIASES = new Set(['twitterapiio', 'twitterapi', 'twitter-api-io', 'io'])
+const OFFICIAL_ALIASES = new Set(['x', 'official', 'xofficial', 'x-official'])
+
+function normalizeChoice(raw) {
+  return String(raw || '').trim().toLowerCase()
+}
+
 function activeProvider() {
-  const choice = (process.env.X_PROVIDER || '').toLowerCase()
-  if (choice === 'x' || choice === 'official') return null
-  if (choice === 'twitterapi.io' || choice === 'twitterapiio') return twitterApiIo
+  const choice = normalizeChoice(process.env.X_PROVIDER)
+  const folded = choice.replace(/[.-_s]/g, '')
+  if (OFFICIAL_ALIASES.has(folded)) return null
+  if (TWITTERAPI_ALIASES.has(folded)) return twitterApiIo
   if (!process.env.X_BEARER_TOKEN && twitterApiIo.isConfigured()) return twitterApiIo
+  if (choice) {
+    console.warn(
+      `[xSignals] X_PROVIDER=${JSON.stringify(process.env.X_PROVIDER)} matched no known provider — `
+      + 'using x-official. Expected "twitterapi.io" or "x".',
+    )
+  }
   return null
 }
 
