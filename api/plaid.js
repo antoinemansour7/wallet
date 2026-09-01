@@ -99,6 +99,13 @@ async function handleLinkToken(req, res) {
     products: [Products.Investments],
     country_codes: [CountryCode.Ca, CountryCode.Us],
     language: 'en',
+    // Without this, Link offers every account at the institution and some
+    // banks make chequing mandatory to proceed. This app only ever reads
+    // holdings, so asking for a chequing account is both useless and a
+    // reason not to connect at all.
+    account_filters: {
+      investment: { account_subtypes: ['all'] },
+    },
   })
 
   return res.status(200).json({ link_token: response.data.link_token })
@@ -127,16 +134,44 @@ async function handleExchangeToken(req, res) {
     mask: a.mask,
   }))
 
+  // Not every institution honours account_filters — Wealthsimple returns the
+  // chequing account regardless — so the authoritative filter is ours, applied
+  // on read. Default to the investment accounts only.
+  const investmentAccounts = accounts.filter((a) => a.type === 'investment')
+  const defaultEnabled = (investmentAccounts.length ? investmentAccounts : accounts).map((a) => a.id)
+
   const db = getDb()
   await db.collection('users').doc(userId).collection('plaid').doc(itemId).set({
     accessToken,
     itemId,
     accounts,
+    enabledAccountIds: defaultEnabled,
     institution: institutionName || null,
     connectedAt: new Date().toISOString(),
   })
 
-  return res.status(200).json({ success: true, itemId, accounts })
+  return res.status(200).json({ success: true, itemId, accounts, enabledAccountIds: defaultEnabled })
+}
+
+// ─── Select accounts ──────────────────────────────────────────────────────────
+
+async function handleSelectAccounts(req, res) {
+  const { userId, itemId, accountIds } = req.body
+  if (!userId || !itemId) return res.status(400).json({ error: 'userId and itemId are required' })
+  if (!Array.isArray(accountIds)) return res.status(400).json({ error: 'accountIds must be an array' })
+
+  const db = getDb()
+  const docRef = db.collection('users').doc(userId).collection('plaid').doc(itemId)
+  const snap = await docRef.get()
+  if (!snap.exists) return res.status(404).json({ error: 'Plaid connection not found' })
+
+  // Only ids that belong to this item, so a bad payload cannot widen access.
+  const known = new Set((snap.data().accounts || []).map((a) => a.id))
+  const enabled = accountIds.filter((id) => known.has(id))
+  if (enabled.length === 0) return res.status(400).json({ error: 'Select at least one account' })
+
+  await docRef.update({ enabledAccountIds: enabled })
+  return res.status(200).json({ success: true, enabledAccountIds: enabled })
 }
 
 // ─── Holdings ─────────────────────────────────────────────────────────────────
@@ -158,7 +193,10 @@ async function handleHoldings(req, res) {
   const connectedAccounts = []
 
   for (const doc of plaidDocs.docs) {
-    const { accessToken, accounts: storedAccounts, institution } = doc.data()
+    const { accessToken, accounts: storedAccounts, institution, enabledAccountIds } = doc.data()
+    // Absent means an older connection made before the picker existed; treat
+    // that as "everything", which is what it was already doing.
+    const isEnabled = (accountId) => !enabledAccountIds || enabledAccountIds.includes(accountId)
 
     try {
       const holdingsResponse = await client.investmentsHoldingsGet({ access_token: accessToken })
@@ -171,6 +209,7 @@ async function handleHoldings(req, res) {
         const security = securityMap.get(holding.security_id)
         const account = accountMap.get(holding.account_id)
         if (!security) continue
+        if (!isEnabled(holding.account_id)) continue
 
         if (security.type === 'cash' || security.ticker_symbol === 'CUR:CAD' || security.ticker_symbol === 'CUR:USD') {
           allCashEntries.push({
@@ -210,6 +249,7 @@ async function handleHoldings(req, res) {
       }
 
       for (const account of accounts) {
+        if (!isEnabled(account.account_id)) continue
         connectedAccounts.push({
           id: account.account_id,
           name: account.official_name || account.name,
@@ -259,6 +299,7 @@ async function handleDisconnect(req, res) {
 const ACTIONS = {
   'link-token': handleLinkToken,
   'exchange-token': handleExchangeToken,
+  'select-accounts': handleSelectAccounts,
   'holdings': handleHoldings,
   'disconnect': handleDisconnect,
 }

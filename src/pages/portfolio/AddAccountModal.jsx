@@ -50,6 +50,33 @@ function Destination({ label, detail, selected, onClick }) {
   )
 }
 
+function AccountChoice({ label, detail, checked, onToggle }) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      onClick={onToggle}
+      className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-white/[0.035]"
+    >
+      <span className={`flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-[5px] border transition-colors ${
+        checked ? 'border-white bg-white' : 'border-white/25'
+      }`}>
+        {checked && (
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="3.5"
+            strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 6L9 17l-5-5" />
+          </svg>
+        )}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13.5px] font-medium text-white">{label}</span>
+        {detail && <span className="mt-0.5 block truncate text-[12px] text-white/40">{detail}</span>}
+      </span>
+    </button>
+  )
+}
+
 function Changes({ preview }) {
   const { added, updated, removed, keptFromOtherSources, beforeTotal, afterTotal } = preview
   const lines = [
@@ -91,14 +118,25 @@ export default function AddAccountModal({
   open, onClose,
   accounts = [], error, loading, loadingMsg, inputRef, isDragging, userId,
   pending, preview, busy,
+  discovered, onImportDiscovered,
   onDragOver, onDragLeave, onDrop, onFile,
-  onPlaidSuccess, onPlaidConnecting,
+  onPlaidAccounts, onPlaidConnecting, onPlaidError,
   onChooseDestination, onConfirm, onCancel,
 }) {
   const [mode, setMode] = useState(null)
   const [chosen, setChosen] = useState(null)
+  const [picked, setPicked] = useState([])
 
   useEffect(() => { if (open) setMode(null) }, [open])
+
+  // Seed from the server's default (investment accounts), so the common case
+  // is one tap to confirm rather than a checklist to work through.
+  useEffect(() => {
+    if (!discovered) { setPicked([]); return }
+    setPicked(discovered.enabledAccountIds?.length
+      ? discovered.enabledAccountIds
+      : discovered.accounts.map((a) => a.id))
+  }, [discovered])
 
   useEffect(() => {
     if (!pending) { setChosen(null); return }
@@ -121,14 +159,17 @@ export default function AddAccountModal({
 
   const target = chosen?.mode === 'new' ? 'new account' : chosen?.accountNumber
   const back = pending ? onCancel : mode ? () => setMode(null) : undefined
+  const togglePick = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
 
   return (
     <Modal open={open} onClose={onClose} labelledBy="add-account-title">
       <ModalHeader
         id="add-account-title"
-        title={pending ? pending.name : 'Add an account'}
-        subtitle={pending ? `${pending.rows.length} holding${pending.rows.length === 1 ? '' : 's'}` : undefined}
-        onBack={back}
+        title={discovered ? (discovered.institutionName || 'Connected') : pending ? pending.name : 'Add an account'}
+        subtitle={discovered
+          ? 'Choose what to bring in'
+          : pending ? `${pending.rows.length} holding${pending.rows.length === 1 ? '' : 's'}` : undefined}
+        onBack={discovered ? undefined : back}
         onClose={onClose}
       />
 
@@ -143,8 +184,27 @@ export default function AddAccountModal({
           </div>
         )}
 
+        {/* Which accounts to import */}
+        {!loading && discovered && (
+          <div className="-mx-3">
+            {discovered.accounts.map((a) => (
+              <AccountChoice
+                key={a.id}
+                label={a.officialName || a.name || 'Account'}
+                detail={[a.subtype || a.type, a.mask ? `••${a.mask}` : null].filter(Boolean).join(' · ')}
+                checked={picked.includes(a.id)}
+                onToggle={() => togglePick(a.id)}
+              />
+            ))}
+            <p className="mt-3 px-3 text-[11.5px] leading-relaxed text-white/30">
+              Only what you tick is read. Your bank may require connecting other
+              accounts — they stay out of WallAI.
+            </p>
+          </div>
+        )}
+
         {/* Pick a source */}
-        {!loading && !pending && !mode && (
+        {!loading && !pending && !discovered && !mode && (
           <div className="space-y-2">
             <Option
               title="Import a statement"
@@ -169,7 +229,7 @@ export default function AddAccountModal({
           </div>
         )}
 
-        {!loading && !pending && mode === 'file' && (
+        {!loading && !pending && !discovered && mode === 'file' && (
           <div
             onClick={() => inputRef.current?.click()}
             onDragOver={onDragOver}
@@ -188,9 +248,9 @@ export default function AddAccountModal({
           </div>
         )}
 
-        {!loading && !pending && mode === 'connect' && (
+        {!loading && !pending && !discovered && mode === 'connect' && (
           <div>
-            <PlaidLinkButton userId={userId} onSuccess={onPlaidSuccess} onConnecting={onPlaidConnecting} />
+            <PlaidLinkButton userId={userId} onAccounts={onPlaidAccounts} onConnecting={onPlaidConnecting} onError={onPlaidError} />
             <p className="mt-3 text-[11.5px] leading-relaxed text-white/30">
               Canadian coverage is patchy. Import a statement if yours is missing.
             </p>
@@ -198,7 +258,7 @@ export default function AddAccountModal({
         )}
 
         {/* Review */}
-        {!loading && pending && (
+        {!loading && !discovered && pending && (
           <>
             <p className="mb-1 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-white/30">Add to</p>
             <div className="-mx-3">
@@ -237,7 +297,20 @@ export default function AddAccountModal({
         {error && <p className="mt-4 text-[12.5px] text-loss/90">{error}</p>}
       </div>
 
-      {!loading && pending && (
+      {!loading && discovered && (
+        <div className="border-t border-white/[0.06] p-4">
+          <button
+            type="button"
+            onClick={() => onImportDiscovered?.(picked)}
+            disabled={busy || picked.length === 0}
+            className="w-full rounded-xl bg-white py-2.5 text-[13.5px] font-semibold text-black transition-opacity hover:opacity-90 disabled:opacity-40"
+          >
+            {busy ? 'Importing…' : picked.length === 0 ? 'Pick at least one' : `Import ${picked.length} account${picked.length === 1 ? '' : 's'}`}
+          </button>
+        </div>
+      )}
+
+      {!loading && !discovered && pending && (
         <div className="border-t border-white/[0.06] p-4">
           <button
             type="button"

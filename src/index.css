@@ -271,6 +271,25 @@ html.dark .login-orbit {
   html:not(.dark) .portfolio-shell [class*="text-white/"] { color: #5c6b63 !important; }
   html:not(.dark) .portfolio-shell [class*="border-white/"] { border-color: #dfe6e1 !important; }
   html:not(.dark) .portfolio-shell [class*="bg-white/"] { background-color: #edf3ee !important; }
+
+  /* Modals render through a portal into <body>, so they sit outside
+     .portfolio-shell and none of the overrides above reach them. The panel
+     still went white (bg-wall-surface is a themed variable) while its text
+     stayed literally white — an invisible dialog. Same rules, portal scope. */
+  html:not(.dark) .modal-panel [class*="text-white"] { color: #17211d !important; }
+  html:not(.dark) .modal-panel [class*="text-white/"] { color: #5c6b63 !important; }
+  html:not(.dark) .modal-panel [class*="border-white/"] { border-color: #dfe6e1 !important; }
+  html:not(.dark) .modal-panel [class*="bg-white/"] { background-color: #edf3ee !important; }
+  html:not(.dark) .modal-panel { border-color: #dfe6e1 !important; }
+  /* The primary button is white-on-black in dark; invert it on paper. */
+  html:not(.dark) .modal-panel button[class*="bg-white"]:not([class*="bg-white/"]) {
+    background-color: #216b50 !important; color: #ffffff !important;
+  }
+  /* A ticked checkbox is a filled white square with a black glyph in dark. */
+  html:not(.dark) .modal-panel span[class*="bg-white"]:not([class*="bg-white/"]) {
+    background-color: #216b50 !important; border-color: #216b50 !important;
+  }
+  html:not(.dark) .modal-panel span[class*="bg-white"]:not([class*="bg-white/"]) svg { stroke: #ffffff !important; }
   html:not(.dark) .portfolio-shell .bg-gradient-accent { background-image: linear-gradient(90deg, #216b50, #8bb79e) !important; }
   html:not(.dark) .portfolio-shell .text-gradient { background: none; color: #17211d; }
 

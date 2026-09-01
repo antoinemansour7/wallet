@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { usePlaidLink } from 'react-plaid-link'
 
-export default function PlaidLinkButton({ userId, onSuccess, onConnecting }) {
+export default function PlaidLinkButton({ userId, onAccounts, onConnecting, onError }) {
   const [linkToken, setLinkToken] = useState(null)
   const [loading, setLoading] = useState(false)
 
@@ -24,11 +24,13 @@ export default function PlaidLinkButton({ userId, onSuccess, onConnecting }) {
     return () => { cancelled = true }
   }, [userId])
 
+  // Stops at the exchange. Holdings are only fetched once the user has said
+  // which accounts they actually want — an institution that forces a chequing
+  // account into the connection should not force it into the portfolio.
   const handleSuccess = useCallback(async (publicToken, metadata) => {
     setLoading(true)
     onConnecting?.()
     try {
-      // Exchange public token
       const exchangeRes = await fetch('/api/plaid', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -42,23 +44,19 @@ export default function PlaidLinkButton({ userId, onSuccess, onConnecting }) {
       const exchangeData = await exchangeRes.json()
       if (!exchangeRes.ok) throw new Error(exchangeData.error || 'Exchange failed')
 
-      // Fetch holdings
-      const holdingsRes = await fetch('/api/plaid', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'holdings', userId }),
+      onAccounts?.({
+        itemId: exchangeData.itemId,
+        accounts: exchangeData.accounts || [],
+        enabledAccountIds: exchangeData.enabledAccountIds || [],
+        institutionName: metadata.institution?.name || null,
       })
-      const holdingsData = await holdingsRes.json()
-      if (!holdingsRes.ok) throw new Error(holdingsData.error || 'Holdings fetch failed')
-
-      onSuccess?.(holdingsData, metadata.institution?.name)
     } catch (err) {
       console.error('[PlaidLink] error:', err)
-      onSuccess?.(null, null, err)
+      onError?.(err)
     } finally {
       setLoading(false)
     }
-  }, [userId, onSuccess, onConnecting])
+  }, [userId, onAccounts, onConnecting, onError])
 
   const { open, ready } = usePlaidLink({
     token: linkToken,

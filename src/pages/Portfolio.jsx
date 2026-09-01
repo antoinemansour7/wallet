@@ -234,6 +234,9 @@ export default function Portfolio() {
   // "add this to my existing TFSA" a safe thing to do.
   const [addOpen, setAddOpen] = useState(false)
   const [pending, setPending] = useState(null)
+  // Accounts Plaid returned, awaiting the user's pick. Held separately from
+  // `pending` because nothing has been fetched yet — this is the step before.
+  const [discovered, setDiscovered] = useState(null)
   const [preview, setPreview] = useState(null)
   const [merging, setMerging] = useState(false)
 
@@ -270,6 +273,7 @@ export default function Portfolio() {
   const openAdd = useCallback(() => {
     setPending(null)
     setPreview(null)
+    setDiscovered(null)
     setError('')
     setAddOpen(true)
   }, [])
@@ -278,6 +282,7 @@ export default function Portfolio() {
     setAddOpen(false)
     setPending(null)
     setPreview(null)
+    setDiscovered(null)
   }, [])
 
   const handleCancelMerge = useCallback(() => {
@@ -327,22 +332,59 @@ export default function Portfolio() {
     setLoadingMsg('Connecting to your brokerage…')
   }, [])
 
-  const handlePlaidSuccess = useCallback((holdingsData, institutionName, err) => {
+  const handlePlaidError = useCallback((err) => {
     setLoading(false)
     setLoadingMsg('')
-    if (err || !holdingsData) {
-      setError(err?.message || 'Failed to connect brokerage')
-      return
+    setError(err?.message || 'Failed to connect brokerage')
+  }, [])
+
+  // Link came back. Show what it found rather than importing it — the bank may
+  // have insisted on a chequing account, and that is not a portfolio.
+  const handlePlaidAccounts = useCallback((found) => {
+    setLoading(false)
+    setLoadingMsg('')
+    setDiscovered(found)
+  }, [])
+
+  const handleImportDiscovered = useCallback(async (accountIds) => {
+    if (!discovered || !uid) return
+    setMerging(true)
+    setError('')
+    try {
+      const selectRes = await fetch('/api/plaid', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'select-accounts', userId: uid, itemId: discovered.itemId, accountIds,
+        }),
+      })
+      const selectData = await selectRes.json()
+      if (!selectRes.ok) throw new Error(selectData.error || 'Could not save your selection')
+
+      const holdingsRes = await fetch('/api/plaid', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'holdings', userId: uid }),
+      })
+      const holdingsData = await holdingsRes.json()
+      if (!holdingsRes.ok) throw new Error(holdingsData.error || 'Holdings fetch failed')
+
+      const institutionName = discovered.institutionName
+      setDiscovered(null)
+      // From here a connection is staged and previewed exactly like a file, so
+      // choosing the destination account is the same decision either way.
+      stageStatement({
+        name: institutionName || 'Connected brokerage',
+        kind: 'plaid',
+        rows: holdingsData.rows || [],
+        cashEntries: holdingsData.cashEntries || [],
+      })
+    } catch (err) {
+      setError(err.message || 'Failed to import accounts')
+    } finally {
+      setMerging(false)
     }
-    // A connection is staged and previewed exactly like a file, so choosing
-    // the destination account is the same decision either way.
-    stageStatement({
-      name: institutionName || 'Connected brokerage',
-      kind: 'plaid',
-      rows: holdingsData.rows || [],
-      cashEntries: holdingsData.cashEntries || [],
-    })
-  }, [stageStatement])
+  }, [discovered, uid, stageStatement])
   const onDrop = (e) => { e.preventDefault(); setIsDragging(false); handleFile(e.dataTransfer.files[0]) }
 
   return (
@@ -407,8 +449,11 @@ export default function Portfolio() {
         onDragLeave={() => setIsDragging(false)}
         onDrop={onDrop}
         onFile={handleFile}
-        onPlaidSuccess={handlePlaidSuccess}
+        discovered={discovered}
+        onImportDiscovered={handleImportDiscovered}
+        onPlaidAccounts={handlePlaidAccounts}
         onPlaidConnecting={handlePlaidConnecting}
+        onPlaidError={handlePlaidError}
         onChooseDestination={handleChooseDestination}
         onConfirm={handleConfirmMerge}
         onCancel={handleCancelMerge}
