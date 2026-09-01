@@ -27,7 +27,10 @@ Output format — return ONLY a JSON array:
 Rules:
 - riskScore 1-10 (10 = extremely dangerous entry, 1 = minimal risk)
 - bearCase: 2-3 sentences, specific and data-driven
-- WRITE IT FOR A NON-PROFESSIONAL. Keep the numbers, drop the desk vocabulary. Say "the stock has already run 35% this month, so early buyers have a large profit to protect and may sell into any good news" rather than "35% monthly run = profit-taking risk into a sell-the-news setup". Never use these without explaining them in the same sentence: sell-the-news, priced in, crowded trade, extended, exhaustion, overbought, support, asymmetric. Plain sentences an intelligent non-trader could follow on one read.
+- WRITE IT FOR A NON-PROFESSIONAL. Keep the numbers, drop the desk vocabulary. Say "the stock has already run 35% this month, so early buyers have a large profit to protect and may sell into any good news" rather than "35% monthly run = profit-taking risk into a sell-the-news setup".
+- BANNED WORDS, unless the same sentence says what the word means: sell-the-news, priced in, crowded, crowded trade, extended, exhaustion, overbought, oversold, support, resistance, asymmetric, rotation, rotate, squeeze, breakout, setup, tape, beta, valuation multiple, de-rate.
+  This applies to every use, including inside a phrase like "a crowded spot" or "if that rotation reverses" — describe what would actually happen instead: "if that money moves back into tech tomorrow".
+- Plain sentences an intelligent non-trader could follow on one read.
 - Cover ALL tickers provided
 - Be honest — if a pick genuinely has low risk, give it a low riskScore. Don't force bearishness.`
 
