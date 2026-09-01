@@ -54,6 +54,7 @@ export default {
       boxShadow: {
         'card':       '0 1px 2px rgba(0,0,0,0.4), 0 8px 24px -12px rgba(0,0,0,0.5)',
         'card-hover': '0 2px 4px rgba(0,0,0,0.4), 0 16px 40px -12px rgba(0,0,0,0.6)',
+        'modal':      '0 24px 64px -16px rgba(0,0,0,0.35), 0 4px 16px -4px rgba(0,0,0,0.15)',
         'glow':       '0 0 28px rgba(255,255,255,0.10)',
         'glow-sm':    '0 0 14px rgba(255,255,255,0.06)',
       },

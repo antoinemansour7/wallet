@@ -145,3 +145,59 @@ export const PREVIEW_RESEARCH = {
     },
   ],
 }
+
+// ─── Plaid ────────────────────────────────────────────────────────────────────
+// Standing in for the whole Link round trip: the institution hands back four
+// accounts, two of which are chequing/savings you did not ask for. That is the
+// case the picker exists for, so it is the case preview mode shows.
+
+export const PREVIEW_PLAID = {
+  institutionName: 'Wealthsimple',
+  itemId: 'preview-item',
+  accounts: [
+    { id: 'pa-chq', name: 'Cash', officialName: 'Wealthsimple Cash', type: 'depository', subtype: 'chequing', mask: '4021' },
+    { id: 'pa-tfsa', name: 'TFSA', officialName: 'Wealthsimple TFSA', type: 'investment', subtype: 'tfsa', mask: '8830' },
+    { id: 'pa-rrsp', name: 'RRSP', officialName: 'Wealthsimple RRSP', type: 'investment', subtype: 'rrsp', mask: '1177' },
+    { id: 'pa-save', name: 'Save', officialName: 'Wealthsimple Save', type: 'depository', subtype: 'savings', mask: '5502' },
+  ],
+}
+
+const plaidRow = (accountId, symbol, description, qty, price, book) => ({
+  __accountId: accountId,
+  SYMBOL: symbol,
+  DESCRIPTION: description,
+  QUANTITY: qty,
+  'MARKET PRICE': price,
+  'MARKET VALUE': Number((qty * price).toFixed(2)),
+  'BOOK VALUE': book,
+  'UNREALIZED GAIN/LOSS': Number((qty * price - book).toFixed(2)),
+  'ACCOUNT TYPE': accountId === 'pa-tfsa' ? 'TFSA' : 'RRSP',
+  'ACCOUNT NUMBER': accountId === 'pa-tfsa' ? '8830' : '1177',
+  CURRENCY: 'CAD',
+  _source: 'plaid',
+  _institution: 'Wealthsimple',
+})
+
+const PLAID_ROWS = [
+  plaidRow('pa-tfsa', 'VFV.TO', 'VANGUARD S&P 500 INDEX ETF', 112, 148.2, 14100),
+  plaidRow('pa-tfsa', 'XEQT.TO', 'ISHARES CORE EQUITY ETF PORTFOLIO', 210, 36.44, 7300),
+  plaidRow('pa-tfsa', 'BN.TO', 'BROOKFIELD CORP CLASS A', 90, 78.4, 6600),
+  plaidRow('pa-rrsp', 'SHOP.TO', 'SHOPIFY INC CLASS A SUBORDINATE VOTING', 45, 152.6, 8200),
+  plaidRow('pa-rrsp', 'ENB.TO', 'ENBRIDGE INC', 180, 62.15, 10400),
+]
+
+const PLAID_CASH = [
+  { account: 'TFSA', accountNumber: '8830', currency: 'CAD', value: 1204.55, __accountId: 'pa-tfsa' },
+  { account: 'RRSP', accountNumber: '1177', currency: 'CAD', value: 340.12, __accountId: 'pa-rrsp' },
+]
+
+/** What /api/plaid holdings would return for the chosen accounts. */
+export function previewPlaidHoldings(accountIds = []) {
+  const keep = new Set(accountIds)
+  const strip = ({ __accountId, ...rest }) => rest
+  return {
+    rows: PLAID_ROWS.filter((r) => keep.has(r.__accountId)).map(strip),
+    cashEntries: PLAID_CASH.filter((c) => keep.has(c.__accountId)).map(strip),
+    connectedAccounts: PREVIEW_PLAID.accounts.filter((a) => keep.has(a.id)),
+  }
+}

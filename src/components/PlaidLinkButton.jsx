@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { usePlaidLink } from 'react-plaid-link'
+import { IS_PREVIEW, PREVIEW_PLAID } from '../preview/mockMode'
 
 export default function PlaidLinkButton({ userId, onAccounts, onConnecting, onError }) {
   const [linkToken, setLinkToken] = useState(null)
@@ -7,6 +8,7 @@ export default function PlaidLinkButton({ userId, onAccounts, onConnecting, onEr
 
   // Fetch link token on mount
   useEffect(() => {
+    if (IS_PREVIEW) return undefined
     if (!userId) return
     let cancelled = false
 
@@ -63,37 +65,55 @@ export default function PlaidLinkButton({ userId, onAccounts, onConnecting, onEr
     onSuccess: handleSuccess,
   })
 
-  const disabled = !ready || !linkToken || loading
+  // Preview stands in for the whole Link round trip. Without it the connect
+  // path is the one flow you cannot look at without real bank credentials,
+  // which makes it the one flow that never gets designed.
+  const openPreview = useCallback(async () => {
+    setLoading(true)
+    onConnecting?.()
+    await new Promise((r) => setTimeout(r, 700))
+    setLoading(false)
+    onAccounts?.({
+      itemId: PREVIEW_PLAID.itemId,
+      accounts: PREVIEW_PLAID.accounts,
+      enabledAccountIds: PREVIEW_PLAID.accounts.filter((a) => a.type === 'investment').map((a) => a.id),
+      institutionName: PREVIEW_PLAID.institutionName,
+    })
+  }, [onAccounts, onConnecting])
+
+  const disabled = IS_PREVIEW ? loading : (!ready || !linkToken || loading)
 
   return (
     <button
       type="button"
-      onClick={() => open()}
+      onClick={() => (IS_PREVIEW ? openPreview() : open())}
       disabled={disabled}
-      className={`group flex w-full items-center gap-3 rounded-xl px-4 py-3.5 text-left transition-all duration-150 ${
-        disabled
-          ? 'cursor-not-allowed opacity-40'
-          : 'bg-white/[0.03] hover:bg-white/[0.05]'
+      className={`flex w-full items-center gap-3.5 px-4 py-4 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:bg-ink/[0.04] ${
+        disabled ? 'cursor-not-allowed opacity-45' : 'hover:bg-ink/[0.03]'
       }`}
     >
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06]">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] bg-ink/[0.06] text-ink/55">
         {loading ? (
-          <div className="h-3.5 w-3.5 rounded-full border-[1.5px] border-white/50 border-t-transparent animate-spin" />
+          <span className="h-4 w-4 animate-spin rounded-full border-[1.5px] border-ink/50 border-t-transparent" />
         ) : (
-          <svg className="h-3.5 w-3.5 text-white/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+          <svg className="h-[17px] w-[17px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
             <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
             <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
           </svg>
         )}
-      </div>
-      <div>
-        <p className="text-[13px] text-white/60 group-hover:text-white/80">
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[15px] font-medium tracking-[-0.01em] text-ink">
           {loading ? 'Connecting…' : 'Connect your brokerage'}
-        </p>
-        <p className="text-[11px] text-white/25">
+        </span>
+        <span className="mt-0.5 block text-[13px] text-ink/45">
           Wealthsimple, Questrade, and more
-        </p>
-      </div>
+        </span>
+      </span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
+        strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-ink/25">
+        <path d="M9 18l6-6-6-6" />
+      </svg>
     </button>
   )
 }

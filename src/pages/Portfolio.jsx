@@ -18,6 +18,7 @@ import PnlBreakdownChart from './portfolio/PnlBreakdownChart'
 import PerformanceChart from './portfolio/PerformanceChart'
 import AllocationDonut from './portfolio/AllocationDonut'
 import ChartPanel from './portfolio/ChartPanel'
+import { IS_PREVIEW, previewPlaidHoldings } from '../preview/mockMode'
 import HoldingsView from './portfolio/HoldingsView'
 import AccountsView from './portfolio/AccountsView'
 import AddAccountModal from './portfolio/AddAccountModal'
@@ -351,6 +352,18 @@ export default function Portfolio() {
     setMerging(true)
     setError('')
     try {
+      // Preview has no Plaid item behind it, so both calls are answered from
+      // the fixture — the selection still filters the holdings, which is the
+      // behaviour worth being able to see.
+      if (IS_PREVIEW) {
+        await new Promise((r) => setTimeout(r, 500))
+        const data = previewPlaidHoldings(accountIds)
+        const name = discovered.institutionName
+        setDiscovered(null)
+        stageStatement({ name: name || 'Connected brokerage', kind: 'plaid', rows: data.rows, cashEntries: data.cashEntries })
+        return
+      }
+
       const selectRes = await fetch('/api/plaid', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

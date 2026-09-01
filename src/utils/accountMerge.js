@@ -157,10 +157,23 @@ export function accountSources(account) {
 }
 
 /** Human-readable name for a source id. */
+// Registered plans are initialisms; brokerage names are proper nouns. The id is
+// lowercased and hyphenated for storage, so it has to be put back before it is
+// shown — "questrade tfsa" reads like a typo next to everything around it.
+const PLAN_WORDS = new Set(['tfsa', 'rrsp', 'resp', 'fhsa', 'lira', 'rrif', 'ira', 'roth', 'resp'])
+
+function titleCase(name) {
+  return name
+    .split(' ')
+    .filter(Boolean)
+    .map((word) => (PLAN_WORDS.has(word) ? word.toUpperCase() : word.charAt(0).toUpperCase() + word.slice(1)))
+    .join(' ')
+}
+
 export function sourceLabel(id) {
   if (id === LEGACY_SOURCE) return 'Imported earlier'
   const [kind, ...rest] = String(id).split(':')
-  const name = rest.join(':').replace(/-/g, ' ')
-  if (kind === 'plaid') return `Connected · ${name}`
+  const name = titleCase(rest.join(':').replace(/-/g, ' '))
+  if (kind === 'plaid') return name || 'Connected'
   return name ? `File · ${name}` : 'File'
 }

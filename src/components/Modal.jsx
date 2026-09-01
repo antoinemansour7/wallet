@@ -63,7 +63,7 @@ export default function Modal({ open, onClose, labelledBy, children, className =
         // Full width on a phone so it reads as a sheet, centred and contained
         // above that. Capped by viewport height so a long list scrolls inside
         // the panel rather than pushing the actions off screen.
-        className={`modal-panel relative flex max-h-[90vh] w-full flex-col overflow-hidden rounded-t-2xl border border-white/[0.09] bg-wall-surface shadow-card outline-none sm:max-w-[420px] sm:rounded-2xl ${className}`}
+        className={`modal-panel relative flex max-h-[90vh] w-full flex-col overflow-hidden rounded-t-[22px] bg-wall-surface shadow-modal outline-none sm:max-w-[440px] sm:rounded-[22px] ${className}`}
       >
         {children}
       </div>
@@ -72,36 +72,49 @@ export default function Modal({ open, onClose, labelledBy, children, className =
   )
 }
 
-/** Title row with a close affordance — every modal needs the same one. */
+function NavButton({ label, onClick, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-ink/45 transition-colors duration-150 hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/25"
+    >
+      {children}
+    </button>
+  )
+}
+
+/**
+ * Navigation row. `title` is optional: when the panel's own content already
+ * names the task — a heading it can be labelled by — repeating it in chrome
+ * above just spends the top of the sheet saying the same thing twice.
+ */
 export function ModalHeader({ id, title, subtitle, onBack, onClose }) {
   return (
-    <div className="flex items-start gap-3 px-5 pb-4 pt-5">
+    <div className="flex items-start gap-2 px-4 pb-1 pt-4">
       {onBack && (
-        <button
-          type="button"
-          onClick={onBack}
-          aria-label="Back"
-          className="-ml-1.5 mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <NavButton label="Back" onClick={onBack}>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
             <path d="M15 18l-6-6 6-6" />
           </svg>
-        </button>
+        </NavButton>
       )}
-      <div className="min-w-0 flex-1">
-        <h2 id={id} className="truncate text-[16px] font-semibold tracking-[-0.01em] text-white">{title}</h2>
-        {subtitle && <p className="mt-0.5 truncate text-[12.5px] text-white/40">{subtitle}</p>}
+
+      {/* No spacer when there is no back button: an invisible 32px box left the
+          title indented past the content it sits above. */}
+      <div className="min-w-0 flex-1 pt-1.5" style={onBack ? undefined : { paddingLeft: 4 }}>
+        {title && (
+          <h2 id={id} className="truncate text-[16px] font-semibold tracking-[-0.01em] text-ink">{title}</h2>
+        )}
+        {subtitle && <p className="mt-0.5 truncate text-[13px] text-ink/45">{subtitle}</p>}
       </div>
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Close"
-        className="-mr-1.5 mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white"
-      >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+
+      <NavButton label="Close" onClick={onClose}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
           <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
         </svg>
-      </button>
+      </NavButton>
     </div>
   )
 }
