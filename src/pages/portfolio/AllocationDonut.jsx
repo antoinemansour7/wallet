@@ -147,10 +147,10 @@ export default function AllocationDonut({ rows, stats }) {
   const handleClick = (i) => setClicked(clicked === i ? null : i)
 
   return (
-    <div ref={rootRef} className="flex flex-col items-center gap-8 lg:flex-row lg:items-center lg:justify-center lg:gap-14">
+    <div ref={rootRef} className="flex flex-col items-center gap-8 lg:flex-row lg:items-center lg:gap-10">
       {/* Ring — no floating labels. The centre reads out whatever is hovered,
           which is what keeps a 9-slice donut legible at any size. */}
-      <div className="shrink-0" style={{ width: viewSize, maxWidth: '100%' }}>
+      <div className="w-[300px] max-w-full shrink-0 lg:w-[350px]">
         <svg
           viewBox={`0 0 ${viewSize} ${viewSize}`}
           className="h-auto w-full"
@@ -219,7 +219,7 @@ export default function AllocationDonut({ rows, stats }) {
       </div>
 
       {/* Holdings list — the legend does the labelling work */}
-      <div className="w-full max-w-md flex-1">
+      <div className="w-full min-w-0 flex-1">
         <h3 className="mb-3 text-[11px] font-medium uppercase tracking-wider text-white/30">Holdings</h3>
         {/* Leave handled once on the list, not per row — same reason as the ring. */}
         <div onMouseLeave={() => setHovered(null)}>

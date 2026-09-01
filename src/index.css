@@ -18,12 +18,106 @@
 
 @layer base {
   :root {
-    --ink: #17211d;
-    --surface: #ffffff;
-    --accent: #216b50;
-    --gain: #19734f;
-    --loss: #b84c49;
-    --line: #dfe6e1;
+    color-scheme: light;
+    --color-ink: 23 33 29;
+    --color-brand: 245 247 244;
+    --color-brand-light: 255 255 255;
+    --color-surface: 255 255 255;
+    --color-card: 255 255 255;
+    --color-accent: 33 107 80;
+    --color-accent-2: 216 230 221;
+    --color-border: 223 230 225;
+    --color-border-subtle: 233 238 234;
+    --color-text-primary: 23 33 29;
+    --color-text-secondary: 92 107 99;
+    --color-text-muted: 130 144 135;
+    --color-gain: 52 211 153;
+    --color-gain-bg: 229 241 235;
+    --color-loss: 184 76 73;
+    --color-loss-bg: 247 233 231;
+    --color-warning: 155 107 24;
+    --color-wall-bg: 245 247 244;
+    --color-wall-surface: 255 255 255;
+    --color-wall-elevated: 237 243 238;
+    --body-bg: #f5f7f4;
+    --body-text: #17211d;
+    --glass-bg: rgba(255, 255, 255, 0.92);
+    --glass-saturation: 1.1;
+    --login-bg: #101914;
+    --text-gradient: linear-gradient(120deg, #fafafa 0%, #a1a1aa 100%);
+    --glow-orb: radial-gradient(circle at 50% 50%, rgba(33,107,80,0.07), rgba(33,107,80,0.02) 60%, transparent 75%);
+    --scroll-thumb: #aab7b0;
+    --scroll-thumb-hover: #829087;
+
+    /* Categorical chart series — identity, not magnitude, so these are
+       distinct hues rather than a ramp. Stepped separately for each surface;
+       the dark column is the same six hues restepped, not a flip. Validated
+       for colour-vision separation and contrast against both surfaces. */
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --series-3: #1baf7a;
+    --series-4: #eda100;
+    --series-5: #e87ba4;
+    --series-6: #008300;
+
+    /* Allocation tape — a sequential ink ramp, because the thing it encodes is
+       magnitude (largest holding first), not identity. Green and red stay
+       reserved for gain and loss, so nothing on this page reads as a P&L
+       colour unless it is one. */
+    --tape-1: #17211d;
+    --tape-2: #2c3d35;
+    --tape-3: #42564c;
+    --tape-4: #5a6f64;
+    --tape-5: #75897d;
+    --tape-6: #93a89a;
+    --tape-7: #b3c6bb;
+    --tape-rest: #d3e0d8;
+  }
+
+  html.dark {
+    color-scheme: dark;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --tape-1: #f5f5f6;
+    --tape-2: #dadce1;
+    --tape-3: #bec1c8;
+    --tape-4: #a2a6af;
+    --tape-5: #878b96;
+    --tape-6: #6d717d;
+    --tape-7: #565a66;
+    --tape-rest: #464a55;
+    --color-ink: 255 255 255;
+    --color-brand: 10 10 12;
+    --color-brand-light: 250 250 250;
+    --color-surface: 20 20 23;
+    --color-card: 20 20 23;
+    --color-accent: 255 255 255;
+    --color-accent-2: 212 212 216;
+    --color-border: 38 38 43;
+    --color-border-subtle: 28 28 33;
+    --color-text-primary: 255 255 255;
+    --color-text-secondary: 156 160 168;
+    --color-text-muted: 105 110 121;
+    --color-gain: 52 211 153;
+    --color-gain-bg: 11 32 26;
+    --color-loss: 251 113 133;
+    --color-loss-bg: 37 18 24;
+    --color-warning: 251 191 36;
+    --color-wall-bg: 10 10 12;
+    --color-wall-surface: 20 20 23;
+    --color-wall-elevated: 26 26 31;
+    --body-bg: #0a0a0c;
+    --body-text: #ffffff;
+    --glass-bg: rgba(10, 10, 12, 0.72);
+    --glass-saturation: 1.4;
+    --login-bg: #080b10;
+    --glow-orb: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.06), rgba(255,255,255,0.02) 60%, transparent 75%);
+    --scroll-thumb: #26262b;
+    --scroll-thumb-hover: #696e79;
   }
 
   html {
@@ -33,8 +127,8 @@
   }
 
   body {
-    background-color: #f5f7f4;
-    color: #17211d;
+    background-color: var(--body-bg);
+    color: var(--body-text);
     font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
     /* iPhone safe areas */
     padding-top: env(safe-area-inset-top);
@@ -48,8 +142,8 @@
 
   ::-webkit-scrollbar        { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track  { background: transparent; }
-  ::-webkit-scrollbar-thumb  { background: #26262b; border-radius: 9999px; }
-  ::-webkit-scrollbar-thumb:hover { background: #696e79; }
+  ::-webkit-scrollbar-thumb  { background: var(--scroll-thumb); border-radius: 9999px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); }
 
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
@@ -134,21 +228,34 @@
 }
 
 .login-shell {
-  background: var(--ink);
-  color: #fff;
+  background:
+    radial-gradient(circle at 72% 18%, rgba(52, 211, 153, 0.08), transparent 32%),
+    var(--login-bg);
+  color: #f7faf8;
 }
 .login-grid {
-  background-image: linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+  background-image: linear-gradient(rgba(255,255,255,0.055) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.055) 1px, transparent 1px);
   background-size: 72px 72px;
   mask-image: linear-gradient(to bottom, black, transparent 78%);
 }
 .login-orbit {
-  border: 1px solid rgba(114,230,193,0.12);
+  border: 1px solid rgba(143, 215, 186, 0.2);
   border-radius: 9999px;
   transform: rotate(-22deg);
 }
 .login-orbit-one { width: 720px; height: 280px; left: -120px; top: 47%; }
 .login-orbit-two { width: 520px; height: 200px; left: -20px; top: 52%; opacity: .6; }
+
+html.dark .login-grid {
+  background-image: linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+}
+html.dark .login-shell {
+  background: var(--login-bg);
+  color: #fff;
+}
+html.dark .login-orbit {
+  border-color: rgba(114,230,193,0.12);
+}
 
 @media (max-width: 1023px) {
   .login-orbit-one { left: -260px; top: 44%; }
@@ -157,15 +264,15 @@
 
 @layer utilities {
   /* Portfolio surfaces use a paper-and-ink system; normalize legacy dark utility classes locally. */
-  .portfolio-shell { background: #f5f7f4 !important; color: #17211d !important; }
-  .portfolio-shell [class~="bg-wall-surface"],
-  .portfolio-shell [class~="bg-wall-elevated"] { background-color: #ffffff !important; }
-  .portfolio-shell [class*="text-white"] { color: #17211d !important; }
-  .portfolio-shell [class*="text-white/"] { color: #5c6b63 !important; }
-  .portfolio-shell [class*="border-white/"] { border-color: #dfe6e1 !important; }
-  .portfolio-shell [class*="bg-white/"] { background-color: #edf3ee !important; }
-  .portfolio-shell .bg-gradient-accent { background-image: linear-gradient(90deg, #216b50, #8bb79e) !important; }
-  .portfolio-shell .text-gradient { background: none; color: #17211d; }
+  html:not(.dark) .portfolio-shell { background: #f5f7f4 !important; color: #17211d !important; }
+  html:not(.dark) .portfolio-shell [class~="bg-wall-surface"],
+  html:not(.dark) .portfolio-shell [class~="bg-wall-elevated"] { background-color: #ffffff !important; }
+  html:not(.dark) .portfolio-shell [class*="text-white"] { color: #17211d !important; }
+  html:not(.dark) .portfolio-shell [class*="text-white/"] { color: #5c6b63 !important; }
+  html:not(.dark) .portfolio-shell [class*="border-white/"] { border-color: #dfe6e1 !important; }
+  html:not(.dark) .portfolio-shell [class*="bg-white/"] { background-color: #edf3ee !important; }
+  html:not(.dark) .portfolio-shell .bg-gradient-accent { background-image: linear-gradient(90deg, #216b50, #8bb79e) !important; }
+  html:not(.dark) .portfolio-shell .text-gradient { background: none; color: #17211d; }
 
   .tabular {
     font-variant-numeric: tabular-nums;
@@ -173,14 +280,14 @@
   }
 
   .glass {
-    background-color: rgba(255, 255, 255, 0.92);
-    backdrop-filter: blur(16px) saturate(1.1);
-    -webkit-backdrop-filter: blur(16px) saturate(1.1);
+    background-color: var(--glass-bg);
+    backdrop-filter: blur(16px) saturate(var(--glass-saturation));
+    -webkit-backdrop-filter: blur(16px) saturate(var(--glass-saturation));
   }
 
   /* Subtle metallic text for hero phrases and key labels (monochrome) */
   .text-gradient {
-    background: linear-gradient(120deg, #fafafa 0%, #a1a1aa 100%);
+    background: var(--text-gradient);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
@@ -191,7 +298,7 @@
     pointer-events: none;
     border-radius: 9999px;
     filter: blur(140px);
-    background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.06), rgba(255,255,255,0.02) 60%, transparent 75%);
+    background: var(--glow-orb);
   }
 
   .scrollbar-none {

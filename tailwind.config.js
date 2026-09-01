@@ -1,7 +1,10 @@
 /** @type {import('tailwindcss').Config} */
 // Modern dark fintech theme (Revolut/Linear style): true near-black neutrals,
 // glassy surfaces, electric indigo→violet gradient accents.
+const themeColor = (name) => `rgb(var(${name}) / <alpha-value>)`
+
 export default {
+  darkMode: 'class',
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
@@ -15,33 +18,34 @@ export default {
       },
       colors: {
         // Quiet brokerage palette: paper, ink, sage, and restrained semantic color
-        brand:           '#f5f7f4',
-        'brand-light':   '#ffffff',
-        surface:         '#ffffff',
-        card:            '#ffffff',
-        accent:          '#216b50',
-        'accent-2':      '#d8e6dd',
+        ink:             themeColor('--color-ink'),
+        brand:           themeColor('--color-brand'),
+        'brand-light':   themeColor('--color-brand-light'),
+        surface:         themeColor('--color-surface'),
+        card:            themeColor('--color-card'),
+        accent:          themeColor('--color-accent'),
+        'accent-2':      themeColor('--color-accent-2'),
 
         // Borders
-        border:          '#dfe6e1',
-        'border-subtle': '#e9eeea',
+        border:          themeColor('--color-border'),
+        'border-subtle': themeColor('--color-border-subtle'),
 
         // Text
-        'text-primary':   '#17211d',
-        'text-secondary': '#5c6b63',
-        'text-muted':     '#829087',
+        'text-primary':   themeColor('--color-text-primary'),
+        'text-secondary': themeColor('--color-text-secondary'),
+        'text-muted':     themeColor('--color-text-muted'),
 
         // Semantic
-        gain:      '#34d399',
-'gain-bg': '#e5f1eb',
-        loss:          '#b84c49',
-        'loss-bg':     '#f7e9e7',
-        warning:       '#9b6b18',
+        gain:          themeColor('--color-gain'),
+        'gain-bg':     themeColor('--color-gain-bg'),
+        loss:          themeColor('--color-loss'),
+        'loss-bg':     themeColor('--color-loss-bg'),
+        warning:       themeColor('--color-warning'),
 
         // Paper surfaces
-        'wall-bg':       '#f5f7f4',
-        'wall-surface':  '#ffffff',
-        'wall-elevated': '#edf3ee',
+        'wall-bg':       themeColor('--color-wall-bg'),
+        'wall-surface':  themeColor('--color-wall-surface'),
+        'wall-elevated': themeColor('--color-wall-elevated'),
       },
       borderRadius: {
         card: '20px',

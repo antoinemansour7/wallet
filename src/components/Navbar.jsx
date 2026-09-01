@@ -2,11 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
-export function Logo({ size = 30, withWordmark = true }) {
+export function Logo({ size = 30, withWordmark = true, inverted = false }) {
   return (
     <span className="flex items-center gap-2.5">
       <span
-        className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-[11px] bg-gradient-accent text-ink shadow-[0_8px_24px_rgba(52,211,153,0.16)]"
+        className={`relative flex shrink-0 items-center justify-center overflow-hidden rounded-[11px] ${
+          inverted
+            ? 'border border-[#bfd8c9] bg-[#dcebe2] text-[#17211d] shadow-[0_8px_24px_rgba(0,0,0,0.18)] dark:border-transparent dark:bg-gradient-accent dark:text-brand'
+            : 'bg-gradient-accent text-ink shadow-[0_8px_24px_rgba(52,211,153,0.16)] dark:text-brand'
+        }`}
         style={{ width: size, height: size }}
         aria-hidden="true"
       >
@@ -15,7 +19,7 @@ export function Logo({ size = 30, withWordmark = true }) {
         </svg>
       </span>
       {withWordmark && (
-        <span className="text-[15px] font-semibold tracking-[-0.02em] text-ink">
+        <span className={`text-[15px] font-semibold tracking-[-0.02em] ${inverted ? 'text-white' : 'text-ink'}`}>
           Wall<span className="text-gradient">AI</span>
         </span>
       )}
@@ -29,6 +33,42 @@ const NAV_ITEMS = [
   { to: '/history', label: 'History', icon: HistoryIcon },
 ]
 
+const THEME_STORAGE_KEY = 'wallai-theme'
+
+function applyTheme(isDark) {
+  document.documentElement.classList.toggle('dark', isDark)
+  document.documentElement.style.colorScheme = isDark ? 'dark' : 'light'
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', isDark ? '#0a0a0c' : '#f5f7f4')
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, isDark ? 'dark' : 'light')
+  } catch {
+    // The theme still works for this session when browser storage is disabled.
+  }
+}
+
+function ThemeToggle() {
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'))
+
+  const toggleTheme = () => {
+    const nextTheme = !isDark
+    applyTheme(nextTheme)
+    setIsDark(nextTheme)
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={toggleTheme}
+      aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+      aria-pressed={isDark}
+      title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+      className="flex size-9 shrink-0 items-center justify-center rounded-full border border-ink/[0.08] text-ink/55 transition-colors duration-150 hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
+    >
+      {isDark ? <SunIcon /> : <MoonIcon />}
+    </button>
+  )
+}
+
 function Avatar({ user, size = 32 }) {
   if (user?.photoURL) {
     return <img src={user.photoURL} alt="" style={{ width: size, height: size }} className="shrink-0 rounded-full ring-1 ring-ink/10" />
@@ -36,7 +76,7 @@ function Avatar({ user, size = 32 }) {
   return (
     <div
       style={{ width: size, height: size, fontSize: size * 0.38 }}
-      className="flex shrink-0 items-center justify-center rounded-full bg-accent font-semibold text-surface shadow-[0_2px_8px_rgba(33,107,80,0.18)]"
+      className="flex shrink-0 items-center justify-center rounded-full bg-accent font-semibold text-surface shadow-[0_2px_8px_rgba(33,107,80,0.18)] dark:bg-gradient-accent dark:text-brand dark:shadow-none"
     >
       {user?.displayName?.[0] ?? '?'}
     </div>
@@ -142,7 +182,7 @@ export default function Navbar() {
                 className={({ isActive }) =>
                   `relative rounded-lg px-3.5 py-2 text-[13.5px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30 ${
                     isActive
-                      ? 'bg-accent/[0.12] text-ink'
+                      ? 'bg-accent/[0.12] text-ink dark:bg-white/[0.08] dark:text-white'
                       : 'text-ink/50 hover:bg-ink/[0.04] hover:text-ink/90'
                   }`
                 }
@@ -150,14 +190,15 @@ export default function Navbar() {
                 {({ isActive }) => (
                   <>
                     {label}
-                    {isActive && <span aria-hidden="true" className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-accent" />}
+                    {isActive && <span aria-hidden="true" className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-accent dark:hidden" />}
                   </>
                 )}
               </NavLink>
             ))}
           </nav>
 
-          <div className="ml-auto flex shrink-0 items-center">
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            {user && <ThemeToggle />}
             {user && <AccountMenu user={user} onSignOut={signOut} />}
           </div>
         </div>
@@ -224,6 +265,23 @@ function SignOutIcon() {
       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
       <polyline points="16 17 21 12 16 7" />
       <line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
+  )
+}
+
+function MoonIcon() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z" />
+    </svg>
+  )
+}
+
+function SunIcon() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41" />
     </svg>
   )
 }

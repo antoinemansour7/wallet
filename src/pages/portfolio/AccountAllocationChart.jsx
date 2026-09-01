@@ -11,12 +11,12 @@ export default function AccountAllocationChart({ accounts, large = false }) {
     <ChartPanel title="Allocation by Account" meta={fmtCurrency(total)} large={large}>
       {items.length === 0 ? <EmptyChart /> : (
         <>
-          <div className="mb-5 flex h-2.5 overflow-hidden rounded-full bg-white/[0.06]">
+          <div className="mb-5 flex h-2.5 gap-0.5 overflow-hidden rounded-full bg-ink/[0.07]">
             {items.map((item) => (
               <div
                 key={item.account}
-                style={{ width: `${pct(item.value, total)}%`, background: `linear-gradient(90deg, ${item.gradient[0]}, ${item.gradient[1]})` }}
-                className="h-full transition-all duration-700"
+                style={{ width: `${pct(item.value, total)}%`, backgroundColor: item.color }}
+                className="h-full rounded-full transition-all duration-700"
                 title={`Account ${item.account}: ${fmtCurrency(item.value)}`}
               />
             ))}

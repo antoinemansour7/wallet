@@ -6,7 +6,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="theme-color" content="#0f1113" />
+    <meta name="theme-color" content="#f5f7f4" />
+    <script>
+      try {
+        if (localStorage.getItem('wallai-theme') === 'dark') {
+          document.documentElement.classList.add('dark')
+          document.documentElement.style.colorScheme = 'dark'
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0a0a0c')
+        }
+      } catch (_) {
+        // Storage can be unavailable in hardened browsing modes; light remains the default.
+      }
+    </script>
     <title>WallAI — Portfolio Tracker</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
