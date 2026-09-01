@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { parseSpreadsheet } from '../utils/parseSpreadsheet'
 import { enrichRowsWithLivePrices } from '../utils/livePrices'
-import { loadLocalPortfolio, loadSavedPortfolioWithTimeout, savePortfolio } from '../utils/portfolioStorage'
+import { clearPortfolio, loadLocalPortfolio, loadSavedPortfolioWithTimeout, savePortfolio } from '../utils/portfolioStorage'
 import { recordIntradayPoint, saveDailySnapshot } from '../utils/portfolioHistory'
 import { useAuth } from '../context/AuthContext'
 import Reveal from '../components/Reveal'
 import { buildAccountPortfolio, flattenAccountRows, getAccountEntries, hasAccountPortfolio } from '../utils/accountPortfolio'
-import { applyMerge, previewMerge, sourceIdFor } from '../utils/accountMerge'
+import { applyMerge, previewMerge, removeSource, sourceIdFor } from '../utils/accountMerge'
 import { computeStats } from '../utils/portfolioStats'
 import { AUTO_PRICE_REFRESH_MS } from './portfolio/constants'
 import TabNav from './portfolio/TabNav'
@@ -21,6 +21,7 @@ import ChartPanel from './portfolio/ChartPanel'
 import { IS_PREVIEW, previewPlaidHoldings } from '../preview/mockMode'
 import HoldingsView from './portfolio/HoldingsView'
 import AccountsView from './portfolio/AccountsView'
+import AccountDetailModal from './portfolio/AccountDetailModal'
 import AddAccountModal from './portfolio/AddAccountModal'
 import EmptyState from './portfolio/EmptyState'
 import TradeView from './portfolio/TradeView'
@@ -238,6 +239,8 @@ export default function Portfolio() {
   // Accounts Plaid returned, awaiting the user's pick. Held separately from
   // `pending` because nothing has been fetched yet — this is the step before.
   const [discovered, setDiscovered] = useState(null)
+  const [openAccount, setOpenAccount] = useState(null)
+  const [removing, setRemoving] = useState(false)
   const [preview, setPreview] = useState(null)
   const [merging, setMerging] = useState(false)
 
@@ -332,6 +335,54 @@ export default function Portfolio() {
     setLoading(true)
     setLoadingMsg('Connecting to your brokerage…')
   }, [])
+
+  // Removing the last feed empties the portfolio, and empty has to be written
+  // rather than left to the autosave: that effect is gated on hasData, so the
+  // cleared state would never reach storage and the next load would restore
+  // everything just removed.
+  const handleRemoveSource = useCallback(async (accountNumber, sourceId) => {
+    if (!uid) return
+    setRemoving(true)
+    setError('')
+    try {
+      if (String(sourceId).startsWith('plaid:') && !IS_PREVIEW) {
+        // Best effort: a live Plaid item should stop syncing, but a failure
+        // here must not block removing the holdings the person asked to remove.
+        try {
+          await fetch('/api/plaid', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'disconnect', userId: uid, itemId: sourceId.slice('plaid:'.length) }),
+          })
+        } catch (err) {
+          console.warn('[portfolio] Plaid disconnect failed:', err.message)
+        }
+      }
+
+      const nextAccounts = removeSource({ accounts, accountNumber, sourceId })
+      const nextRows = flattenAccountRows(nextAccounts)
+      const emptied = nextRows.length === 0
+
+      setAccounts(nextAccounts)
+      setRows(nextRows)
+
+      if (emptied) {
+        setFileName('')
+        setOpenAccount(null)
+        setActiveView('accounts')
+        await clearPortfolio(uid)
+        return
+      }
+
+      const stillOpen = nextAccounts[accountNumber]
+      setOpenAccount(stillOpen ? { ...stillOpen, stats: undefined } : null)
+      await savePortfolio(uid, { fileName, rows: nextRows, accounts: nextAccounts, lastPriceRefreshAt: lastUpdatedAt })
+    } catch (err) {
+      setError(err.message || 'Could not remove that import')
+    } finally {
+      setRemoving(false)
+    }
+  }, [accounts, fileName, lastUpdatedAt, uid])
 
   const handlePlaidError = useCallback((err) => {
     setLoading(false)
@@ -442,7 +493,11 @@ export default function Portfolio() {
           <TradeView rows={rows} />
         )}
         {visibleView === 'add' && (
-          <AccountsView accounts={accountEntries} onAdd={openAdd} />
+          <AccountsView
+            accounts={accountEntries}
+            onAdd={openAdd}
+            onOpenAccount={(account) => setOpenAccount(account)}
+          />
         )}      </div>
 
       <AddAccountModal
@@ -470,6 +525,14 @@ export default function Portfolio() {
         onChooseDestination={handleChooseDestination}
         onConfirm={handleConfirmMerge}
         onCancel={handleCancelMerge}
+      />
+
+      <AccountDetailModal
+        open={Boolean(openAccount)}
+        account={openAccount ? (accountEntries.find((a) => a.accountNumber === openAccount.accountNumber) ?? null) : null}
+        busy={removing}
+        onClose={() => setOpenAccount(null)}
+        onRemoveSource={handleRemoveSource}
       />
     </div>
   )

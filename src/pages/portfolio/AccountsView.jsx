@@ -25,7 +25,7 @@ function AddButton({ onClick, primary }) {
   )
 }
 
-export default function AccountsView({ accounts = [], onAdd }) {
+export default function AccountsView({ accounts = [], onAdd, onOpenAccount }) {
   if (accounts.length === 0) {
     return (
       <div className="mx-auto flex max-w-[420px] flex-col items-center py-24 text-center">
@@ -55,7 +55,12 @@ export default function AccountsView({ accounts = [], onAdd }) {
             .slice(0, 5)
 
           return (
-            <div key={account.accountNumber} className="rounded-2xl border border-white/[0.06] bg-wall-surface px-5 py-4">
+            <button
+              key={account.accountNumber}
+              type="button"
+              onClick={() => onOpenAccount?.(account)}
+              className="block w-full rounded-2xl border border-ink/[0.07] bg-wall-surface px-5 py-4 text-left transition-colors duration-150 hover:border-ink/[0.14] hover:bg-ink/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/25"
+            >
               <div className="flex items-baseline justify-between gap-4">
                 <div className="min-w-0">
                   <p className="truncate text-[14.5px] font-semibold text-white">{account.accountNumber}</p>
@@ -63,9 +68,15 @@ export default function AccountsView({ accounts = [], onAdd }) {
                     {feeds.map((f) => sourceLabel(f.id)).join(' · ') || 'no statements yet'}
                   </p>
                 </div>
-                <p className="shrink-0 text-[15px] font-semibold tabular text-white">
-                  {fmtCurrency(account.stats?.totalMarketValue ?? 0)}
-                </p>
+                <span className="flex shrink-0 items-center gap-2">
+                  <span className="text-[15px] font-semibold tabular text-white">
+                    {fmtCurrency(account.stats?.totalMarketValue ?? 0)}
+                  </span>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
+                    strokeLinecap="round" strokeLinejoin="round" className="text-ink/25">
+                    <path d="M9 18l6-6-6-6" />
+                  </svg>
+                </span>
               </div>
 
               {/* A glance at what is inside, so the row is worth looking at. */}
@@ -82,7 +93,7 @@ export default function AccountsView({ accounts = [], onAdd }) {
                   {account.cash !== 0 && ` · ${fmtCurrency(account.cash)} cash`}
                 </span>
               </div>
-            </div>
+            </button>
           )
         })}
       </div>

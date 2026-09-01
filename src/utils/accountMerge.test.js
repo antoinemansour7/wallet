@@ -9,6 +9,8 @@ import {
   applyMerge,
   accountSources,
   sourceLabel,
+  removeSource,
+  allSources,
 } from './accountMerge'
 import { buildAccountPortfolio, flattenAccountRows, getAccountEntries } from './accountPortfolio'
 
@@ -227,5 +229,62 @@ describe('source tags survive the price-refresh path', () => {
     const rebuilt = buildAccountPortfolio({ rows: flat, previousAccounts: accounts })
     expect(rebuilt.T1.cash).toBe(0)
     expect(rebuilt.T1.realizedPnl).toBe(0)
+  })
+})
+
+describe('removing a source', () => {
+  const twoFeeds = () => ({
+    A1: account('A1', [
+      ...tagPositions([row('AAA', 1, 100), row('BBB', 1, 200)], 'file:one'),
+      ...tagPositions([row('CCC', 1, 300)], 'plaid:ws'),
+    ], { cash: 500, cashSource: 'explicit' }),
+    A2: account('A2', tagPositions([row('DDD', 1, 50)], 'file:two')),
+  })
+
+  it('drops only the positions that came from that feed', () => {
+    const next = removeSource({ accounts: twoFeeds(), accountNumber: 'A1', sourceId: 'file:one' })
+    expect(next.A1.positions).toHaveLength(1)
+    expect(next.A1.positions[0].SYMBOL).toBe('CCC')
+    expect(Object.keys(next)).toHaveLength(2)
+  })
+
+  it('keeps the account cash while any feed remains', () => {
+    const next = removeSource({ accounts: twoFeeds(), accountNumber: 'A1', sourceId: 'file:one' })
+    expect(next.A1.cash).toBe(500)
+  })
+
+  // An empty shell would show a row in the accounts list holding nothing, which
+  // cannot be filled again except by importing into it.
+  it('removes the account when its last feed goes', () => {
+    let next = removeSource({ accounts: twoFeeds(), accountNumber: 'A1', sourceId: 'file:one' })
+    next = removeSource({ accounts: next, accountNumber: 'A1', sourceId: 'plaid:ws' })
+    expect(next.A1).toBeUndefined()
+    expect(Object.keys(next)).toEqual(['A2'])
+  })
+
+  it('empties completely once every feed is gone', () => {
+    let next = removeSource({ accounts: twoFeeds(), accountNumber: 'A1', sourceId: 'file:one' })
+    next = removeSource({ accounts: next, accountNumber: 'A1', sourceId: 'plaid:ws' })
+    next = removeSource({ accounts: next, accountNumber: 'A2', sourceId: 'file:two' })
+    expect(next).toEqual({})
+    expect(flattenAccountRows(next)).toHaveLength(0)
+  })
+
+  it('is a no-op for an account or source that is not there', () => {
+    const accounts = twoFeeds()
+    expect(Object.keys(removeSource({ accounts, accountNumber: 'NOPE', sourceId: 'file:one' }))).toHaveLength(2)
+    expect(removeSource({ accounts, accountNumber: 'A1', sourceId: 'file:absent' }).A1.positions).toHaveLength(3)
+  })
+
+  it('does not mutate the accounts it was given', () => {
+    const accounts = twoFeeds()
+    removeSource({ accounts, accountNumber: 'A1', sourceId: 'file:one' })
+    expect(accounts.A1.positions).toHaveLength(3)
+  })
+
+  it('lists every feed across every account', () => {
+    expect(allSources(twoFeeds()).map((s) => `${s.accountNumber}:${s.id}`)).toEqual([
+      'A1:file:one', 'A1:plaid:ws', 'A2:file:two',
+    ])
   })
 })

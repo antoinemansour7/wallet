@@ -1,4 +1,4 @@
-import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore'
+import { deleteDoc, doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import {
   buildAccountPortfolio,
@@ -90,6 +90,30 @@ export function saveLocalPortfolio(uid, portfolio) {
   } catch {
     // Local storage can be unavailable in private browsing or quota pressure.
   }
+}
+
+/**
+ * Empty the portfolio, both copies.
+ *
+ * savePortfolio deliberately refuses to write an empty payload — that guard is
+ * what stops a failed parse wiping a good portfolio — so clearing cannot go
+ * through it. Removing the last account is the one case where empty is the
+ * intended state, and it has to survive a reload: leave the local copy behind
+ * and the next load restores everything the person just removed.
+ */
+export async function clearPortfolio(uid) {
+  if (IS_PREVIEW) return
+  if (!uid) return
+
+  if (typeof window !== 'undefined') {
+    try {
+      window.localStorage.removeItem(localStorageKey(uid))
+    } catch {
+      // Private browsing; the remote delete below is still worth attempting.
+    }
+  }
+
+  await deleteDoc(portfolioDoc(uid))
 }
 
 export async function loadSavedPortfolio(uid) {

@@ -146,6 +146,40 @@ export function applyMerge({ accounts = {}, accountNumber, sourceId, rows = [], 
   return merged
 }
 
+/**
+ * Drop one feed from one account.
+ *
+ * An account whose last feed is removed has nothing left to describe it, so it
+ * goes too — keeping an empty shell around means the accounts list shows a row
+ * that holds nothing and cannot be filled except by importing into it again.
+ * Cash is a property of the statement that reported it, so it leaves with the
+ * last feed rather than lingering as a balance nothing accounts for.
+ */
+export function removeSource({ accounts = {}, accountNumber, sourceId }) {
+  const existing = normalizeStoredAccounts(accounts)
+  const target = existing[accountNumber]
+  if (!target) return existing
+
+  const kept = (target.positions ?? []).filter((p) => positionSource(p) !== sourceId)
+  const next = { ...existing }
+
+  if (kept.length === 0) {
+    delete next[accountNumber]
+    return next
+  }
+
+  next[accountNumber] = { ...target, positions: kept }
+  return next
+}
+
+/** Every feed across every account, for "remove all" and for counting. */
+export function allSources(accounts = {}) {
+  const existing = normalizeStoredAccounts(accounts)
+  return Object.values(existing).flatMap((account) => (
+    accountSources(account).map((source) => ({ ...source, accountNumber: account.accountNumber }))
+  ))
+}
+
 /** Feeds already loaded into an account, for showing what it is made of. */
 export function accountSources(account) {
   const counts = new Map()
