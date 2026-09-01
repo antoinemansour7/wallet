@@ -10,14 +10,14 @@ import { applyMerge, previewMerge, sourceIdFor } from '../utils/accountMerge'
 import { computeStats } from '../utils/portfolioStats'
 import { AUTO_PRICE_REFRESH_MS } from './portfolio/constants'
 import TabNav from './portfolio/TabNav'
-import KpiGrid from './portfolio/KpiGrid'
+import StatRail from './portfolio/StatRail'
 import LiveBanner from './portfolio/LiveBanner'
-import AccountAllocationChart from './portfolio/AccountAllocationChart'
-import TopPositionsChart from './portfolio/TopPositionsChart'
+import CompositionPanel from './portfolio/CompositionPanel'
 import ValueVsBookChart from './portfolio/ValueVsBookChart'
 import PnlBreakdownChart from './portfolio/PnlBreakdownChart'
 import PerformanceChart from './portfolio/PerformanceChart'
 import AllocationDonut from './portfolio/AllocationDonut'
+import ChartPanel from './portfolio/ChartPanel'
 import HoldingsView from './portfolio/HoldingsView'
 import AccountsView from './portfolio/AccountsView'
 import AddAccountModal from './portfolio/AddAccountModal'
@@ -356,11 +356,8 @@ export default function Portfolio() {
             <Reveal>
               <PerformanceChart hero stats={stats} rows={rows} />
             </Reveal>
-            <KpiGrid rows={rows} stats={stats} accounts={accountEntries} onCashOverride={handleCashOverride} />
-            <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-              <Reveal><TopPositionsChart rows={rows} /></Reveal>
-              <Reveal delay={80}><AccountAllocationChart accounts={accountEntries} /></Reveal>
-            </div>
+            <StatRail rows={rows} stats={stats} accounts={accountEntries} onCashOverride={handleCashOverride} />
+            <Reveal><CompositionPanel rows={rows} accounts={accountEntries} /></Reveal>
           </>
         )}
         {visibleView === 'overview' && !stats && <EmptyState onUploadClick={() => openAdd()} />}
@@ -368,10 +365,16 @@ export default function Portfolio() {
         {visibleView === 'charts' && stats && (
           <>
             <LiveBanner liveStatus={liveStatus} liveMessage={liveMessage} lastUpdatedAt={lastUpdatedAt} />
-            <Reveal><AllocationDonut rows={rows} stats={stats} /></Reveal>
-            <div className="mt-8 grid gap-4 lg:grid-cols-2">
-              <Reveal><ValueVsBookChart stats={stats} /></Reveal>
-              <Reveal delay={80}><PnlBreakdownChart rows={rows} /></Reveal>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
+              <Reveal>
+                <ChartPanel title="Allocation" meta={`${accountEntries.length} account${accountEntries.length === 1 ? '' : 's'}`} className="h-full">
+                  <AllocationDonut rows={rows} stats={stats} />
+                </ChartPanel>
+              </Reveal>
+              <div className="flex flex-col gap-4">
+                <Reveal delay={80}><ValueVsBookChart stats={stats} /></Reveal>
+                <Reveal delay={160}><PnlBreakdownChart rows={rows} /></Reveal>
+              </div>
             </div>
           </>
         )}

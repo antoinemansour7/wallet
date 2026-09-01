@@ -83,15 +83,10 @@ export function aggregatePositionsBySymbol(rows) {
 }
 
 export function getAccountBreakdown(accounts) {
-  const CHART_COLORS = ['#1c1c1c', '#3f3f46', '#52525b', '#71717a', '#a1a1aa', '#d4d4d8']
-  const CHART_GRADIENTS = [
-    ['#1c1c1c', '#3f3f46'],
-    ['#3f3f46', '#52525b'],
-    ['#52525b', '#71717a'],
-    ['#71717a', '#a1a1aa'],
-    ['#a1a1aa', '#d4d4d8'],
-    ['#1c1c1c', '#52525b'],
-  ]
+  // Fixed order, never cycled past its length — a seventh account repeats a
+  // hue rather than inventing one, which is the documented behaviour.
+  const SERIES = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)',
+    'var(--series-4)', 'var(--series-5)', 'var(--series-6)']
   return accounts
     .map((account, index) => ({
       account: account.accountNumber,
@@ -99,8 +94,7 @@ export function getAccountBreakdown(accounts) {
       cash: account.cash,
       cashSource: account.cashSource,
       value: account.stats.totalMarketValue,
-      color: CHART_COLORS[index % CHART_COLORS.length],
-      gradient: CHART_GRADIENTS[index % CHART_GRADIENTS.length],
+      color: SERIES[index % SERIES.length],
     }))
     .filter((item) => item.value > 0 || item.cash !== 0)
 }
@@ -118,4 +112,51 @@ export function getPnlBuckets(rows) {
     else            { buckets[2].count += 1 }
   }
   return buckets
+}
+
+// Ranked by size, so the ramp is sequential rather than categorical — a
+// rainbow here would claim the slices are unrelated identities when what the
+// bar actually shows is one book cut from largest to smallest.
+const TAPE_COLORS = [
+  'var(--tape-1)', 'var(--tape-2)', 'var(--tape-3)', 'var(--tape-4)',
+  'var(--tape-5)', 'var(--tape-6)', 'var(--tape-7)',
+]
+
+/**
+ * The whole book as one ordered strip: the `limit` largest holdings, then
+ * everything else folded into a single "Rest" segment. Tail positions are each
+ * a sliver too thin to label, and a dozen 0.4% shards is not a picture of
+ * anything.
+ */
+export function getCompositionSegments(rows, limit = 7) {
+  const all = aggregatePositionsBySymbol(rows)
+    .filter((item) => item.value > 0)
+    .sort((a, b) => b.value - a.value)
+
+  const total = all.reduce((sum, item) => sum + item.value, 0)
+  const shown = all.slice(0, limit)
+  const rest = all.slice(limit)
+
+  const segments = shown.map((item, index) => ({
+    ...item,
+    share: pct(item.value, total),
+    color: TAPE_COLORS[Math.min(index, TAPE_COLORS.length - 1)],
+  }))
+
+  if (rest.length > 0) {
+    const value = rest.reduce((sum, item) => sum + item.value, 0)
+    segments.push({
+      index: -1,
+      symbol: 'Rest',
+      description: `${rest.length} smaller holding${rest.length === 1 ? '' : 's'}`,
+      count: rest.length,
+      value,
+      pnl: rest.reduce((sum, item) => sum + item.pnl, 0),
+      share: pct(value, total),
+      color: 'var(--tape-rest)',
+      isRest: true,
+    })
+  }
+
+  return { segments, total, holdingCount: all.length }
 }
