@@ -177,6 +177,44 @@ async function handleSelectAccounts(req, res) {
 
 // ─── Holdings ─────────────────────────────────────────────────────────────────
 
+/**
+ * Whether a security is a Canadian Depositary Receipt, decided from what the
+ * institution reports rather than from how it worded the name.
+ *
+ * This matters more than it looks. A CDR quoted against its US underlying is
+ * priced several times too high — NVDA's receipt trades near a quarter of the
+ * US share — and the error compounds, because a CDR mistaken for a US holding
+ * also gets the exchange rate applied on top. Downstream this used to be
+ * decided by searching the description for the word "CDR", which is a
+ * statement's convention and not something Plaid promises.
+ *
+ * Three independent signals, any one of which settles it:
+ *   · the ticker already carries the Cboe Canada suffix
+ *   · the security trades on a Canadian venue in CAD
+ *   · the name says so, which is the statement convention and the last resort
+ */
+function isCdrSecurity(security) {
+  const ticker = String(security?.ticker_symbol || '').toUpperCase()
+  if (ticker.endsWith('.NE')) return true
+
+  const currency = String(security?.iso_currency_code || '').toUpperCase()
+  const mic = String(security?.market_identifier_code || '').toUpperCase()
+  // NEOE is Cboe Canada, where every CDR is listed.
+  if (currency === 'CAD' && mic === 'NEOE') return true
+
+  return /\bCDR\b/i.test(String(security?.name || ''))
+}
+
+/**
+ * The symbol to price this security by. A CDR reported without its exchange
+ * suffix would otherwise resolve to the US listing of the same ticker.
+ */
+function tickerFor(security) {
+  const ticker = String(security?.ticker_symbol || security?.name || 'UNKNOWN')
+  if (!isCdrSecurity(security)) return ticker
+  return ticker.includes('.') ? ticker : `${ticker}.NE`
+}
+
 /** What the account itself is denominated in. Defaults Canadian, like the app. */
 function accountBaseCurrency(account) {
   return String(
@@ -290,7 +328,7 @@ async function handleHoldings(req, res) {
           continue
         }
 
-        const ticker = security.ticker_symbol || security.name || 'UNKNOWN'
+        const ticker = tickerFor(security)
         const quantity = holding.quantity || 0
         // What the security trades in, which is not what the account is
         // denominated in: a Canadian account holding RKLB reports a USD price
@@ -322,6 +360,9 @@ async function handleHoldings(req, res) {
         allRows.push({
           'SYMBOL': ticker,
           'DESCRIPTION': security.name || ticker,
+          // Settled here from what the institution reports, because the name it
+          // gives a CDR need not contain the word.
+          '__isCdr': isCdrSecurity(security),
           'QUANTITY': quantity,
           'MARKET PRICE': price,
           'MARKET VALUE': marketValue,

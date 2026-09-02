@@ -3,7 +3,7 @@ import {
   previewMerge, applyMerge, removeAccount, plaidItemIdFor, PLAID_ITEM_KEY,
 } from './accountMerge'
 import { buildAccountPortfolio } from './accountPortfolio'
-import { applyLivePrices, inferRowCurrency } from './livePrices'
+import { applyLivePrices, inferRowCurrency, CDR_KEY } from './livePrices'
 import { parseNum } from './portfolioStats'
 
 // Three defects reported from a real Plaid import on 2026-09-01: holdings
@@ -244,6 +244,74 @@ describe('Plaid import', () => {
     it('says nothing without a stored price or a rate', () => {
       expect(inferRowCurrency({}, quote, 1.37)).toBe('')
       expect(inferRowCurrency({ 'MARKET PRICE': 62.54 }, quote, null)).toBe('')
+    })
+  })
+
+  describe('a CDR whose name never says "CDR"', () => {
+    // Plaid sets DESCRIPTION from security.name, and an institution is free to
+    // call NVDA's receipt "NVIDIA Corporation". The flag decides the ticker to
+    // quote, whether to convert currency, and whether the quote is plausible —
+    // so missing it priced a ~$48 CAD holding against a ~$180 USD share and
+    // then applied the exchange rate on top.
+    const receipt = {
+      SYMBOL: 'NVDA.NE',
+      DESCRIPTION: 'NVIDIA Corporation',
+      QUANTITY: 4.91,
+      'MARKET PRICE': 48.47,
+      'BOOK VALUE': 246,
+      'ACCOUNT CURRENCY': 'CAD',
+      [CDR_KEY]: true,
+    }
+
+    it('takes the Canadian quote without converting it', () => {
+      const { rows } = applyLivePrices([receipt], [{ symbol: 'NVDA.NE', price: 50.1, currency: 'CAD' }], 1.39)
+      expect(parseNum(rows[0]['MARKET PRICE'])).toBeCloseTo(50.1, 2)
+    })
+
+    it('refuses a US quote for it, whatever the description says', () => {
+      const { rows, updatedRows } = applyLivePrices([receipt], [{ symbol: 'NVDA.NE', price: 181.2, currency: 'USD' }], 1.39)
+      expect(updatedRows).toBe(0)
+      expect(parseNum(rows[0]['MARKET PRICE'])).toBeCloseTo(48.47, 2)
+    })
+
+    it('still trusts the description when no flag was recorded', () => {
+      const fromStatement = { ...receipt, DESCRIPTION: 'NVIDIA CORP CDR', [CDR_KEY]: undefined }
+      const { rows } = applyLivePrices([fromStatement], [{ symbol: 'NVDA.NE', price: 50.1, currency: 'CAD' }], 1.39)
+      expect(parseNum(rows[0]['MARKET PRICE'])).toBeCloseTo(50.1, 2)
+    })
+
+    it('believes a flag that says this is not a CDR, over a name that says it is', () => {
+      // The structured answer wins. A fund with "CDR" in its name is otherwise
+      // barred from ever taking a US quote.
+      const notAReceipt = {
+        SYMBOL: 'XCDR', DESCRIPTION: 'Some CDR Strategy Fund', QUANTITY: 10,
+        'MARKET PRICE': 20, 'ACCOUNT CURRENCY': 'USD', [CDR_KEY]: false,
+      }
+      const { updatedRows } = applyLivePrices([notAReceipt], [{ symbol: 'XCDR', price: 21, currency: 'USD' }], 1.39)
+      expect(updatedRows).toBe(1)
+    })
+  })
+
+  describe('a quote nowhere near the price the row arrived with', () => {
+    const row = { SYMBOL: 'ORAC', DESCRIPTION: 'Oracle', QUANTITY: 580, 'MARKET PRICE': 6.98 }
+
+    it('is rejected, and the imported value stands', () => {
+      // Matching the wrong listing is the likeliest cause of a gap this size,
+      // and a visibly stale row beats a confidently wrong one.
+      const { rows, updatedRows } = applyLivePrices([row], [{ symbol: 'ORAC', price: 142.5, currency: 'USD' }], null)
+      expect(updatedRows).toBe(0)
+      expect(parseNum(rows[0]['MARKET PRICE'])).toBeCloseTo(6.98, 2)
+    })
+
+    it('does not stand in the way of an ordinary move', () => {
+      const { updatedRows } = applyLivePrices([row], [{ symbol: 'ORAC', price: 8.4, currency: 'USD' }], null)
+      expect(updatedRows).toBe(1)
+    })
+
+    it('is not applied to a row that arrived without a price', () => {
+      const priceless = { ...row, 'MARKET PRICE': '' }
+      const { updatedRows } = applyLivePrices([priceless], [{ symbol: 'ORAC', price: 142.5, currency: 'USD' }], null)
+      expect(updatedRows).toBe(1)
     })
   })
 })
