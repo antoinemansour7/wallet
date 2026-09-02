@@ -47,7 +47,27 @@ export function inferRowCurrency(row, quote, usdCadRate) {
   return asConverted < asQuoted ? 'CAD' : quoted
 }
 
+/**
+ * Canadian Depositary Receipts trade in CAD on Cboe Canada, and this one flag
+ * decides three separate things: which ticker to quote, whether to convert
+ * currency, and whether a quote is plausible at all.
+ *
+ * It used to be only a regex over the description, which holds for a broker
+ * statement ("BROADCOM INC CDR C$HDG") but not for a connected brokerage,
+ * where the description is whatever the institution happens to call the
+ * security. Miss it and the quote resolves to the US listing — NVDA at ~$180
+ * USD against a CDR worth ~$48 CAD — and is then multiplied by the exchange
+ * rate on top, because a missed CDR also looks like a US holding sitting in a
+ * Canadian account.
+ *
+ * The import now settles this from structured data wherever it has any, and
+ * says so on the row. The description check stays for statements, which carry
+ * no such data.
+ */
+export const CDR_KEY = '__isCdr'
+
 function isCdr(row) {
+  if (typeof row?.[CDR_KEY] === 'boolean') return row[CDR_KEY]
   return /\bCDR\b/i.test(String(row.DESCRIPTION ?? ''))
 }
 
@@ -94,17 +114,36 @@ function stripTsxSuffix(symbol) {
   return symbol.endsWith('.TO') ? symbol.slice(0, -'.TO'.length) : symbol
 }
 
+/**
+ * How far a quote may sit from the price the row was imported with.
+ *
+ * The backstop for matching the wrong listing, whatever the cause. A
+ * depositary receipt against its underlying is typically several times out —
+ * NVDA's CDR trades near a quarter of the US share — so a gap this size is far
+ * more likely to be the wrong security than a real move. Rejecting keeps the
+ * imported value, which is visibly stale rather than confidently wrong.
+ *
+ * Deliberately generous: a genuine tripling between refreshes is possible, and
+ * freezing one row is the cheaper mistake.
+ */
+const MAX_QUOTE_DRIFT = 3
+
 function isSafeQuoteForRow(row, quote) {
   const quoteCurrency = symbolKey(quote.currency)
 
   // CDRs are always CAD-denominated regardless of what ACCOUNT CURRENCY says.
-  if (isCdr(row)) {
-    return !quoteCurrency || quoteCurrency === 'CAD'
+  if (isCdr(row) && quoteCurrency && quoteCurrency !== 'CAD') return false
+
+  // A quote wildly out of line with what this row arrived holding is more
+  // likely a different security than a real move. Only meaningful against a
+  // price the row actually came with; without one there is nothing to compare
+  // and the quote is taken, which is the old behaviour.
+  const stored = parseNum(row['MARKET PRICE'])
+  if (stored > 0 && quote.price > 0) {
+    const drift = Math.max(stored / quote.price, quote.price / stored)
+    if (drift > MAX_QUOTE_DRIFT) return false
   }
 
-  // For regular stocks, always apply live prices. The account currency field
-  // from the broker CSV may not accurately reflect the security's denomination
-  // (e.g., USD stocks reported under a CAD-denominated account umbrella).
   return true
 }
 
