@@ -40,7 +40,15 @@ describe('buildAccountPortfolio', () => {
     expect(entry.cash).toBe(0)
   })
 
-  it('infers sale proceeds as cash on re-upload when quantity drops', () => {
+  // These two used to assert the opposite: that a smaller quantity meant a
+  // sale, and that rows arriving without a holding meant it had been
+  // liquidated. That model predates positions knowing which feed they came
+  // from. Importing a statement goes through applyMerge now, which infers
+  // nothing, so the only caller left is the live price refresh — where
+  // quantities never change and a short reply is a dropped fetch. Reading it as
+  // a sale emptied a real account and credited it with proceeds nobody
+  // received.
+  it('does not read a smaller quantity as a sale', () => {
     const previousAccounts = buildAccountPortfolio({ rows: [PREV_AVGO] })
     const accounts = buildAccountPortfolio({
       rows: [NEXT_AVGO],
@@ -48,12 +56,12 @@ describe('buildAccountPortfolio', () => {
     })
     const entry = getAccountEntries(accounts)[0]
 
-    expect(entry.cashSource).toBe('inferred')
-    expect(entry.cash).toBeCloseTo(5878.13, 2)
-    expect(entry.realizedPnl).toBeCloseTo(811.99, 2)
+    expect(entry.cash).toBe(0)
+    expect(entry.cashSource).not.toBe('inferred')
+    expect(entry.realizedPnl).toBe(0)
   })
 
-  it('keeps an account with cash even after all positions are sold', () => {
+  it('keeps the positions it already had when the new rows mention none', () => {
     const previousAccounts = buildAccountPortfolio({ rows: [PREV_AVGO] })
     const accounts = buildAccountPortfolio({
       rows: [],
@@ -61,8 +69,8 @@ describe('buildAccountPortfolio', () => {
     })
     const entry = getAccountEntries(accounts)[0]
 
-    expect(entry.positions).toHaveLength(0)
-    expect(entry.cash).toBeCloseTo(10021.5, 2)
+    expect(entry.positions).toHaveLength(1)
+    expect(entry.cash).toBe(0)
     expect(hasAccountPortfolio(accounts)).toBe(true)
   })
 
@@ -77,7 +85,18 @@ describe('buildAccountPortfolio', () => {
 
     expect(entry.cashSource).toBe('explicit')
     expect(entry.cash).toBe(6420.25)
-    expect(entry.realizedPnl).toBeCloseTo(811.99, 2)
+    expect(entry.realizedPnl).toBe(0)
+  })
+
+  it('reads a cash entry that names the figure `value`, as the Plaid route did', () => {
+    const accounts = buildAccountPortfolio({
+      rows: [PREV_AVGO],
+      cashEntries: [{ accountNumber: '68BB39W', value: '1204.55', currency: 'CAD' }],
+    })
+    const entry = getAccountEntries(accounts)[0]
+
+    expect(entry.cashSource).toBe('explicit')
+    expect(entry.cash).toBe(1204.55)
   })
 })
 
