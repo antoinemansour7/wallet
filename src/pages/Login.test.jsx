@@ -32,8 +32,20 @@ describe('Login page', () => {
 
   it('renders brand name', () => {
     renderLogin()
-    // Brand renders as Wall + AI in separate spans (gradient on "AI")
-    expect(screen.getByText((_, el) => el?.textContent === 'WallAI' && el?.tagName === 'SPAN' && el.querySelector('span'))).toBeInTheDocument()
+    // The brand is split across spans — "Wall" plus a gradient "AI" — so it has
+    // to be matched on combined text rather than as one string.
+    //
+    // More than one element satisfies that: the wordmark spells "WallAI", and so
+    // does the wrapper around it, because the icon beside it is an svg and
+    // contributes no text. Asking for "a span containing a span" matched both and
+    // threw on the ambiguity. Taking the tightest match instead — the element
+    // whose own children do not also spell the whole name — stays correct however
+    // many wrappers the logo grows.
+    const spellsBrand = (el) => el?.tagName === 'SPAN' && el.textContent === 'WallAI'
+
+    expect(
+      screen.getByText((_, el) => spellsBrand(el) && ![...el.children].some(spellsBrand)),
+    ).toBeInTheDocument()
   })
 
   it('renders sign-in button', () => {
