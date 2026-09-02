@@ -5,6 +5,35 @@ import Reveal from '../../components/Reveal'
 import EmptyState from './EmptyState'
 import { sortPositionsByValue } from './helpers'
 
+// This screen is a ledger, and a ledger is read down its columns. What made it
+// hard to read was not density but repetition: every account stated its return
+// under the headline number, again in a pill, and a third time in a footer
+// strip, while every row carried both a dollar change and a percentage change
+// side by side. With a book that is mostly down, that renders as two full
+// columns of red and no way to tell a large position from a small one.
+//
+// So each fact is stated once. Rows carry the value and the percentage — the
+// figure that compares across positions — and the dollar amount moves into the
+// row's own detail, one tap away.
+//
+// Deliberately absent: per-row weight bars. CompositionPanel drew those once
+// and dropped them, because the allocation strip already puts every proportion
+// on one shared scale; two competing pictures of the same thing is worse than
+// one good one.
+
+const sign = (n) => (n < 0 ? '−' : '+')
+
+/** Signed money, using a real minus so columns line up under tabular figures. */
+function signedCurrency(amount) {
+  return `${sign(amount)}${fmtCurrency(Math.abs(amount))}`
+}
+
+function toneOf(amount) {
+  if (amount > 0) return 'text-gain'
+  if (amount < 0) return 'text-loss'
+  return 'text-ink/40'
+}
+
 function normalizePct(val) {
   if (val == null || val === '') return null
   const s = String(val)
@@ -13,13 +42,22 @@ function normalizePct(val) {
   return Number.isFinite(n) ? `${n.toFixed(2)}%` : s
 }
 
-function ReturnText({ amount, pct, className = '' }) {
-  const cls = amount > 0 ? 'text-gain' : amount < 0 ? 'text-loss' : 'text-white/40'
-  const arrow = amount > 0 ? '▲' : amount < 0 ? '▼' : ''
+/** A percentage with its sign, never a triangle. */
+function pctLabel(raw, amount) {
+  const s = normalizePct(raw)
+  if (!s) return null
+  // Hyphen last: [+-−] is the range '+' through '−', which swallows every
+  // digit, so "13.25%" was rendering as "3.25%".
+  const bare = s.replace(/^[+−-]/, '')
+  return `${sign(amount)}${bare}`
+}
+
+function Detail({ label, children }) {
   return (
-    <p className={`text-[12px] font-medium tabular ${cls} ${className}`}>
-      {arrow} {fmtCurrency(Math.abs(amount))}{pct ? ` (${pct})` : ''}
-    </p>
+    <div className="min-w-0">
+      <p className="text-[12px] text-ink/40">{label}</p>
+      <div className="mt-1 truncate text-[13px] font-medium tabular text-ink/75">{children}</div>
+    </div>
   )
 }
 
@@ -27,61 +65,128 @@ function PositionRow({ row, expanded, onToggle }) {
   const isCdrRow = /\bCDR\b/i.test(String(row.DESCRIPTION ?? ''))
   const symbol = row.SYMBOL ?? '—'
   const pnl = parseNum(row['UNREALIZED GAIN/LOSS'])
-  const pnlPct = normalizePct(row['UNREALIZED GAIN/LOSS %'])
+  const pnlPct = pctLabel(row['UNREALIZED GAIN/LOSS %'], pnl)
   const dayAmt = parseNum(row['DAY CHANGE'])
-  const dayPct = normalizePct(row['DAY CHANGE %'])
+  const dayPct = pctLabel(row['DAY CHANGE %'], dayAmt)
   const price = parseNum(row['MARKET PRICE'])
   const mktVal = parseNum(row['MARKET VALUE'])
   const bookVal = parseNum(row['BOOK VALUE'])
   const qty = parseNum(row.QUANTITY)
 
   return (
-    <div className="transition-colors hover:bg-white/[0.03]">
+    // The tint sits on the wrapper, not the button: highlighting only the
+    // header left the detail below it on bare white, reading as a separate row
+    // rather than as the row you just opened.
+    <div className={expanded ? 'bg-ink/[0.03]' : ''}>
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center gap-3 px-4 py-3.5 text-left sm:px-5"
+        aria-expanded={expanded}
+        className={`flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:bg-ink/[0.05] sm:px-5 ${
+          expanded ? '' : 'hover:bg-ink/[0.025]'
+        }`}
       >
-        <CompanyLogo symbol={symbol} description={row.DESCRIPTION} size={40} />
+        <CompanyLogo symbol={symbol} description={row.DESCRIPTION} size={38} />
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className="text-[14px] font-semibold tracking-[-0.01em] text-white">{symbol}</span>
+            <span className="truncate text-[14.5px] font-semibold tracking-[-0.01em] text-ink">{symbol}</span>
             {isCdrRow && (
-              <span className="rounded-full bg-white/[0.07] px-1.5 py-px text-[9px] font-semibold tracking-wide text-white/50" title="Canadian Depositary Receipt">CDR</span>
+              <span
+                className="shrink-0 rounded-full bg-ink/[0.07] px-1.5 py-px text-[9.5px] font-semibold tracking-wide text-ink/45"
+                title="Canadian Depositary Receipt"
+              >
+                CDR
+              </span>
             )}
           </div>
-          <p className="mt-0.5 text-[12px] tabular text-white/35">
+          <p className="mt-0.5 truncate text-[12.5px] tabular text-ink/40">
             {fmtNumber(qty)} shares · {fmtCurrency(price)}
           </p>
         </div>
 
-        <div className="text-right">
-          <p className="text-[14px] font-semibold tabular text-white">{fmtCurrency(mktVal)}</p>
-          <ReturnText amount={pnl} pct={pnlPct} className="mt-0.5 justify-end" />
+        {/* One number per line. The percentage is what compares across rows;
+            the dollar change is in the detail below. */}
+        <div className="shrink-0 text-right">
+          <p className="text-[14.5px] font-semibold tabular text-ink">{fmtCurrency(mktVal)}</p>
+          {pnlPct && <p className={`mt-0.5 text-[12.5px] font-medium tabular ${toneOf(pnl)}`}>{pnlPct}</p>}
         </div>
       </button>
 
       {expanded && (
-        <div className="animate-fade-in grid grid-cols-2 gap-3 px-4 pb-4 pl-[68px] sm:grid-cols-4 sm:px-5">
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-[0.1em] text-white/30">Today</p>
-            <ReturnText amount={dayAmt} pct={dayPct} className="mt-1" />
-          </div>
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-[0.1em] text-white/30">Total return</p>
-            <ReturnText amount={pnl} pct={pnlPct} className="mt-1" />
-          </div>
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-[0.1em] text-white/30">Book cost</p>
-            <p className="mt-1 text-[12px] font-medium tabular text-white/70">{fmtCurrency(bookVal)}</p>
-          </div>
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-[0.1em] text-white/30">Name</p>
-            <p className="mt-1 truncate text-[12px] text-white/70" title={row.DESCRIPTION ?? ''}>{row.DESCRIPTION ?? '—'}</p>
-          </div>
+        <div className="animate-fade-in grid grid-cols-2 gap-x-4 gap-y-3.5 px-4 pb-4 pl-[66px] sm:grid-cols-4 sm:px-5 sm:pl-[71px]">
+          <Detail label="Today">
+            <span className={toneOf(dayAmt)}>
+              {signedCurrency(dayAmt)}{dayPct ? ` (${dayPct})` : ''}
+            </span>
+          </Detail>
+          <Detail label="Total return">
+            <span className={toneOf(pnl)}>
+              {signedCurrency(pnl)}{pnlPct ? ` (${pnlPct})` : ''}
+            </span>
+          </Detail>
+          <Detail label="Book cost">{fmtCurrency(bookVal)}</Detail>
+          <Detail label="Name">
+            <span className="font-normal" title={row.DESCRIPTION ?? ''}>{row.DESCRIPTION ?? '—'}</span>
+          </Detail>
         </div>
       )}
+    </div>
+  )
+}
+
+/** Cash is part of the balance, so it sits in the ledger — but it is not a win,
+ *  so it does not get the green treatment a gain would. */
+function CashRow({ account }) {
+  const source = account.cashSource === 'explicit' ? 'From file'
+    : account.cashSource === 'inferred' ? 'Inferred'
+      : 'Balance'
+
+  return (
+    <div className="flex items-center gap-3.5 px-4 py-3.5 sm:px-5">
+      <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full bg-ink/[0.06] text-[15px] font-medium text-ink/50">
+        $
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[14.5px] font-semibold tracking-[-0.01em] text-ink">Cash</p>
+        <p className="mt-0.5 truncate text-[12.5px] text-ink/40">
+          {source} · {account.currency || 'CAD'}
+        </p>
+      </div>
+      <p className="shrink-0 text-[14.5px] font-semibold tabular text-ink">{fmtCurrency(account.cash)}</p>
+    </div>
+  )
+}
+
+/**
+ * The account's own line. Same shape as the account detail sheet — eyebrow,
+ * the number at display size, one meta line — so the two screens that describe
+ * an account describe it the same way.
+ */
+function AccountHeader({ account }) {
+  const s = account.stats
+  const facts = [
+    <span key="pnl" className={toneOf(s.totalPnl)}>
+      {signedCurrency(s.totalPnl)} ({fmtPct(s.totalPnlPct)})
+    </span>,
+    <span key="day" className={toneOf(s.totalDayChange)}>
+      {signedCurrency(s.totalDayChange)} today
+    </span>,
+    <span key="book" className="text-ink/45">{fmtCurrency(s.totalBookValue)} book cost</span>,
+  ]
+
+  return (
+    <div className="mb-3 px-1">
+      <p className="text-[13px] font-medium text-ink/45">Account {account.accountNumber}</p>
+      <p className="mt-1.5 font-display text-[28px] font-medium leading-none tracking-[-0.03em] tabular text-ink">
+        {fmtCurrency(s.totalMarketValue)}
+      </p>
+      {/* Separated by space, not by middots: the line wraps on a phone, and an
+          interpunct that lands at the start of the wrapped line reads as a
+          bullet for a list that is not there. */}
+      <p className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-[13px] font-medium tabular">
+        {facts}
+      </p>
     </div>
   )
 }
@@ -100,91 +205,47 @@ export default function HoldingsView({ rows, accounts, onUploadClick }) {
   if (!accounts.length && !rows.length) return <EmptyState onUploadClick={onUploadClick} />
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-white">Holdings</h2>
-        <span className="rounded-full border border-white/[0.06] bg-wall-surface px-3 py-1 text-xs text-white/40">
-          {accounts.length} accounts · {rows.length} positions
+    <div className="mx-auto max-w-3xl">
+      <div className="mb-6 flex items-baseline justify-between gap-4">
+        <h2 className="text-[15px] font-semibold text-ink">Holdings</h2>
+        <span className="text-[12.5px] tabular text-ink/40">
+          {accounts.length} account{accounts.length === 1 ? '' : 's'} · {rows.length} position{rows.length === 1 ? '' : 's'}
         </span>
       </div>
 
-      {sortedAccounts.map((account, accountIndex) => {
-        const acct = account.accountNumber
-        const acctRows = account.positions
-        const acctStats = account.stats
-        const acctPositive = acctStats.totalPnl >= 0
+      <div className="space-y-9">
+        {sortedAccounts.map((account, accountIndex) => {
+          const acct = account.accountNumber
 
-        return (
-          <Reveal key={acct} delay={accountIndex * 80}>
-          <div className="overflow-hidden rounded-card border border-white/[0.06] bg-wall-surface shadow-card">
-            {/* Account header — one big number, one colored return */}
-            <div className="flex flex-wrap items-end justify-between gap-3 px-4 pb-4 pt-5 sm:px-5">
-              <div>
-                <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-white/35">
-                  Account {acct}
-                </p>
-                <p className="mt-1.5 font-display text-[26px] font-medium leading-none tabular text-white">
-                  {fmtCurrency(acctStats.totalMarketValue)}
-                </p>
-                <ReturnText
-                  amount={acctStats.totalPnl}
-                  pct={fmtPct(acctStats.totalPnlPct)}
-                  className="mt-2"
-                />
-              </div>
-              <div className="flex flex-col items-end gap-1.5">
-                <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium tabular ${acctStats.totalDayChange >= 0 ? 'bg-gain/10 text-gain' : 'bg-loss/10 text-loss'}`}>
-                  {acctStats.totalDayChange >= 0 ? '+' : ''}{fmtCurrency(acctStats.totalDayChange)} today
-                </span>
-                {account.cash !== 0 && (
-                  <span className="rounded-full bg-white/[0.05] px-2.5 py-1 text-[11px] tabular text-white/45">
-                    {fmtCurrency(account.cash)} cash
-                  </span>
-                )}
-              </div>
-            </div>
+          return (
+            <Reveal key={acct} delay={accountIndex * 80}>
+              <section>
+                <AccountHeader account={account} />
 
-            {/* Positions */}
-            <div className="divide-y divide-white/[0.04] border-t border-white/[0.05]">
-              {acctRows.length === 0 && (
-                <div className="px-5 py-4 text-sm text-white/40">No open positions in this account.</div>
-              )}
-              {acctRows.map((row, i) => {
-                const key = `${acct}:${row.SYMBOL ?? i}`
-                return (
-                  <PositionRow
-                    key={key}
-                    row={row}
-                    expanded={expandedKey === key}
-                    onToggle={() => setExpandedKey(expandedKey === key ? null : key)}
-                  />
-                )
-              })}
+                <div className="divide-y divide-ink/[0.06] overflow-hidden rounded-2xl border border-ink/[0.08] bg-wall-surface">
+                  {account.positions.length === 0 && (
+                    <p className="px-5 py-4 text-[13.5px] text-ink/45">No open positions in this account.</p>
+                  )}
 
-              {account.cash !== 0 && (
-                <div className="flex items-center gap-3 px-4 py-3.5 sm:px-5">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gain/15 text-[15px] font-semibold text-gain">$</div>
-                  <div className="min-w-0 flex-1">
-                    <span className="text-[14px] font-semibold text-white">Cash</span>
-                    <p className="mt-0.5 text-[12px] text-white/35">
-                      {account.cashSource === 'explicit' ? 'From file' : account.cashSource === 'inferred' ? 'Inferred' : 'Balance'} · {account.currency || 'CAD'}
-                    </p>
-                  </div>
-                  <p className="text-[14px] font-semibold tabular text-white">{fmtCurrency(account.cash)}</p>
+                  {account.positions.map((row, i) => {
+                    const key = `${acct}:${row.SYMBOL ?? i}`
+                    return (
+                      <PositionRow
+                        key={key}
+                        row={row}
+                        expanded={expandedKey === key}
+                        onToggle={() => setExpandedKey(expandedKey === key ? null : key)}
+                      />
+                    )
+                  })}
+
+                  {account.cash !== 0 && <CashRow account={account} />}
                 </div>
-              )}
-            </div>
-
-            {/* Footer — quiet stats strip */}
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-1 border-t border-white/[0.05] bg-white/[0.02] px-4 py-3 text-[11px] tabular sm:px-5">
-              <span className="text-white/30">Book cost <span className="ml-1 text-white/55">{fmtCurrency(acctStats.totalBookValue)}</span></span>
-              <span className="text-white/30">Total P&L <span className={`ml-1 ${acctPositive ? 'text-gain' : 'text-loss'}`}>{fmtCurrency(acctStats.totalPnl)} ({fmtPct(acctStats.totalPnlPct)})</span></span>
-              <span className="text-white/30">Today <span className={`ml-1 ${acctStats.totalDayChange >= 0 ? 'text-gain' : 'text-loss'}`}>{fmtCurrency(acctStats.totalDayChange)}</span></span>
-            </div>
-          </div>
-          </Reveal>
-        )
-      })}
+              </section>
+            </Reveal>
+          )
+        })}
+      </div>
     </div>
   )
 }

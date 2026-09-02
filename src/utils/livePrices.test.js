@@ -88,7 +88,12 @@ describe('applyLivePrices', () => {
     ])
 
     expect(updatedRows).toBe(1)
-    expect(rows[0]['ACCOUNT CURRENCY']).toBe('USD')
+    // Left as it was, not backfilled from the quote. ACCOUNT CURRENCY is what
+    // the holding is denominated in; the quote's currency is what the security
+    // trades in. Writing the second into the first made a US stock in a
+    // Canadian account claim to be a US account, which switched the USD→CAD
+    // conversion off for every refresh after the first.
+    expect(rows[0]['ACCOUNT CURRENCY']).toBe('')
     expect(rows[0]['MARKET PRICE']).toBe('150.00')
     expect(rows[0]['MARKET VALUE']).toBe('1500.00')
     expect(rows[0]['DAY CHANGE']).toBe('20.00')

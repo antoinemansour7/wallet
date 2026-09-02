@@ -4,6 +4,7 @@
 // ────────────────────────────────────────────────────────────────────────────────
 
 import { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } from 'plaid'
+import { fetchMarketQuotes } from '../src/server/marketQuotes.js'
 import { initializeApp, cert, getApps } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
 
@@ -176,8 +177,54 @@ async function handleSelectAccounts(req, res) {
 
 // ─── Holdings ─────────────────────────────────────────────────────────────────
 
+/** What the account itself is denominated in. Defaults Canadian, like the app. */
+function accountBaseCurrency(account) {
+  return String(
+    account?.balances?.iso_currency_code
+    || account?.balances?.unofficial_currency_code
+    || 'CAD',
+  ).toUpperCase()
+}
+
+/**
+ * Today's USD->CAD rate, or null if it cannot be had. Null means values pass
+ * through unconverted but tagged with their real currency, which the live price
+ * refresh then corrects - wrong for a moment beats wrong silently forever.
+ */
+async function getUsdCadRate() {
+  try {
+    const { quotes } = await fetchMarketQuotes(['USDCAD=X'])
+    const fx = quotes?.find((q) => Number.isFinite(q?.price))
+    return fx ? fx.price : null
+  } catch (err) {
+    console.warn('[plaid] USDCAD lookup failed, importing unconverted:', err.message)
+    return null
+  }
+}
+
+/**
+ * Whether these two currencies can actually be reconciled right now. Without
+ * it a failed FX lookup still labelled rows with the account currency while
+ * their figures stayed in the security's — market value converted downstream,
+ * cost basis not, and a losing position reporting a profit.
+ */
+function canConvert(from, to, usdCadRate) {
+  if (from === to) return true
+  if (!usdCadRate) return false
+  return (from === 'USD' && to === 'CAD') || (from === 'CAD' && to === 'USD')
+}
+
+function convert(amount, from, to, usdCadRate) {
+  const value = Number(amount) || 0
+  if (!value || from === to || !usdCadRate) return value
+  if (from === 'USD' && to === 'CAD') return value * usdCadRate
+  if (from === 'CAD' && to === 'USD') return value / usdCadRate
+  return value
+}
+
+
 async function handleHoldings(req, res) {
-  const { userId } = req.body
+  const { userId, itemId } = req.body
   if (!userId) return res.status(400).json({ error: 'userId is required' })
 
   const db = getDb()
@@ -192,7 +239,20 @@ async function handleHoldings(req, res) {
   const allCashEntries = []
   const connectedAccounts = []
 
-  for (const doc of plaidDocs.docs) {
+  // An import brings in the connection the person just linked, so it asks for
+  // that one. Without the filter this returned every stored item's holdings, so
+  // a second link to the same brokerage (a retried connection leaves its first
+  // document behind) reported every holding twice - and all of them were tagged
+  // with the institution of whichever link happened to be last. Absent means
+  // "everything", which is what older callers expect.
+  const docs = itemId ? plaidDocs.docs.filter((d) => d.id === itemId) : plaidDocs.docs
+  if (itemId && docs.length === 0) {
+    return res.status(404).json({ error: 'Plaid connection not found' })
+  }
+
+  const usdCadRate = await getUsdCadRate()
+
+  for (const doc of docs) {
     const { accessToken, accounts: storedAccounts, institution, enabledAccountIds } = doc.data()
     // Absent means an older connection made before the picker existed; treat
     // that as "everything", which is what it was already doing.
@@ -211,21 +271,49 @@ async function handleHoldings(req, res) {
         if (!security) continue
         if (!isEnabled(holding.account_id)) continue
 
+        const accountCurrency = accountBaseCurrency(account)
+
         if (security.type === 'cash' || security.ticker_symbol === 'CUR:CAD' || security.ticker_symbol === 'CUR:USD') {
+          const cashCurrency = String(security.iso_currency_code || accountCurrency).toUpperCase()
+          const statedCashCurrency = canConvert(cashCurrency, accountCurrency, usdCadRate)
+            ? accountCurrency
+            : cashCurrency
           allCashEntries.push({
             account: mapAccountType(account),
             accountNumber: account?.mask || account?.account_id?.slice(-4) || '',
-            currency: security.iso_currency_code || 'CAD',
-            value: holding.institution_value || 0,
+            currency: statedCashCurrency,
+            // `amount` is what a parsed statement calls it, and the only name
+            // the client ever read. Emitting `value` meant every connected cash
+            // balance summed to zero and vanished on import.
+            amount: convert(holding.institution_value || 0, cashCurrency, statedCashCurrency, usdCadRate),
           })
           continue
         }
 
         const ticker = security.ticker_symbol || security.name || 'UNKNOWN'
         const quantity = holding.quantity || 0
-        const price = holding.institution_price || security.close_price || 0
-        const marketValue = holding.institution_value || quantity * price
-        const costBasis = holding.cost_basis || 0
+        // What the security trades in, which is not what the account is
+        // denominated in: a Canadian account holding RKLB reports a USD price
+        // against a CAD balance.
+        const securityCurrency = String(
+          holding.iso_currency_code || security.iso_currency_code || accountCurrency,
+        ).toUpperCase()
+
+        // The currency these figures actually end up in — the account's when the
+        // conversion is available, otherwise the security's. Stating one while
+        // reporting the other is what turned a loss into a profit.
+        const statedCurrency = canConvert(securityCurrency, accountCurrency, usdCadRate)
+          ? accountCurrency
+          : securityCurrency
+
+        const price = convert(holding.institution_price || security.close_price || 0, securityCurrency, statedCurrency, usdCadRate)
+        const marketValue = convert(holding.institution_value || 0, securityCurrency, statedCurrency, usdCadRate)
+          || price * quantity
+        // Plaid states cost basis in the security's currency; a statement states
+        // book value in the account's, and everything downstream assumes the
+        // statement's convention. Converting here keeps one convention per
+        // ledger instead of two.
+        const costBasis = convert(holding.cost_basis || 0, securityCurrency, statedCurrency, usdCadRate)
         const unrealizedPnl = marketValue - costBasis
         const unrealizedPnlPct = costBasis > 0 ? ((unrealizedPnl / costBasis) * 100) : 0
 
@@ -242,7 +330,12 @@ async function handleHoldings(req, res) {
           'UNREALIZED GAIN/LOSS %': unrealizedPnlPct,
           'ACCOUNT TYPE': mapAccountType(storedAccount || account),
           'ACCOUNT NUMBER': account?.mask || account?.account_id?.slice(-4) || '',
-          'CURRENCY': security.iso_currency_code || 'CAD',
+          // The currency these figures are now stated in. Every consumer reads
+          // this key; the route emitted only CURRENCY, so the live price refresh
+          // could not tell a Canadian account from a US one and so converted
+          // nothing.
+          'ACCOUNT CURRENCY': statedCurrency,
+          'CURRENCY': securityCurrency,
           '_source': 'plaid',
           '_institution': institution || 'Connected',
         })
@@ -268,15 +361,41 @@ async function handleHoldings(req, res) {
 
 // ─── Disconnect ───────────────────────────────────────────────────────────────
 
+/** Same shape sourceIdFor builds on the client, so the two agree. */
+function slugify(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
 async function handleDisconnect(req, res) {
-  const { userId, itemId } = req.body
-  if (!userId || !itemId) return res.status(400).json({ error: 'userId and itemId are required' })
+  const { userId, itemId, institution } = req.body
+  if (!userId) return res.status(400).json({ error: 'userId is required' })
+  if (!itemId && !institution) {
+    return res.status(400).json({ error: 'itemId or institution is required' })
+  }
 
   const db = getDb()
-  const docRef = db.collection('users').doc(userId).collection('plaid').doc(itemId)
-  const docSnap = await docRef.get()
+  const collection = db.collection('users').doc(userId).collection('plaid')
 
-  if (!docSnap.exists) {
+  let docRef = itemId ? collection.doc(itemId) : null
+  let docSnap = docRef ? await docRef.get() : null
+
+  // Connections imported before rows carried Plaid's item id have only the
+  // institution name to go on, and the client used to send that slug *as* the
+  // item id — which matched no document, so the disconnect 404'd silently and
+  // the connection kept syncing. Resolving it here retires those too.
+  if (!docSnap?.exists && institution) {
+    const all = await collection.get()
+    const match = all.docs.find((d) => slugify(d.data().institution) === slugify(institution))
+    if (match) {
+      docRef = match.ref
+      docSnap = match
+    }
+  }
+
+  if (!docSnap?.exists) {
     return res.status(404).json({ error: 'Plaid connection not found' })
   }
 

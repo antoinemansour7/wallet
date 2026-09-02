@@ -12,6 +12,13 @@ export const IS_PREVIEW = Boolean(import.meta.hot) && import.meta.env.VITE_MOCK_
 
 export const PREVIEW_UID = 'mock-preview-user'
 
+// Empty states are screens too, and there was no way to look at one without
+// deleting the fixture. `?empty` on any preview URL renders the app with
+// nothing in it.
+export const IS_PREVIEW_EMPTY = IS_PREVIEW
+  && typeof window !== 'undefined'
+  && new URLSearchParams(window.location.search).has('empty')
+
 const position = ({
   account, symbol, description, qty, price, book, dayPct, currency = 'CAD', source,
 }) => {
@@ -57,6 +64,27 @@ const POSITIONS = [
   position({ account: '68BB39W', symbol: 'SLB', description: 'SCHLUMBERGER NV', qty: 120, price: 58.47, book: 8100, dayPct: 1.98, source: RRSP, currency: 'USD' }),
 ]
 
+// The shape that reported a profit on a losing position: a connected US holding
+// whose import recorded no account currency, so its cost basis is in dollars
+// while nothing on the row says so. Converting the market value alone made the
+// P&L the exchange rate. Kept here so the sign is on screen every run.
+const CONNECTED_USD_LOSS = {
+  'ACCOUNT NUMBER': '68BB39W',
+  SYMBOL: 'RKLB',
+  DESCRIPTION: 'Rocket Lab USA Inc',
+  QUANTITY: '17',
+  'MARKET PRICE': '62.54',
+  'MARKET VALUE': '1063.18',
+  'BOOK VALUE': '1375.50',
+  'DAY CHANGE': '-12.40',
+  'DAY CHANGE %': '-1.15%',
+  'UNREALIZED GAIN/LOSS': '-312.32',
+  'UNREALIZED GAIN/LOSS %': '-22.71%',
+  __sourceId: RRSP,
+}
+
+POSITIONS.push(CONNECTED_USD_LOSS)
+
 export const PREVIEW_PORTFOLIO = {
   fileName: 'preview-sample.csv',
   rows: POSITIONS,
@@ -76,6 +104,18 @@ export const PREVIEW_PORTFOLIO = {
       cash: 812.09,
       cashSource: 'inferred',
       realizedPnl: -318.44,
+    },
+    // A balance and nothing else. Imports are counted from positions, so this
+    // account has none — and the detail sheet, which removes one import at a
+    // time, had nothing to offer and no way out of the account. Reachable with
+    // a cash-only statement, and where the phantom-cash bug stranded people.
+    '17K9': {
+      accountNumber: '17K9',
+      currency: 'CAD',
+      positions: [],
+      cash: 1301.38,
+      cashSource: 'inferred',
+      realizedPnl: 0,
     },
   },
   lastPriceRefreshAt: new Date().toISOString(),
@@ -173,6 +213,7 @@ const plaidRow = (accountId, symbol, description, qty, price, book) => ({
   'UNREALIZED GAIN/LOSS': Number((qty * price - book).toFixed(2)),
   'ACCOUNT TYPE': accountId === 'pa-tfsa' ? 'TFSA' : 'RRSP',
   'ACCOUNT NUMBER': accountId === 'pa-tfsa' ? '8830' : '1177',
+  'ACCOUNT CURRENCY': 'CAD',
   CURRENCY: 'CAD',
   _source: 'plaid',
   _institution: 'Wealthsimple',
@@ -184,11 +225,16 @@ const PLAID_ROWS = [
   plaidRow('pa-tfsa', 'BN.TO', 'BROOKFIELD CORP CLASS A', 90, 78.4, 6600),
   plaidRow('pa-rrsp', 'SHOP.TO', 'SHOPIFY INC CLASS A SUBORDINATE VOTING', 45, 152.6, 8200),
   plaidRow('pa-rrsp', 'ENB.TO', 'ENBRIDGE INC', 180, 62.15, 10400),
+  // Held in both plans, which is ordinary and used to be broken: Plaid reports
+  // holdings per account, both rows land in the one destination account chosen,
+  // and the ledger listed the same ETF twice while the sheet had promised one.
+  // Keeping it here means the import preview exercises that on every run.
+  plaidRow('pa-rrsp', 'VFV.TO', 'VANGUARD S&P 500 INDEX ETF', 40, 148.2, 5100),
 ]
 
 const PLAID_CASH = [
-  { account: 'TFSA', accountNumber: '8830', currency: 'CAD', value: 1204.55, __accountId: 'pa-tfsa' },
-  { account: 'RRSP', accountNumber: '1177', currency: 'CAD', value: 340.12, __accountId: 'pa-rrsp' },
+  { account: 'TFSA', accountNumber: '8830', currency: 'CAD', amount: 1204.55, __accountId: 'pa-tfsa' },
+  { account: 'RRSP', accountNumber: '1177', currency: 'CAD', amount: 340.12, __accountId: 'pa-rrsp' },
 ]
 
 /** What /api/plaid holdings would return for the chosen accounts. */

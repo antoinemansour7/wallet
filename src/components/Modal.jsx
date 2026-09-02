@@ -86,6 +86,25 @@ function NavButton({ label, onClick, children }) {
 }
 
 /**
+ * A close button on its own, for panels whose content opens with a heading of
+ * its own. ModalHeader would put the X in a chrome band above that heading,
+ * floating ~48px clear of the nearest thing it could line up with; pinned to
+ * the panel instead, it sits on the first line of content and stays put while
+ * the content scrolls under it.
+ */
+export function ModalClose({ onClose, className = '' }) {
+  return (
+    <div className={`absolute right-3 top-3 z-10 ${className}`}>
+      <NavButton label="Close" onClick={onClose}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+          <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </NavButton>
+    </div>
+  )
+}
+
+/**
  * Navigation row. `title` is optional: when the panel's own content already
  * names the task — a heading it can be labelled by — repeating it in chrome
  * above just spends the top of the sheet saying the same thing twice.

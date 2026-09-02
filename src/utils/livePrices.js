@@ -14,6 +14,39 @@ function symbolKey(symbol) {
   return String(symbol ?? '').trim().toUpperCase()
 }
 
+/**
+ * Which currency a row's stored figures are already in.
+ *
+ * ACCOUNT CURRENCY when the import recorded one. When it did not, guessing is
+ * dangerous in one specific direction: book value and market value must end up
+ * in the same currency or the reported P&L is the exchange rate rather than a
+ * return. Assuming "unknown means CAD" did exactly that to a connected US
+ * holding — its market value was converted, its cost basis was not, and a
+ * position bought at a loss reported a 37% profit.
+ *
+ * The import stored a price beside the book value, in the same currency, so the
+ * question can be answered from evidence instead of assumption: compare that
+ * price against the quote, and against the quote converted. Prices move, so a
+ * hypothesis only wins if it lands close; otherwise this says nothing and the
+ * caller leaves the row in whatever currency it arrived in.
+ */
+const CURRENCY_MATCH_TOLERANCE = 0.15
+
+export function inferRowCurrency(row, quote, usdCadRate) {
+  const stated = symbolKey(row['ACCOUNT CURRENCY'])
+  if (stated) return stated
+
+  const quoted = symbolKey(quote?.currency)
+  const stored = parseNum(row['MARKET PRICE'])
+  if (!usdCadRate || quoted !== 'USD' || !(stored > 0) || !(quote?.price > 0)) return ''
+
+  const asQuoted = Math.abs(stored / quote.price - 1)
+  const asConverted = Math.abs(stored / (quote.price * usdCadRate) - 1)
+  if (Math.min(asQuoted, asConverted) > CURRENCY_MATCH_TOLERANCE) return ''
+
+  return asConverted < asQuoted ? 'CAD' : quoted
+}
+
 function isCdr(row) {
   return /\bCDR\b/i.test(String(row.DESCRIPTION ?? ''))
 }
@@ -146,9 +179,14 @@ export function applyLivePrices(rows, quotes, usdCadRate = null) {
     }
 
     // Convert USD price → CAD for non-CDR stocks held in a CAD-denominated account.
-    // The broker CSV book values are in the account's base currency (CAD), so we must
-    // convert the live USD price to CAD to keep market value and P&L consistent.
-    const accountCurrency = symbolKey(row['ACCOUNT CURRENCY'])
+    // Book values are in the account's base currency, so the live USD price has
+    // to be converted to keep market value and P&L on one scale.
+    //
+    // Inferred rather than assumed when the import recorded no currency. This
+    // briefly treated unknown as CAD, which converted the market value of a
+    // connected US holding while its cost basis stayed in dollars — a loss then
+    // read as a profit by the width of the exchange rate.
+    const accountCurrency = inferRowCurrency(row, quote, usdCadRate)
     const needsConversion = (
       !isCdr(row)
       && symbolKey(quote.currency) === 'USD'
@@ -184,7 +222,12 @@ export function applyLivePrices(rows, quotes, usdCadRate = null) {
 
     return {
       ...row,
-      'ACCOUNT CURRENCY': row['ACCOUNT CURRENCY'] || quote.currency || '',
+      // Never backfilled from the quote. ACCOUNT CURRENCY is what the holding
+      // is *denominated* in; quote.currency is what the security *trades* in.
+      // Writing the second into the first made a US stock in a Canadian account
+      // claim to be a US account, which switched the conversion above off for
+      // every refresh after the first.
+      'ACCOUNT CURRENCY': row['ACCOUNT CURRENCY'] || '',
       'MARKET PRICE': compactNumber(effectivePrice),
       'MARKET VALUE': compactNumber(marketValue),
       'DAY CHANGE': dayChange === null ? '' : compactNumber(dayChange),
