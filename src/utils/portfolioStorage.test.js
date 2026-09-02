@@ -1,5 +1,9 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { normalizeStoredPortfolio, loadLocalPortfolio, saveLocalPortfolio } from './portfolioStorage'
+import { setDoc, deleteDoc } from 'firebase/firestore'
+import {
+  normalizeStoredPortfolio, loadLocalPortfolio, saveLocalPortfolio,
+  savePortfolio, clearPortfolio,
+} from './portfolioStorage'
 
 // Mock Firebase to avoid real Firestore calls
 vi.mock('../firebase/config', () => ({
@@ -10,6 +14,7 @@ vi.mock('firebase/firestore', () => ({
   doc: vi.fn(),
   getDoc: vi.fn(),
   setDoc: vi.fn(),
+  deleteDoc: vi.fn(),
   serverTimestamp: vi.fn(() => new Date()),
 }))
 
@@ -111,5 +116,95 @@ describe('loadLocalPortfolio / saveLocalPortfolio', () => {
   it('returns null on invalid JSON in storage', () => {
     mockStorage['wallai:portfolio:user123'] = 'not json {'
     expect(loadLocalPortfolio('user123')).toBeNull()
+  })
+})
+
+const account = (number, symbol) => ({
+  accountNumber: number,
+  currency: 'CAD',
+  positions: [{
+    'ACCOUNT NUMBER': number, SYMBOL: symbol, QUANTITY: '1', 'MARKET VALUE': '100',
+  }],
+  cash: 0,
+  cashSource: 'none',
+  realizedPnl: 0,
+})
+
+/** The accounts map as it was actually written to Firestore on the Nth save. */
+const writtenAccounts = (call = 0) => Object.keys(setDoc.mock.calls[call][1].accounts)
+
+describe('savePortfolio', () => {
+  beforeEach(() => {
+    setDoc.mockClear()
+    deleteDoc.mockClear()
+  })
+
+  it('writes the document whole, never merged', () => {
+    // Firestore deep-merges nested maps, so a merging write cannot express the
+    // removal of an account: the key is simply absent, and merge keeps absent
+    // keys. Removing an account then came back on the next load.
+    savePortfolio('user1', { fileName: 'a.csv', rows: [], accounts: { A: account('A', 'AAPL') } })
+
+    expect(setDoc).toHaveBeenCalledTimes(1)
+    const [, , options] = setDoc.mock.calls[0]
+    expect(options).toBeUndefined()
+  })
+
+  it('a removed account is left out, and cannot be merged back', () => {
+    const both = { A: account('A', 'AAPL'), B: account('B', 'MSFT') }
+    savePortfolio('user1', { fileName: 'a.csv', rows: [], accounts: both })
+
+    const { B, ...withoutB } = both
+    savePortfolio('user1', { fileName: 'a.csv', rows: [], accounts: withoutB })
+
+    expect(writtenAccounts(0).sort()).toEqual(['A', 'B'])
+    expect(writtenAccounts(1)).toEqual(['A'])
+    // The payload alone proves nothing: merging happens on the server, so a
+    // merging write carrying this exact payload would still leave B in the
+    // document. The absent option is what makes the removal stick.
+    expect(setDoc.mock.calls[1][2]).toBeUndefined()
+  })
+
+  it('refuses to write an empty portfolio, so a failed parse cannot wipe a good one', () => {
+    savePortfolio('user1', { fileName: '', rows: [], accounts: {} })
+    expect(setDoc).not.toHaveBeenCalled()
+  })
+
+  it('writes nothing without a uid', () => {
+    savePortfolio(null, { fileName: 'a.csv', rows: [], accounts: { A: account('A', 'AAPL') } })
+    expect(setDoc).not.toHaveBeenCalled()
+  })
+})
+
+describe('clearPortfolio', () => {
+  let mockStorage
+
+  beforeEach(() => {
+    deleteDoc.mockClear()
+    mockStorage = {}
+    vi.stubGlobal('window', {
+      localStorage: {
+        getItem: (key) => mockStorage[key] ?? null,
+        setItem: (key, value) => { mockStorage[key] = value },
+        removeItem: (key) => { delete mockStorage[key] },
+      },
+    })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('empties both copies, because savePortfolio will not write an empty one', async () => {
+    // Removing the last account is the one case where empty is intended, and it
+    // has to survive a reload: leave the local copy behind and the next load
+    // restores everything the person just removed.
+    saveLocalPortfolio('user1', { rows: [], accounts: { A: account('A', 'AAPL') } })
+    expect(loadLocalPortfolio('user1')).not.toBeNull()
+
+    await clearPortfolio('user1')
+
+    expect(loadLocalPortfolio('user1')).toBeNull()
+    expect(deleteDoc).toHaveBeenCalledTimes(1)
   })
 })
