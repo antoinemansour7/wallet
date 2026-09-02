@@ -144,7 +144,6 @@ export async function savePortfolio(uid, {
   rows,
   accounts = {},
   lastPriceRefreshAt = null,
-  markUploaded = false,
 }) {
   // Never write the fixture to a real account. The mock uid is not a real
   // user, but the write would still hit Firestore under whoever is signed in.
@@ -174,9 +173,17 @@ export async function savePortfolio(uid, {
     lastPriceRefreshAt: lastPriceRefreshAt ?? null,
   }
 
-  if (markUploaded) {
-    payload.uploadedAt = serverTimestamp()
-  }
-
-  await setDoc(portfolioDoc(uid), payload, { merge: true })
+  // Written whole, never merged.
+  //
+  // `accounts` is a map keyed by account number, and Firestore's merge option
+  // deep-merges maps: keys in the new payload overwrite, keys absent from it
+  // are kept. Removing an account is expressed by its key no longer being
+  // there — exactly the thing a merge preserves — so a deleted account
+  // survived in the remote document and came back on the next load, which
+  // reads local first and then lets the newer remote copy win.
+  //
+  // `markUploaded`/`uploadedAt` went with the merge. Nothing ever passed
+  // markUploaded, and nothing reads uploadedAt for behaviour, so the only
+  // thing merge was still protecting was a field with no readers.
+  await setDoc(portfolioDoc(uid), payload)
 }
