@@ -3,6 +3,7 @@ import Modal, { ModalHeader } from '../../components/Modal'
 import PlaidLinkButton from '../../components/PlaidLinkButton'
 import { fmtCurrency } from '../../utils/portfolioStats'
 import { accountSources, sourceLabel } from '../../utils/accountMerge'
+import { Group, Tile, Option, IconStatement, IconBrokerage } from './listGroup'
 
 // Copy is deliberately thin here. An overlay this size is read at a glance, and
 // every sentence explaining the flow is a sentence competing with the two
@@ -25,12 +26,6 @@ function accountTypeLabel(value) {
   return lower.charAt(0).toUpperCase() + lower.slice(1)
 }
 
-const Tile = ({ children }) => (
-  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] bg-ink/[0.06] text-ink/55">
-    {children}
-  </span>
-)
-
 const IconPlus = () => (
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
     <path d="M12 5v14M5 12h14" />
@@ -49,35 +44,6 @@ const IconCheck = ({ className = '' }) => (
     <path d="M20 6L9 17l-5-5" />
   </svg>
 )
-
-/** A grouped list. One surface, hairlines between rows, nothing floating. */
-function Group({ children, className = '', ...rest }) {
-  return (
-    <div {...rest} className={`divide-y divide-ink/[0.06] overflow-hidden rounded-2xl border border-ink/[0.08] ${className}`}>
-      {children}
-    </div>
-  )
-}
-
-function Option({ icon, title, hint, onClick }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex w-full items-center gap-3.5 px-4 py-4 text-left transition-colors duration-150 hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:bg-ink/[0.04]"
-    >
-      <Tile>{icon}</Tile>
-      <span className="min-w-0 flex-1">
-        <span className="block text-[15px] font-medium tracking-[-0.01em] text-ink">{title}</span>
-        <span className="mt-0.5 block text-[13px] text-ink/45">{hint}</span>
-      </span>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
-        strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-ink/25">
-        <path d="M9 18l6-6-6-6" />
-      </svg>
-    </button>
-  )
-}
 
 // The choice is exclusive, so it stays a radio to a screen reader — but the
 // marker is a check on the selected row. A column of empty circles down the left
@@ -208,7 +174,7 @@ function PrimaryButton({ onClick, disabled, children }) {
 }
 
 export default function AddAccountModal({
-  open, onClose,
+  open, onClose, initialMode = null,
   accounts = [], error, loading, loadingMsg, inputRef, isDragging, userId,
   pending, preview, busy,
   discovered, onImportDiscovered,
@@ -216,12 +182,14 @@ export default function AddAccountModal({
   onPlaidAccounts, onPlaidConnecting, onPlaidError,
   onChooseDestination, onConfirm, onCancel,
 }) {
-  const [mode, setMode] = useState(null)
+  const [mode, setMode] = useState(initialMode)
   const [chosen, setChosen] = useState(null)
   const [picked, setPicked] = useState([])
   const [detailOpen, setDetailOpen] = useState(false)
 
-  useEffect(() => { if (open) setMode(null) }, [open])
+  // Opened from the empty accounts screen, the route in has already been
+  // chosen — landing on the chooser again would ask the same question twice.
+  useEffect(() => { if (open) setMode(initialMode) }, [open, initialMode])
 
   // Seed from the server's default (investment accounts), so the common case
   // is one tap to confirm rather than a checklist to work through.
@@ -318,24 +286,16 @@ export default function AddAccountModal({
         {!loading && !pending && !discovered && !mode && (
           <Group className="mt-2">
             <Option
+              icon={<IconStatement />}
               title="Import a statement"
               hint="CSV, XLSX or PDF"
               onClick={() => setMode('file')}
-              icon={(
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 16V4M7 9l5-5 5 5M4 20h16" />
-                </svg>
-              )}
             />
             <Option
+              icon={<IconBrokerage />}
               title="Connect a brokerage"
               hint="Sign in securely"
               onClick={() => setMode('connect')}
-              icon={(
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z" />
-                </svg>
-              )}
             />
           </Group>
         )}
