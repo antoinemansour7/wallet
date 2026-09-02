@@ -196,9 +196,9 @@ describe('describing what an account is made of', () => {
   it('labels legacy and connected feeds readably', () => {
     expect(sourceLabel(LEGACY_SOURCE)).toBe('Imported earlier')
     // Ids are stored lowercase and hyphenated; the label is what a person reads.
-    expect(sourceLabel('file:questrade-tfsa')).toBe('File · Questrade TFSA')
+    expect(sourceLabel('file:questrade-tfsa')).toBe('Questrade TFSA')
     expect(sourceLabel('plaid:wealthsimple')).toBe('Wealthsimple')
-    expect(sourceLabel('file:rrsp-statement')).toBe('File · RRSP Statement')
+    expect(sourceLabel('file:rrsp-statement')).toBe('RRSP Statement')
   })
 
   it('tags positions without touching the original rows', () => {

@@ -5,8 +5,8 @@ import { clearPortfolio, loadLocalPortfolio, loadSavedPortfolioWithTimeout, save
 import { recordIntradayPoint, saveDailySnapshot } from '../utils/portfolioHistory'
 import { useAuth } from '../context/AuthContext'
 import Reveal from '../components/Reveal'
-import { buildAccountPortfolio, flattenAccountRows, getAccountEntries, hasAccountPortfolio } from '../utils/accountPortfolio'
-import { applyMerge, previewMerge, removeSource, sourceIdFor } from '../utils/accountMerge'
+import { buildAccountPortfolio, cashEntryAmount, flattenAccountRows, getAccountEntries, hasAccountPortfolio } from '../utils/accountPortfolio'
+import { PLAID_ITEM_KEY, accountSources, aggregateRowsBySymbol, applyMerge, plaidItemIdFor, previewMerge, removeAccount, removeSource, sourceIdFor } from '../utils/accountMerge'
 import { computeStats } from '../utils/portfolioStats'
 import { AUTO_PRICE_REFRESH_MS } from './portfolio/constants'
 import TabNav from './portfolio/TabNav'
@@ -34,6 +34,7 @@ export default function Portfolio() {
   const [loading, setLoading]             = useState(false)
   const [loadingMsg, setLoadingMsg]       = useState('')
   const [isDragging, setIsDragging]       = useState(false)
+  const [addMode, setAddMode]             = useState(null)
   const [activeView, setActiveView]       = useState('add')
   const [liveStatus, setLiveStatus]       = useState('idle')
   const [liveMessage, setLiveMessage]     = useState('')
@@ -251,13 +252,18 @@ export default function Portfolio() {
     }
     setError('')
     setPreview(null)
+    // Collapsed to one line per symbol here, so the staged set is the set that
+    // gets previewed, counted, and stored. Two accounts at one brokerage that
+    // both hold a symbol arrive as two rows; leaving that until later meant the
+    // sheet counted six holdings, listed five, and saved six.
+    const rows = aggregateRowsBySymbol(incoming)
     setPending({
       name,
-      rows: incoming,
+      rows,
       cashEntries,
       sourceId: sourceIdFor({ kind, name }),
       // What the file called the account, offered as the name for a new one.
-      suggestedAccountNumber: String(incoming[0]?.['ACCOUNT NUMBER'] ?? name).trim() || name,
+      suggestedAccountNumber: String(rows[0]?.['ACCOUNT NUMBER'] ?? name).trim() || name,
     })
   }, [])
 
@@ -274,7 +280,9 @@ export default function Portfolio() {
     })
   }, [accounts, pending])
 
-  const openAdd = useCallback(() => {
+  const openAdd = useCallback((mode) => {
+    // Also passed straight to onClick in places, so a click event is not a mode.
+    setAddMode(typeof mode === 'string' ? mode : null)
     setPending(null)
     setPreview(null)
     setDiscovered(null)
@@ -284,6 +292,7 @@ export default function Portfolio() {
 
   const closeAdd = useCallback(() => {
     setAddOpen(false)
+    setAddMode(null)
     setPending(null)
     setPreview(null)
     setDiscovered(null)
@@ -300,7 +309,7 @@ export default function Portfolio() {
     setMerging(true)
     try {
       const cashForAccount = pending.cashEntries.length > 0
-        ? pending.cashEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0)
+        ? pending.cashEntries.reduce((sum, entry) => sum + cashEntryAmount(entry), 0)
         : null
 
       const nextAccounts = applyMerge({
@@ -340,28 +349,48 @@ export default function Portfolio() {
   // rather than left to the autosave: that effect is gated on hasData, so the
   // cleared state would never reach storage and the next load would restore
   // everything just removed.
+  /**
+   * Best effort: a live Plaid item should stop syncing, but a failure here must
+   * not block removing the holdings the person asked to remove.
+   *
+   * This used to send `sourceId.slice('plaid:'.length)` as the item id — the
+   * institution slug, not Plaid's item id, so the lookup 404'd into the catch
+   * below and every disconnect did nothing while reporting success. Rows now
+   * carry the real id; `institution` lets the server resolve rows imported
+   * before they did.
+   */
+  const disconnectPlaid = useCallback(async (account, sourceId) => {
+    if (!String(sourceId).startsWith('plaid:') || IS_PREVIEW) return
+    try {
+      const res = await fetch('/api/plaid', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'disconnect',
+          userId: uid,
+          itemId: plaidItemIdFor(account, sourceId),
+          institution: sourceId.slice('plaid:'.length),
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        console.warn('[portfolio] Plaid disconnect failed:', data.error || `HTTP ${res.status}`)
+      }
+    } catch (err) {
+      console.warn('[portfolio] Plaid disconnect failed:', err.message)
+    }
+  }, [uid])
+
   const handleRemoveSource = useCallback(async (accountNumber, sourceId) => {
     if (!uid) return
     setRemoving(true)
     setError('')
     try {
-      if (String(sourceId).startsWith('plaid:') && !IS_PREVIEW) {
-        // Best effort: a live Plaid item should stop syncing, but a failure
-        // here must not block removing the holdings the person asked to remove.
-        try {
-          await fetch('/api/plaid', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'disconnect', userId: uid, itemId: sourceId.slice('plaid:'.length) }),
-          })
-        } catch (err) {
-          console.warn('[portfolio] Plaid disconnect failed:', err.message)
-        }
-      }
+      await disconnectPlaid(accounts[accountNumber], sourceId)
 
       const nextAccounts = removeSource({ accounts, accountNumber, sourceId })
       const nextRows = flattenAccountRows(nextAccounts)
-      const emptied = nextRows.length === 0
+      const emptied = !hasAccountPortfolio(nextAccounts)
 
       setAccounts(nextAccounts)
       setRows(nextRows)
@@ -382,7 +411,42 @@ export default function Portfolio() {
     } finally {
       setRemoving(false)
     }
-  }, [accounts, fileName, lastUpdatedAt, uid])
+  }, [accounts, disconnectPlaid, fileName, lastUpdatedAt, uid])
+
+  /** The whole account, for one with no imports left to remove one at a time. */
+  const handleRemoveAccount = useCallback(async (accountNumber) => {
+    if (!uid) return
+    setRemoving(true)
+    setError('')
+    try {
+      const account = accounts[accountNumber]
+      for (const feed of accountSources(account ?? {})) {
+        await disconnectPlaid(account, feed.id)
+      }
+
+      const nextAccounts = removeAccount({ accounts, accountNumber })
+      const nextRows = flattenAccountRows(nextAccounts)
+
+      setAccounts(nextAccounts)
+      setRows(nextRows)
+      setOpenAccount(null)
+
+      // Cash with no positions is still a portfolio, so emptiness is asked of
+      // the accounts rather than of the row count.
+      if (!hasAccountPortfolio(nextAccounts)) {
+        setFileName('')
+        setActiveView('accounts')
+        await clearPortfolio(uid)
+        return
+      }
+
+      await savePortfolio(uid, { fileName, rows: nextRows, accounts: nextAccounts, lastPriceRefreshAt: lastUpdatedAt })
+    } catch (err) {
+      setError(err.message || 'Could not remove that account')
+    } finally {
+      setRemoving(false)
+    }
+  }, [accounts, disconnectPlaid, fileName, lastUpdatedAt, uid])
 
   const handlePlaidError = useCallback((err) => {
     setLoading(false)
@@ -428,7 +492,10 @@ export default function Portfolio() {
       const holdingsRes = await fetch('/api/plaid', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'holdings', userId: uid }),
+        // Scoped to the connection just linked: without it the route replies
+        // with every stored item's holdings, so a retried link reports each
+        // holding twice.
+        body: JSON.stringify({ action: 'holdings', userId: uid, itemId: discovered.itemId }),
       })
       const holdingsData = await holdingsRes.json()
       if (!holdingsRes.ok) throw new Error(holdingsData.error || 'Holdings fetch failed')
@@ -440,7 +507,10 @@ export default function Portfolio() {
       stageStatement({
         name: institutionName || 'Connected brokerage',
         kind: 'plaid',
-        rows: holdingsData.rows || [],
+        // Carried on the rows so removing this import later can name the
+        // connection to Plaid. The source id is `plaid:<institution>`, which is
+        // a label for people, not the id the connection is filed under.
+        rows: (holdingsData.rows || []).map((row) => ({ ...row, [PLAID_ITEM_KEY]: discovered.itemId })),
         cashEntries: holdingsData.cashEntries || [],
       })
     } catch (err) {
@@ -450,6 +520,12 @@ export default function Portfolio() {
     }
   }, [discovered, uid, stageStatement])
   const onDrop = (e) => { e.preventDefault(); setIsDragging(false); handleFile(e.dataTransfer.files[0]) }
+
+  // Dropped or picked on the accounts screen: the sheet opens straight into
+  // reading it, rather than onto a chooser asking what you just handed it.
+  const addFromFile = useCallback((file) => { openAdd(); handleFile(file) },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [openAdd])
 
   return (
     <div className="portfolio-shell min-h-screen bg-wall-bg">
@@ -496,6 +572,7 @@ export default function Portfolio() {
           <AccountsView
             accounts={accountEntries}
             onAdd={openAdd}
+            onFile={addFromFile}
             onOpenAccount={(account) => setOpenAccount(account)}
           />
         )}      </div>
@@ -503,6 +580,7 @@ export default function Portfolio() {
       <AddAccountModal
         open={addOpen}
         onClose={closeAdd}
+        initialMode={addMode}
         accounts={accountEntries}
         error={error}
         loading={loading}
@@ -533,6 +611,7 @@ export default function Portfolio() {
         busy={removing}
         onClose={() => setOpenAccount(null)}
         onRemoveSource={handleRemoveSource}
+        onRemoveAccount={handleRemoveAccount}
       />
     </div>
   )

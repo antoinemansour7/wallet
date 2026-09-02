@@ -51,6 +51,51 @@ const symbolOf = (row) => String(row?.SYMBOL ?? '').trim().toUpperCase()
 const valueOf = (row) => parseNum(row?.['MARKET VALUE'])
 const qtyOf = (row) => parseNum(row?.QUANTITY)
 
+/**
+ * One line per symbol.
+ *
+ * Plaid reports holdings per account, so two selected accounts that both hold a
+ * symbol return two rows for it — and every row lands in the one destination
+ * account the person picked. previewMerge collapsed those with a Map (silently
+ * keeping the last and discarding the rest) while applyMerge stored both, so
+ * the sheet promised one holding of 17 shares and the ledger then showed the
+ * same holding twice. Both go through here now, and it adds up rather than
+ * discards.
+ */
+export function aggregateRowsBySymbol(rows = []) {
+  const bySymbol = new Map()
+
+  for (const row of rows) {
+    const key = symbolOf(row)
+    const existing = bySymbol.get(key)
+    if (!existing) { bySymbol.set(key, { ...row }); continue }
+
+    const quantity = qtyOf(existing) + qtyOf(row)
+    const value = valueOf(existing) + valueOf(row)
+    const book = parseNum(existing['BOOK VALUE']) + parseNum(row['BOOK VALUE'])
+    const dayChange = parseNum(existing['DAY CHANGE']) + parseNum(row['DAY CHANGE'])
+    const previousValue = value - dayChange
+    const pnl = book > 0
+      ? value - book
+      : parseNum(existing['UNREALIZED GAIN/LOSS']) + parseNum(row['UNREALIZED GAIN/LOSS'])
+
+    bySymbol.set(key, {
+      ...existing,
+      QUANTITY: quantity,
+      'MARKET VALUE': round(value),
+      'BOOK VALUE': round(book),
+      // Recomputed, never summed: adding two unit prices together is nonsense.
+      'MARKET PRICE': quantity > 0 ? round(value / quantity) : parseNum(existing['MARKET PRICE']),
+      'DAY CHANGE': round(dayChange),
+      'DAY CHANGE %': previousValue > 0 ? round((dayChange / previousValue) * 100) : existing['DAY CHANGE %'],
+      'UNREALIZED GAIN/LOSS': round(pnl),
+      'UNREALIZED GAIN/LOSS %': book > 0 ? round((pnl / book) * 100) : existing['UNREALIZED GAIN/LOSS %'],
+    })
+  }
+
+  return [...bySymbol.values()]
+}
+
 function accountTotal(positions = []) {
   return round(positions.reduce((sum, p) => sum + valueOf(p), 0))
 }
@@ -70,8 +115,9 @@ export function previewMerge({ accounts = {}, accountNumber, sourceId, rows = []
   const otherSources = current.filter((p) => positionSource(p) !== sourceId)
   const isKnownSource = sameSource.length > 0
 
+  const incomingRows = aggregateRowsBySymbol(rows)
   const before = new Map(sameSource.map((p) => [symbolOf(p), p]))
-  const incoming = new Map(rows.map((r) => [symbolOf(r), r]))
+  const incoming = new Map(incomingRows.map((r) => [symbolOf(r), r]))
 
   const added = []
   const updated = []
@@ -94,7 +140,7 @@ export function previewMerge({ accounts = {}, accountNumber, sourceId, rows = []
   }
 
   const beforeTotal = accountTotal(current)
-  const afterTotal = round(accountTotal(otherSources) + accountTotal(rows))
+  const afterTotal = round(accountTotal(otherSources) + accountTotal(incomingRows))
 
   return {
     accountNumber,
@@ -122,7 +168,7 @@ export function applyMerge({ accounts = {}, accountNumber, sourceId, rows = [], 
   const current = target?.positions ?? []
 
   const otherSources = current.filter((p) => positionSource(p) !== sourceId)
-  const incoming = tagPositions(rows, sourceId).map((row) => ({
+  const incoming = tagPositions(aggregateRowsBySymbol(rows), sourceId).map((row) => ({
     ...row,
     // The account number on the row is whatever the file said; the destination
     // is what the person chose. Rewrite it so the row and its home agree.
@@ -172,6 +218,39 @@ export function removeSource({ accounts = {}, accountNumber, sourceId }) {
   return next
 }
 
+/**
+ * Plaid's own id for the connection a row came from, carried on the row.
+ *
+ * The stored source id is `plaid:<institution>` — a label, built to be shown.
+ * Disconnecting needs the item id the connection is filed under, and passing
+ * the label instead looked up a document that never existed, so every
+ * disconnect failed quietly and the connection kept syncing after its holdings
+ * were gone.
+ */
+export const PLAID_ITEM_KEY = '__plaidItemId'
+
+export function plaidItemIdFor(account, sourceId) {
+  const match = (account?.positions ?? []).find(
+    (position) => positionSource(position) === sourceId && position[PLAID_ITEM_KEY],
+  )
+  return match?.[PLAID_ITEM_KEY] ?? null
+}
+
+/**
+ * Drop a whole account.
+ *
+ * Imports are derived from positions, so an account holding only cash has none
+ * — and the detail sheet, which offers removal one import at a time, had
+ * nothing to offer. That is reachable honestly (a statement of a pure cash
+ * account) and it was also where the phantom-cash bug left its wreckage: an
+ * account with no holdings, a balance nobody deposited, and no way out.
+ */
+export function removeAccount({ accounts = {}, accountNumber }) {
+  const next = normalizeStoredAccounts(accounts)
+  delete next[accountNumber]
+  return next
+}
+
 /** Every feed across every account, for "remove all" and for counting. */
 export function allSources(accounts = {}) {
   const existing = normalizeStoredAccounts(accounts)
@@ -204,10 +283,16 @@ function titleCase(name) {
     .join(' ')
 }
 
+/**
+ * What an import is called. The transport is carried by the row's icon, never
+ * by the name: prefixing every filename with "File · " also broke the accounts
+ * list, where imports are joined with that same separator — two statements read
+ * as "File · Questrade TFSA · File · Wealthsimple TFSA", which looks like four.
+ */
 export function sourceLabel(id) {
   if (id === LEGACY_SOURCE) return 'Imported earlier'
   const [kind, ...rest] = String(id).split(':')
   const name = titleCase(rest.join(':').replace(/-/g, ' '))
   if (kind === 'plaid') return name || 'Connected'
-  return name ? `File · ${name}` : 'File'
+  return name || 'Statement'
 }

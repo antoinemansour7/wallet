@@ -6,7 +6,7 @@ import {
   hasAccountPortfolio,
   normalizeStoredAccounts,
 } from './accountPortfolio'
-import { IS_PREVIEW, PREVIEW_PORTFOLIO } from '../preview/mockMode'
+import { IS_PREVIEW, IS_PREVIEW_EMPTY, PREVIEW_PORTFOLIO } from '../preview/mockMode'
 
 function localStorageKey(uid) {
   return `wallai:portfolio:${uid}`
@@ -50,7 +50,7 @@ export function loadLocalPortfolio(uid) {
   if (!uid) return null
   // Seeded rather than empty: a UI reviewed against blank states hides
   // every problem that only appears with real content in it.
-  if (IS_PREVIEW) return normalizeStoredPortfolio(PREVIEW_PORTFOLIO)
+  if (IS_PREVIEW) return IS_PREVIEW_EMPTY ? null : normalizeStoredPortfolio(PREVIEW_PORTFOLIO)
   if (typeof window === 'undefined') return null
 
   try {
@@ -120,7 +120,7 @@ export async function loadSavedPortfolio(uid) {
   if (!uid) return null
   // The mock user has no Firestore document, and asking for one would fail
   // on rules before it failed on absence.
-  if (IS_PREVIEW) return normalizeStoredPortfolio(PREVIEW_PORTFOLIO)
+  if (IS_PREVIEW) return IS_PREVIEW_EMPTY ? null : normalizeStoredPortfolio(PREVIEW_PORTFOLIO)
 
   const snapshot = await getDoc(portfolioDoc(uid))
   if (!snapshot.exists()) return null
