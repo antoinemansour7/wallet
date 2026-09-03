@@ -299,6 +299,11 @@ export default defineConfig(({ mode }) => {
         route: '/api/plaid',
         loadHandler: () => import('./api/plaid.js'),
       }),
+      serverlessHandlerPlugin({
+        name: 'market-regime-api',
+        route: '/api/market-regime',
+        loadHandler: () => import('./api/market-regime.js'),
+      }),
     ],
     server: {
       // Vite rejects Host headers it does not recognise, which blocks the dev
