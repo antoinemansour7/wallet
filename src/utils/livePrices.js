@@ -66,6 +66,50 @@ export function inferRowCurrency(row, quote, usdCadRate) {
  */
 export const CDR_KEY = '__isCdr'
 
+/**
+ * When this row last took a live quote.
+ *
+ * A row that cannot be priced keeps the value it arrived with, which is the
+ * right behaviour — blanking a holding is worse than showing an old number.
+ * But it then rendered identically to one priced seconds ago: same weight,
+ * same colour, same figures, nothing saying the number was days old. The
+ * refresh banner named the missing symbols, and it is one dismissible line at
+ * the top of a scrolling page.
+ *
+ * Staleness is judged against the other rows rather than against the clock, so
+ * a portfolio that has never been priced at all — every row still at its
+ * statement value — marks nothing. What is worth surfacing is a row the last
+ * refresh left behind while its neighbours moved on.
+ */
+export const PRICED_AT_KEY = '__pricedAt'
+
+const asTime = (value) => {
+  const ms = Date.parse(String(value ?? ''))
+  return Number.isFinite(ms) ? ms : null
+}
+
+/** The most recent moment any row here was successfully priced. */
+export function lastPricedAt(rows = []) {
+  return rows.reduce((newest, row) => {
+    const ms = asTime(row?.[PRICED_AT_KEY])
+    return ms !== null && (newest === null || ms > newest) ? ms : newest
+  }, null)
+}
+
+/**
+ * Rows priced within this of the freshest one count as current. A refresh walks
+ * its rows over a few seconds, so exact equality would mark half a portfolio.
+ */
+const SAME_REFRESH_MS = 5 * 60 * 1000
+
+/** True when the newest refresh moved on without this row. */
+export function isPriceStale(row, newest) {
+  if (newest === null) return false
+  const ms = asTime(row?.[PRICED_AT_KEY])
+  if (ms === null) return true
+  return newest - ms > SAME_REFRESH_MS
+}
+
 function isCdr(row) {
   if (typeof row?.[CDR_KEY] === 'boolean') return row[CDR_KEY]
   return /\bCDR\b/i.test(String(row.DESCRIPTION ?? ''))
@@ -261,6 +305,7 @@ export function applyLivePrices(rows, quotes, usdCadRate = null) {
 
     return {
       ...row,
+      [PRICED_AT_KEY]: new Date().toISOString(),
       // Never backfilled from the quote. ACCOUNT CURRENCY is what the holding
       // is *denominated* in; quote.currency is what the security *trades* in.
       // Writing the second into the first made a US stock in a Canadian account

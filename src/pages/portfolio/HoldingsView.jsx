@@ -4,6 +4,7 @@ import CompanyLogo from '../../components/CompanyLogo'
 import Reveal from '../../components/Reveal'
 import EmptyState from './EmptyState'
 import { sortPositionsByValue } from './helpers'
+import { lastPricedAt, isPriceStale, PRICED_AT_KEY } from '../../utils/livePrices'
 
 // This screen is a ledger, and a ledger is read down its columns. What made it
 // hard to read was not density but repetition: every account stated its return
@@ -22,6 +23,24 @@ import { sortPositionsByValue } from './helpers'
 // one good one.
 
 const sign = (n) => (n < 0 ? '−' : '+')
+
+/**
+ * When a price was last taken, said the way a person would say it.
+ *
+ * "Not updated" invites a shrug; a date does not. Anything older than a week
+ * gets the date rather than a count of days, because "9 days ago" is harder to
+ * place than "Aug 24".
+ */
+function priceAge(value) {
+  const ms = Date.parse(String(value ?? ''))
+  if (!Number.isFinite(ms)) return 'not updated'
+
+  const days = Math.floor((Date.now() - ms) / 86400000)
+  if (days < 1) return 'earlier today'
+  if (days === 1) return 'yesterday'
+  if (days < 7) return `${days} days ago`
+  return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
 
 /** Signed money, using a real minus so columns line up under tabular figures. */
 function signedCurrency(amount) {
@@ -61,7 +80,7 @@ function Detail({ label, children }) {
   )
 }
 
-function PositionRow({ row, expanded, onToggle }) {
+function PositionRow({ row, expanded, onToggle, stale }) {
   const isCdrRow = /\bCDR\b/i.test(String(row.DESCRIPTION ?? ''))
   const symbol = row.SYMBOL ?? '—'
   const pnl = parseNum(row['UNREALIZED GAIN/LOSS'])
@@ -100,8 +119,11 @@ function PositionRow({ row, expanded, onToggle }) {
               </span>
             )}
           </div>
+          {/* The staleness sits beside the price it describes, not in a banner
+              at the top of the page that scrolls away and can be dismissed. */}
           <p className="mt-0.5 truncate text-[12.5px] tabular text-ink/40">
             {fmtNumber(qty)} shares · {fmtCurrency(price)}
+            {stale && <span className="text-warning"> · {priceAge(row[PRICED_AT_KEY])}</span>}
           </p>
         </div>
 
@@ -163,7 +185,7 @@ function CashRow({ account }) {
  * the number at display size, one meta line — so the two screens that describe
  * an account describe it the same way.
  */
-function AccountHeader({ account }) {
+function AccountHeader({ account, staleCount }) {
   const s = account.stats
   const facts = [
     <span key="pnl" className={toneOf(s.totalPnl)}>
@@ -174,6 +196,16 @@ function AccountHeader({ account }) {
     </span>,
     <span key="book" className="text-ink/45">{fmtCurrency(s.totalBookValue)} book cost</span>,
   ]
+
+  // A total built from a mix of current and stale prices is neither, and
+  // saying so beside it is the only place a person would look.
+  if (staleCount > 0) {
+    facts.push(
+      <span key="stale" className="text-warning">
+        {staleCount} price{staleCount === 1 ? '' : 's'} not updated
+      </span>,
+    )
+  }
 
   return (
     <div className="mb-3 px-1">
@@ -193,6 +225,11 @@ function AccountHeader({ account }) {
 
 export default function HoldingsView({ rows, accounts, onUploadClick }) {
   const [expandedKey, setExpandedKey] = useState(null)
+
+  // Judged across the whole book, not per account: a refresh either reached a
+  // row or it did not, and the comparison that matters is against the rows it
+  // did reach.
+  const newestPricedAt = useMemo(() => lastPricedAt(rows), [rows])
 
   const sortedAccounts = useMemo(
     () => accounts.map((account) => ({
@@ -220,7 +257,10 @@ export default function HoldingsView({ rows, accounts, onUploadClick }) {
           return (
             <Reveal key={acct} delay={accountIndex * 80}>
               <section>
-                <AccountHeader account={account} />
+                <AccountHeader
+                  account={account}
+                  staleCount={account.positions.filter((r) => isPriceStale(r, newestPricedAt)).length}
+                />
 
                 <div className="divide-y divide-ink/[0.06] overflow-hidden rounded-2xl border border-ink/[0.08] bg-wall-surface">
                   {account.positions.length === 0 && (
@@ -233,6 +273,7 @@ export default function HoldingsView({ rows, accounts, onUploadClick }) {
                       <PositionRow
                         key={key}
                         row={row}
+                        stale={isPriceStale(row, newestPricedAt)}
                         expanded={expandedKey === key}
                         onToggle={() => setExpandedKey(expandedKey === key ? null : key)}
                       />

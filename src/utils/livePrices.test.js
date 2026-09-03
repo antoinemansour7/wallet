@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  lastPricedAt,
+  isPriceStale,
+  PRICED_AT_KEY,
   applyLivePrices,
   collectSymbols,
   enrichRowsWithLivePrices,
@@ -254,5 +257,55 @@ describe('TSX fallback symbols', () => {
 
     expect(calls).toHaveLength(2)
     expect(result.updatedRows).toBe(1)
+  })
+})
+
+describe('knowing which prices are stale', () => {
+  const at = (iso) => ({ SYMBOL: 'X', [PRICED_AT_KEY]: iso })
+  const now = Date.now()
+  const iso = (msAgo) => new Date(now - msAgo).toISOString()
+
+  it('stamps every row it manages to price', () => {
+    const { rows } = applyLivePrices(
+      [{ SYMBOL: 'AAPL', QUANTITY: '10', 'MARKET PRICE': '100' }],
+      [{ symbol: 'AAPL', price: 105, currency: 'USD' }],
+    )
+    expect(Date.parse(rows[0][PRICED_AT_KEY])).toBeGreaterThan(0)
+  })
+
+  it('leaves a row it could not price without a fresh stamp', () => {
+    const { rows } = applyLivePrices(
+      [{ SYMBOL: 'NOPE', QUANTITY: '10', 'MARKET PRICE': '100' }],
+      [{ symbol: 'AAPL', price: 105, currency: 'USD' }],
+    )
+    expect(rows[0][PRICED_AT_KEY]).toBeUndefined()
+  })
+
+  it('reports the freshest moment across the book', () => {
+    expect(lastPricedAt([at(iso(90000000)), at(iso(1000))])).toBeCloseTo(now - 1000, -3)
+    expect(lastPricedAt([])).toBeNull()
+    expect(lastPricedAt([{ SYMBOL: 'X' }])).toBeNull()
+  })
+
+  it('marks a row the newest refresh left behind', () => {
+    const newest = lastPricedAt([at(iso(1000)), at(iso(90000000))])
+    expect(isPriceStale(at(iso(90000000)), newest)).toBe(true)
+    expect(isPriceStale(at(iso(1000)), newest)).toBe(false)
+  })
+
+  it('marks a row that has never been priced while others have', () => {
+    const newest = lastPricedAt([at(iso(1000))])
+    expect(isPriceStale({ SYMBOL: 'X' }, newest)).toBe(true)
+  })
+
+  it('marks nothing when nothing has ever been priced', () => {
+    // A freshly imported portfolio is all statement values. Flagging every row
+    // would be noise, and the refresh banner already says the state of the run.
+    expect(isPriceStale({ SYMBOL: 'X' }, lastPricedAt([{ SYMBOL: 'X' }]))).toBe(false)
+  })
+
+  it('does not mark rows priced moments apart within one refresh', () => {
+    const newest = lastPricedAt([at(iso(0)), at(iso(4000))])
+    expect(isPriceStale(at(iso(4000)), newest)).toBe(false)
   })
 })
