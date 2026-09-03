@@ -282,6 +282,124 @@ function convert(amount, from, to, usdCadRate) {
 }
 
 
+/**
+ * Fetch and shape holdings for one connection. Throws on failure — the caller
+ * decides what a failed connection means for the rest of the batch, this just
+ * does the one connection's work in isolation so it can run concurrently with
+ * every other connection's.
+ */
+async function fetchHoldingsForItem(client, doc, usdCadRate) {
+  const { accessToken, accounts: storedAccounts, institution, enabledAccountIds } = doc.data()
+  // Absent means an older connection made before the picker existed; treat
+  // that as "everything", which is what it was already doing.
+  const isEnabled = (accountId) => !enabledAccountIds || enabledAccountIds.includes(accountId)
+
+  const rows = []
+  const cashEntries = []
+  const connectedAccounts = []
+
+  const holdingsResponse = await client.investmentsHoldingsGet({ access_token: accessToken })
+  const { holdings, securities, accounts } = holdingsResponse.data
+
+  const securityMap = new Map(securities.map((s) => [s.security_id, s]))
+  const accountMap = new Map(accounts.map((a) => [a.account_id, a]))
+
+  for (const holding of holdings) {
+    const security = securityMap.get(holding.security_id)
+    const account = accountMap.get(holding.account_id)
+    if (!security) continue
+    if (!isEnabled(holding.account_id)) continue
+
+    const accountCurrency = accountBaseCurrency(account)
+
+    if (security.type === 'cash' || security.ticker_symbol === 'CUR:CAD' || security.ticker_symbol === 'CUR:USD') {
+      const cashCurrency = String(security.iso_currency_code || accountCurrency).toUpperCase()
+      const statedCashCurrency = canConvert(cashCurrency, accountCurrency, usdCadRate)
+        ? accountCurrency
+        : cashCurrency
+      cashEntries.push({
+        account: mapAccountType(account),
+        accountNumber: accountLabel(account),
+        currency: statedCashCurrency,
+        // `amount` is what a parsed statement calls it, and the only name
+        // the client ever read. Emitting `value` meant every connected cash
+        // balance summed to zero and vanished on import.
+        amount: convert(holding.institution_value || 0, cashCurrency, statedCashCurrency, usdCadRate),
+      })
+      continue
+    }
+
+    const ticker = tickerFor(security)
+    const quantity = holding.quantity || 0
+    // What the security trades in, which is not what the account is
+    // denominated in: a Canadian account holding RKLB reports a USD price
+    // against a CAD balance.
+    const securityCurrency = String(
+      holding.iso_currency_code || security.iso_currency_code || accountCurrency,
+    ).toUpperCase()
+
+    // The currency these figures actually end up in — the account's when the
+    // conversion is available, otherwise the security's. Stating one while
+    // reporting the other is what turned a loss into a profit.
+    const statedCurrency = canConvert(securityCurrency, accountCurrency, usdCadRate)
+      ? accountCurrency
+      : securityCurrency
+
+    const price = convert(holding.institution_price || security.close_price || 0, securityCurrency, statedCurrency, usdCadRate)
+    const marketValue = convert(holding.institution_value || 0, securityCurrency, statedCurrency, usdCadRate)
+      || price * quantity
+    // Plaid states cost basis in the security's currency; a statement states
+    // book value in the account's, and everything downstream assumes the
+    // statement's convention. Converting here keeps one convention per
+    // ledger instead of two.
+    const costBasis = convert(holding.cost_basis || 0, securityCurrency, statedCurrency, usdCadRate)
+    const unrealizedPnl = marketValue - costBasis
+    const unrealizedPnlPct = costBasis > 0 ? ((unrealizedPnl / costBasis) * 100) : 0
+
+    const storedAccount = storedAccounts?.find((a) => a.id === holding.account_id)
+
+    rows.push({
+      'SYMBOL': ticker,
+      'DESCRIPTION': security.name || ticker,
+      // Settled here from what the institution reports, because the name it
+      // gives a CDR need not contain the word.
+      '__isCdr': isCdrSecurity(security),
+      'QUANTITY': quantity,
+      'MARKET PRICE': price,
+      'MARKET VALUE': marketValue,
+      'BOOK VALUE': costBasis,
+      'UNREALIZED GAIN/LOSS': unrealizedPnl,
+      'UNREALIZED GAIN/LOSS %': unrealizedPnlPct,
+      'ACCOUNT TYPE': mapAccountType(storedAccount || account),
+      'ACCOUNT NUMBER': accountLabel(account),
+      // Plaid's own id for the account, which is unique by contract. The
+      // label above is for people; this is what identity is checked on.
+      '__plaidAccountId': account?.account_id || '',
+      // The currency these figures are now stated in. Every consumer reads
+      // this key; the route emitted only CURRENCY, so the live price refresh
+      // could not tell a Canadian account from a US one and so converted
+      // nothing.
+      'ACCOUNT CURRENCY': statedCurrency,
+      'CURRENCY': securityCurrency,
+      '_source': 'plaid',
+      '_institution': institution || 'Connected',
+    })
+  }
+
+  for (const account of accounts) {
+    if (!isEnabled(account.account_id)) continue
+    connectedAccounts.push({
+      id: account.account_id,
+      name: account.official_name || account.name,
+      type: mapAccountType(account),
+      institution: institution || 'Connected',
+      mask: account.mask,
+    })
+  }
+
+  return { rows, cashEntries, connectedAccounts }
+}
+
 async function handleHoldings(req, res) {
   const { userId, itemId } = req.body
   if (!userId) return res.status(400).json({ error: 'userId is required' })
@@ -294,10 +412,6 @@ async function handleHoldings(req, res) {
   }
 
   const client = getPlaidClient()
-  const allRows = []
-  const allCashEntries = []
-  const connectedAccounts = []
-  const errors = []
 
   // An import brings in the connection the person just linked, so it asks for
   // that one. Without the filter this returned every stored item's holdings, so
@@ -312,120 +426,38 @@ async function handleHoldings(req, res) {
 
   const usdCadRate = await getUsdCadRate()
 
-  for (const doc of docs) {
-    const { accessToken, accounts: storedAccounts, institution, enabledAccountIds } = doc.data()
-    // Absent means an older connection made before the picker existed; treat
-    // that as "everything", which is what it was already doing.
-    const isEnabled = (accountId) => !enabledAccountIds || enabledAccountIds.includes(accountId)
+  // Each connection is an independent Plaid round trip against a single
+  // function timeout. Run them concurrently rather than one after another —
+  // with one connection (the only case any caller hits today) this changes
+  // nothing; with several, it is the difference between the slowest round
+  // trip and their sum. allSettled rather than all so one failed connection
+  // is reported (see #55) instead of dropping every other one with it.
+  const settled = await Promise.allSettled(
+    docs.map((doc) => fetchHoldingsForItem(client, doc, usdCadRate)),
+  )
 
-    try {
-      const holdingsResponse = await client.investmentsHoldingsGet({ access_token: accessToken })
-      const { holdings, securities, accounts } = holdingsResponse.data
+  const allRows = []
+  const allCashEntries = []
+  const connectedAccounts = []
+  const errors = []
 
-      const securityMap = new Map(securities.map((s) => [s.security_id, s]))
-      const accountMap = new Map(accounts.map((a) => [a.account_id, a]))
-
-      for (const holding of holdings) {
-        const security = securityMap.get(holding.security_id)
-        const account = accountMap.get(holding.account_id)
-        if (!security) continue
-        if (!isEnabled(holding.account_id)) continue
-
-        const accountCurrency = accountBaseCurrency(account)
-
-        if (security.type === 'cash' || security.ticker_symbol === 'CUR:CAD' || security.ticker_symbol === 'CUR:USD') {
-          const cashCurrency = String(security.iso_currency_code || accountCurrency).toUpperCase()
-          const statedCashCurrency = canConvert(cashCurrency, accountCurrency, usdCadRate)
-            ? accountCurrency
-            : cashCurrency
-          allCashEntries.push({
-            account: mapAccountType(account),
-            accountNumber: accountLabel(account),
-            currency: statedCashCurrency,
-            // `amount` is what a parsed statement calls it, and the only name
-            // the client ever read. Emitting `value` meant every connected cash
-            // balance summed to zero and vanished on import.
-            amount: convert(holding.institution_value || 0, cashCurrency, statedCashCurrency, usdCadRate),
-          })
-          continue
-        }
-
-        const ticker = tickerFor(security)
-        const quantity = holding.quantity || 0
-        // What the security trades in, which is not what the account is
-        // denominated in: a Canadian account holding RKLB reports a USD price
-        // against a CAD balance.
-        const securityCurrency = String(
-          holding.iso_currency_code || security.iso_currency_code || accountCurrency,
-        ).toUpperCase()
-
-        // The currency these figures actually end up in — the account's when the
-        // conversion is available, otherwise the security's. Stating one while
-        // reporting the other is what turned a loss into a profit.
-        const statedCurrency = canConvert(securityCurrency, accountCurrency, usdCadRate)
-          ? accountCurrency
-          : securityCurrency
-
-        const price = convert(holding.institution_price || security.close_price || 0, securityCurrency, statedCurrency, usdCadRate)
-        const marketValue = convert(holding.institution_value || 0, securityCurrency, statedCurrency, usdCadRate)
-          || price * quantity
-        // Plaid states cost basis in the security's currency; a statement states
-        // book value in the account's, and everything downstream assumes the
-        // statement's convention. Converting here keeps one convention per
-        // ledger instead of two.
-        const costBasis = convert(holding.cost_basis || 0, securityCurrency, statedCurrency, usdCadRate)
-        const unrealizedPnl = marketValue - costBasis
-        const unrealizedPnlPct = costBasis > 0 ? ((unrealizedPnl / costBasis) * 100) : 0
-
-        const storedAccount = storedAccounts?.find((a) => a.id === holding.account_id)
-
-        allRows.push({
-          'SYMBOL': ticker,
-          'DESCRIPTION': security.name || ticker,
-          // Settled here from what the institution reports, because the name it
-          // gives a CDR need not contain the word.
-          '__isCdr': isCdrSecurity(security),
-          'QUANTITY': quantity,
-          'MARKET PRICE': price,
-          'MARKET VALUE': marketValue,
-          'BOOK VALUE': costBasis,
-          'UNREALIZED GAIN/LOSS': unrealizedPnl,
-          'UNREALIZED GAIN/LOSS %': unrealizedPnlPct,
-          'ACCOUNT TYPE': mapAccountType(storedAccount || account),
-          'ACCOUNT NUMBER': accountLabel(account),
-          // Plaid's own id for the account, which is unique by contract. The
-          // label above is for people; this is what identity is checked on.
-          '__plaidAccountId': account?.account_id || '',
-          // The currency these figures are now stated in. Every consumer reads
-          // this key; the route emitted only CURRENCY, so the live price refresh
-          // could not tell a Canadian account from a US one and so converted
-          // nothing.
-          'ACCOUNT CURRENCY': statedCurrency,
-          'CURRENCY': securityCurrency,
-          '_source': 'plaid',
-          '_institution': institution || 'Connected',
-        })
-      }
-
-      for (const account of accounts) {
-        if (!isEnabled(account.account_id)) continue
-        connectedAccounts.push({
-          id: account.account_id,
-          name: account.official_name || account.name,
-          type: mapAccountType(account),
-          institution: institution || 'Connected',
-          mask: account.mask,
-        })
-      }
-    } catch (err) {
-      const message = err.response?.data?.error_message || err.message
-      console.error(`[plaid] holdings failed for item ${doc.id}:`, err.response?.data || err.message)
-      // A failed fetch used to disappear into this log line while the response
-      // still came back 200 — the client had no way to tell "nothing here" from
-      // "this one didn't load". Reported here instead, so it can say so.
-      errors.push({ itemId: doc.id, institution: institution || 'Connected', message })
+  settled.forEach((result, i) => {
+    const doc = docs[i]
+    if (result.status === 'fulfilled') {
+      allRows.push(...result.value.rows)
+      allCashEntries.push(...result.value.cashEntries)
+      connectedAccounts.push(...result.value.connectedAccounts)
+      return
     }
-  }
+
+    const err = result.reason
+    const message = err.response?.data?.error_message || err.message
+    console.error(`[plaid] holdings failed for item ${doc.id}:`, err.response?.data || err.message)
+    // A failed fetch used to disappear into this log line while the response
+    // still came back 200 — the client had no way to tell "nothing here" from
+    // "this one didn't load". Reported here instead, so it can say so.
+    errors.push({ itemId: doc.id, institution: doc.data().institution || 'Connected', message })
+  })
 
   return res.status(200).json({ rows: allRows, cashEntries: allCashEntries, connectedAccounts, errors })
 }

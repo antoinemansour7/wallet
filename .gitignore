@@ -47,3 +47,6 @@ coverage/
 # Obsidian per-machine UI state — changes on every open
 walletAI-docs/.obsidian/workspace.json
 walletAI-docs/.obsidian/graph.json
+
+# Playwright MCP's own scratch output (snapshots, console logs)
+.playwright-mcp/
