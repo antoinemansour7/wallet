@@ -24,7 +24,6 @@ import AccountsView from './portfolio/AccountsView'
 import AccountDetailModal from './portfolio/AccountDetailModal'
 import AddAccountModal from './portfolio/AddAccountModal'
 import EmptyState from './portfolio/EmptyState'
-import TradeView from './portfolio/TradeView'
 
 export default function Portfolio() {
   const [rows, setRows]                   = useState([])
@@ -583,9 +582,6 @@ export default function Portfolio() {
 
         {visibleView === 'holdings' && (
           <HoldingsView rows={rows} accounts={accountEntries} onUploadClick={() => openAdd()} />
-        )}
-        {visibleView === 'trade' && (
-          <TradeView rows={rows} />
         )}
         {visibleView === 'add' && (
           <AccountsView
