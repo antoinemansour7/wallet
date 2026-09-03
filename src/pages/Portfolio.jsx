@@ -3,6 +3,7 @@ import { parseSpreadsheet } from '../utils/parseSpreadsheet'
 import { enrichRowsWithLivePrices } from '../utils/livePrices'
 import { clearPortfolio, loadLocalPortfolio, loadSavedPortfolioWithTimeout, savePortfolio } from '../utils/portfolioStorage'
 import { recordIntradayPoint, saveDailySnapshot } from '../utils/portfolioHistory'
+import { callPlaid } from '../utils/plaidClient'
 import { useAuth } from '../context/AuthContext'
 import ErrorBoundary, { PanelFallback } from '../components/ErrorBoundary'
 import { buildAccountPortfolio, cashEntryAmount, flattenAccountRows, getAccountEntries, hasAccountPortfolio } from '../utils/accountPortfolio'
@@ -380,15 +381,11 @@ export default function Portfolio() {
   const disconnectPlaid = useCallback(async (account, sourceId) => {
     if (!String(sourceId).startsWith('plaid:') || IS_PREVIEW) return
     try {
-      const res = await fetch('/api/plaid', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'disconnect',
-          userId: uid,
-          itemId: plaidItemIdFor(account, sourceId),
-          institution: sourceId.slice('plaid:'.length),
-        }),
+      const res = await callPlaid({
+        action: 'disconnect',
+        userId: uid,
+        itemId: plaidItemIdFor(account, sourceId),
+        institution: sourceId.slice('plaid:'.length),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -497,24 +494,16 @@ export default function Portfolio() {
         return
       }
 
-      const selectRes = await fetch('/api/plaid', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'select-accounts', userId: uid, itemId: discovered.itemId, accountIds,
-        }),
+      const selectRes = await callPlaid({
+        action: 'select-accounts', userId: uid, itemId: discovered.itemId, accountIds,
       })
       const selectData = await selectRes.json()
       if (!selectRes.ok) throw new Error(selectData.error || 'Could not save your selection')
 
-      const holdingsRes = await fetch('/api/plaid', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // Scoped to the connection just linked: without it the route replies
-        // with every stored item's holdings, so a retried link reports each
-        // holding twice.
-        body: JSON.stringify({ action: 'holdings', userId: uid, itemId: discovered.itemId }),
-      })
+      // Scoped to the connection just linked: without it the route replies
+      // with every stored item's holdings, so a retried link reports each
+      // holding twice.
+      const holdingsRes = await callPlaid({ action: 'holdings', userId: uid, itemId: discovered.itemId })
       const holdingsData = await holdingsRes.json()
       if (!holdingsRes.ok) throw new Error(holdingsData.error || 'Holdings fetch failed')
 

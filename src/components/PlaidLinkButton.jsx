@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { usePlaidLink } from 'react-plaid-link'
 import { IS_PREVIEW, PREVIEW_PLAID } from '../preview/mockMode'
+import { callPlaid } from '../utils/plaidClient'
 
 export default function PlaidLinkButton({ userId, onAccounts, onConnecting, onError }) {
   const [linkToken, setLinkToken] = useState(null)
@@ -12,11 +13,7 @@ export default function PlaidLinkButton({ userId, onAccounts, onConnecting, onEr
     if (!userId) return
     let cancelled = false
 
-    fetch('/api/plaid', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'link-token', userId }),
-    })
+    callPlaid({ action: 'link-token', userId })
       .then((r) => r.json())
       .then((data) => {
         if (!cancelled && data.link_token) setLinkToken(data.link_token)
@@ -33,15 +30,11 @@ export default function PlaidLinkButton({ userId, onAccounts, onConnecting, onEr
     setLoading(true)
     onConnecting?.()
     try {
-      const exchangeRes = await fetch('/api/plaid', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'exchange-token',
-          publicToken,
-          userId,
-          institutionName: metadata.institution?.name || null,
-        }),
+      const exchangeRes = await callPlaid({
+        action: 'exchange-token',
+        publicToken,
+        userId,
+        institutionName: metadata.institution?.name || null,
       })
       const exchangeData = await exchangeRes.json()
       if (!exchangeRes.ok) throw new Error(exchangeData.error || 'Exchange failed')
