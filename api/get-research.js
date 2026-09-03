@@ -1,5 +1,6 @@
 import { Redis } from '@upstash/redis'
 import { getMarketRegime } from '../src/server/marketRegime.js'
+import { withRunLog } from '../src/server/runLog.js'
 
 const RESEARCH_KEY = 'research:latest'
 const EMPTY_RESPONSE = { empty: true, picks: [], articles: [], signalCount: 0, tweetCount: 0, queryCount: 0, generatedAt: null, errors: [] }
@@ -29,7 +30,7 @@ async function safeRegime() {
   }
 }
 
-export default async function handler(req, res) {
+async function realHandler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' })
   }
@@ -63,3 +64,5 @@ export default async function handler(req, res) {
     return res.status(200).json(EMPTY_RESPONSE)
   }
 }
+
+export default withRunLog('get-research', realHandler)

@@ -45,6 +45,14 @@ vi.mock('../src/server/marketQuotes.js', () => ({
   fetchMarketQuotes: vi.fn().mockResolvedValue({ quotes: [] }),
 }))
 
+// plaid.js's default export is now wrapped in withRunLog (#56), which reaches
+// real Upstash/Slack credentials leaked into process.env from .env via
+// vite.config.js's loadEnv side effect. A passthrough keeps every test here
+// from touching that real infrastructure.
+vi.mock('../src/server/runLog.js', () => ({
+  withRunLog: (job, handler) => handler,
+}))
+
 let handler
 
 beforeEach(async () => {

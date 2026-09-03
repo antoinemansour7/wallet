@@ -1,5 +1,17 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
+// Every route under test here is now wrapped in withRunLog (#56), which calls
+// out to real Upstash/Slack credentials leaked into process.env from .env via
+// vite.config.js's loadEnv side effect (see node-version-blocks-test-suite
+// memory / the #54 PR). A passthrough here keeps that entirely out of any
+// test in this file, rather than chasing env-var deletions across every
+// describe block for every real module withRunLog might touch.
+vi.mock('../server/runLog.js', () => ({
+  withRunLog: (job, handler) => handler,
+  recordRun: vi.fn(),
+  getRecentRuns: vi.fn().mockResolvedValue([]),
+}))
+
 // Helper to create mock req/res
 function mockReq(method = 'GET', body = null, headers = {}) {
   return { method, body, headers }
@@ -388,5 +400,204 @@ describe('api/extract-pdf', () => {
 
     expect(res.statusCode).toBe(429)
     expect(mockExtract).not.toHaveBeenCalled()
+  })
+})
+
+// ─── get-research-history tests ────────────────────────────────────────────
+// No coverage existed for this route before #56 wrapped it in withRunLog;
+// added alongside that change so the wrap is verified against real behaviour,
+// not just syntax-checked.
+
+describe('api/get-research-history', () => {
+  beforeEach(() => {
+    delete process.env.UPSTASH_REDIS_REST_URL
+    delete process.env.UPSTASH_REDIS_REST_TOKEN
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('rejects non-GET requests', async () => {
+    const mod = await import('../../api/get-research-history.js')
+    const res = mockRes()
+    await mod.default(mockReq('POST'), res)
+    expect(res.statusCode).toBe(405)
+  })
+
+  it('returns empty entries when Redis is not configured', async () => {
+    const mod = await import('../../api/get-research-history.js')
+    const res = mockRes()
+    await mod.default(mockReq('GET'), res)
+    expect(res.statusCode).toBe(200)
+    expect(res.body.entries).toEqual([])
+  })
+
+  it('returns entries with picks from history', async () => {
+    process.env.UPSTASH_REDIS_REST_URL = 'http://test'
+    process.env.UPSTASH_REDIS_REST_TOKEN = 'token'
+    vi.doMock('@upstash/redis', () => ({
+      Redis: {
+        fromEnv: () => ({
+          lrange: vi.fn().mockResolvedValue(['2026-05-01']),
+          get: vi.fn().mockResolvedValue({
+            generatedAt: '2026-05-01T00:00:00Z',
+            signalCount: 10,
+            picks: [{ ticker: 'AAPL', conviction: 8, reason: 'x', setupType: 'breakout', price: 150 }],
+          }),
+        }),
+      },
+    }))
+    const mod = await import('../../api/get-research-history.js')
+
+    const res = mockRes()
+    await mod.default(mockReq('GET'), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.entries).toHaveLength(1)
+    expect(res.body.entries[0].picks[0].ticker).toBe('AAPL')
+  })
+})
+
+// ─── signal-history tests ───────────────────────────────────────────────────
+
+describe('api/signal-history', () => {
+  beforeEach(() => {
+    delete process.env.UPSTASH_REDIS_REST_URL
+    delete process.env.UPSTASH_REDIS_REST_TOKEN
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('rejects non-GET requests', async () => {
+    const mod = await import('../../api/signal-history.js')
+    const res = mockRes()
+    await mod.default(mockReq('POST'), res)
+    expect(res.statusCode).toBe(405)
+  })
+
+  it('returns 503 when Redis is not configured', async () => {
+    const mod = await import('../../api/signal-history.js')
+    const res = mockRes()
+    await mod.default(mockReq('GET'), res)
+    expect(res.statusCode).toBe(503)
+  })
+
+  it('returns aggregate stats built from stored picks', async () => {
+    process.env.UPSTASH_REDIS_REST_URL = 'http://test'
+    process.env.UPSTASH_REDIS_REST_TOKEN = 'token'
+    vi.doMock('@upstash/redis', () => ({
+      Redis: {
+        fromEnv: () => ({
+          lrange: vi.fn().mockResolvedValue(['2026-05-01']),
+          get: vi.fn().mockResolvedValue({
+            generatedAt: '2026-05-01T00:00:00Z',
+            signalCount: 10,
+            picks: [{ ticker: 'AAPL', conviction: 8, setupType: 'breakout', price: 150 }],
+          }),
+        }),
+      },
+    }))
+    const mod = await import('../../api/signal-history.js')
+
+    const res = mockRes()
+    await mod.default(mockReq('GET'), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.stats.totalPicks).toBe(1)
+    expect(res.body.stats.topRepeaters[0]).toEqual({ ticker: 'AAPL', count: 1 })
+  })
+})
+
+// ─── slack-events tests ─────────────────────────────────────────────────────
+// Signature verification needs a real HMAC and a live timestamp to exercise
+// meaningfully, so coverage here stays to the branches reachable without it —
+// still enough to confirm the withRunLog wrap didn't change routing.
+
+describe('api/slack-events', () => {
+  beforeEach(() => {
+    delete process.env.UPSTASH_REDIS_REST_URL
+    delete process.env.UPSTASH_REDIS_REST_TOKEN
+    delete process.env.SLACK_SIGNING_SECRET
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('rejects non-POST requests', async () => {
+    const mod = await import('../../api/slack-events.js')
+    const res = mockRes()
+    await mod.default(mockReq('GET'), res)
+    expect(res.statusCode).toBe(405)
+  })
+
+  it('answers the URL verification challenge before checking a signature', async () => {
+    const mod = await import('../../api/slack-events.js')
+    const res = mockRes()
+    await mod.default(mockReq('POST', { type: 'url_verification', challenge: 'abc123' }), res)
+    expect(res.statusCode).toBe(200)
+    expect(res.body.challenge).toBe('abc123')
+  })
+
+  it('rejects an unsigned event when a signing secret is configured', async () => {
+    process.env.SLACK_SIGNING_SECRET = 'test-secret'
+    const mod = await import('../../api/slack-events.js')
+    const res = mockRes()
+    await mod.default(mockReq('POST', { event: { type: 'message', text: 'hi' } }), res)
+    expect(res.statusCode).toBe(401)
+  })
+})
+
+// ─── refresh-prices tests ───────────────────────────────────────────────────
+
+describe('api/refresh-prices', () => {
+  beforeEach(() => {
+    delete process.env.CRON_SECRET
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('rejects unsupported methods', async () => {
+    vi.doMock('../server/marketQuotes.js', () => ({ refreshKnownMarketQuotes: vi.fn() }))
+    const mod = await import('../../api/refresh-prices.js')
+    const res = mockRes()
+    await mod.default(mockReq('DELETE'), res)
+    expect(res.statusCode).toBe(405)
+  })
+
+  it('rejects a request without the cron secret when one is configured', async () => {
+    process.env.CRON_SECRET = 'shh'
+    vi.doMock('../server/marketQuotes.js', () => ({ refreshKnownMarketQuotes: vi.fn() }))
+    const mod = await import('../../api/refresh-prices.js')
+    const res = mockRes()
+    await mod.default(mockReq('GET'), res)
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('refreshes quotes and reports the outcome', async () => {
+    const mockRefresh = vi.fn().mockResolvedValue({
+      cache: { refreshed: 5 },
+      quotes: [{ symbol: 'AAPL' }],
+      missing: [],
+      errors: [],
+    })
+    vi.doMock('../server/marketQuotes.js', () => ({ refreshKnownMarketQuotes: mockRefresh }))
+    const mod = await import('../../api/refresh-prices.js')
+
+    const res = mockRes()
+    await mod.default(mockReq('GET'), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.refreshed).toBe(5)
+    expect(res.body.quotes).toBe(1)
   })
 })

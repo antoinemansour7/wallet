@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import { Redis } from '@upstash/redis'
 import { handleSlackMessage } from '../src/server/agents/slackAgent.js'
+import { withRunLog } from '../src/server/runLog.js'
 
 function getRedis() {
   if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
@@ -28,7 +29,7 @@ function verifySlackRequest(req) {
   return crypto.timingSafeEqual(Buffer.from(mySignature), Buffer.from(slackSig))
 }
 
-export default async function handler(req, res) {
+async function realHandler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
   }
@@ -120,3 +121,5 @@ export default async function handler(req, res) {
 
   return res.status(200).json({ ok: true })
 }
+
+export default withRunLog('slack-events', realHandler)

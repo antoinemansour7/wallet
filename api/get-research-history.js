@@ -1,4 +1,5 @@
 import { Redis } from '@upstash/redis'
+import { withRunLog } from '../src/server/runLog.js'
 
 const HISTORY_INDEX_KEY = 'research:history-index'
 
@@ -9,7 +10,7 @@ function getRedis() {
   return null
 }
 
-export default async function handler(req, res) {
+async function realHandler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' })
   }
@@ -56,3 +57,5 @@ export default async function handler(req, res) {
     return res.status(200).json({ entries: [] })
   }
 }
+
+export default withRunLog('get-research-history', realHandler)

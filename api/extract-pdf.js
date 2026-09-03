@@ -1,5 +1,6 @@
 import { extractPositionsWithGroq } from '../src/server/extractPositions.js'
 import { isRateLimited } from '../src/server/rateLimit.js'
+import { withRunLog } from '../src/server/runLog.js'
 
 // buildPrompt() already truncates at 120,000 characters before it reaches
 // Groq, but silently truncating still pays for the call. A statement text
@@ -13,7 +14,7 @@ function getBody(req) {
   return req.body
 }
 
-export default async function handler(req, res) {
+async function realHandler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
   }
@@ -35,3 +36,5 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: err.message })
   }
 }
+
+export default withRunLog('extract-pdf', realHandler)

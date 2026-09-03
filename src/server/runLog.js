@@ -79,3 +79,35 @@ export async function getRecentRuns(limit = 30) {
     try { return typeof entry === 'string' ? JSON.parse(entry) : entry } catch { return null }
   }).filter(Boolean)
 }
+
+/**
+ * Extend the same pattern to a request-driven route instead of a cron job.
+ * recordRun already does the work; this just calls it at the right moments
+ * around a Vercel handler, so nine call sites become the same wrapper instead
+ * of nine slightly different copies of the same try/catch/finally.
+ *
+ * Most of these handlers already catch their own errors and answer with a
+ * non-2xx status rather than throwing, so a plain try/catch around the call
+ * would rarely see anything — the response's own status is what actually
+ * says whether the request succeeded. A 4xx (bad input, unauthorized, rate
+ * limited) is ordinary traffic, not a failure worth a Slack alert; a 5xx or
+ * an uncaught throw is the same class of thing #33 already treats as
+ * cron-worthy, so that's the line this draws too.
+ */
+export function withRunLog(job, handler) {
+  return async function wrapped(req, res) {
+    const startedAt = Date.now()
+    try {
+      const result = await handler(req, res)
+      const statusCode = res.statusCode ?? 200
+      const errors = statusCode >= 500
+        ? [{ step: job, error: `Handler returned ${statusCode}` }]
+        : []
+      await recordRun(job, startedAt, { errors, statusCode })
+      return result
+    } catch (err) {
+      await recordRun(job, startedAt, { errors: [{ step: job, error: err.message }], statusCode: 500 })
+      throw err
+    }
+  }
+}
