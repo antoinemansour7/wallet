@@ -311,7 +311,6 @@ describe('api/position-sizing', () => {
     const statuses = []
     for (let i = 0; i < 3; i += 1) {
       const res = mockRes()
-      // eslint-disable-next-line no-await-in-loop
       await mod.default(mockReq('POST', body), res)
       statuses.push(res.statusCode)
     }

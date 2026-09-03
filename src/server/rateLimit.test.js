@@ -79,7 +79,6 @@ describe('isRateLimited', () => {
 
     const results = []
     for (let i = 0; i < 3; i += 1) {
-      // eslint-disable-next-line no-await-in-loop
       results.push(await isRateLimited(req, res, 'test-burst', { requests: 2, window: '1 m' }))
     }
 
