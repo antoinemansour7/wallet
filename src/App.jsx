@@ -1,5 +1,6 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
+import ErrorBoundary, { PageFallback } from './components/ErrorBoundary'
 import ProtectedRoute from './components/ProtectedRoute'
 import Navbar from './components/Navbar'
 import Login from './pages/Login'
@@ -8,12 +9,21 @@ import Research from './pages/Research'
 import History from './pages/History'
 
 function AppLayout({ children }) {
+  // Keyed on the route: a crash on Portfolio should not follow you to
+  // Research, and navigating back to the page that crashed is itself a retry
+  // rather than a screen stuck showing the old error forever.
+  const { pathname } = useLocation()
+
   return (
     <>
       <Navbar />
       {/* Only offset needed is for the mobile bottom tab bar — the top bar is
           in normal flow, so content gets the full window width on desktop. */}
-      <main className="pb-20 lg:pb-0">{children}</main>
+      <main className="pb-20 lg:pb-0">
+        <ErrorBoundary context="page" resetKey={pathname} fallback={PageFallback}>
+          {children}
+        </ErrorBoundary>
+      </main>
     </>
   )
 }
