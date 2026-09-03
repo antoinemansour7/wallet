@@ -167,7 +167,7 @@
   }
 }
 
-/* ── Wealthsimple-style motion ──────────────────────────────────────────── */
+/* ── WallAI motion system ───────────────────────────────────────────────── */
 
 /*
  * WallAI moves to explain change, never to decorate or stage a screen.
@@ -184,6 +184,50 @@
 }
 .motion-enter {
   animation: motion-enter var(--motion-duration-long) var(--motion-ease) both;
+}
+
+/* Dialogs are the one place a full surface arrives and leaves. The backdrop
+   fades while the phone sheet rises a little; desktop settles over a shorter
+   distance. Neither animation changes layout or stages the content inside. */
+@keyframes modal-backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes modal-backdrop-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+@keyframes modal-panel-in {
+  from { opacity: 0; transform: translateY(var(--modal-travel, 14px)) scale(0.99); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes modal-panel-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateY(var(--modal-travel, 14px)) scale(0.99); }
+}
+@keyframes modal-step-in {
+  from { opacity: 0.7; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.modal-backdrop[data-state="open"] {
+  animation: modal-backdrop-in var(--motion-duration-long) var(--motion-ease) both;
+}
+.modal-backdrop[data-state="closing"] {
+  animation: modal-backdrop-out var(--motion-duration-long) var(--motion-ease) both;
+}
+.modal-panel[data-state="open"] {
+  animation: modal-panel-in var(--motion-duration-long) var(--motion-ease) both;
+}
+.modal-panel[data-state="closing"] {
+  animation: modal-panel-out var(--motion-duration-long) var(--motion-ease) both;
+}
+.modal-step {
+  animation: modal-step-in var(--motion-duration-long) var(--motion-ease) both;
+}
+
+@media (min-width: 640px) {
+  .modal-panel { --modal-travel: 8px; }
 }
 
 @keyframes motion-value-change {

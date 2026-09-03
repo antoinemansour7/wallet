@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Modal, { ModalClose } from '../../components/Modal'
 import CompanyLogo from '../../components/CompanyLogo'
 import { fmtCurrency } from '../../utils/portfolioStats'
@@ -105,13 +105,13 @@ function NoImports({ account, busy, confirming, onStart, onCancel, onConfirm }) 
   return (
     <div className="rounded-2xl border border-ink/[0.08] px-4 py-4">
       {confirming ? (
-        <>
+        <div className="modal-step">
           <p className="text-[13px] leading-relaxed text-ink/65">
             Deletes account {account.accountNumber} and the {fmtCurrency(account.cash)} recorded
             against it. There are no holdings left in it.
           </p>
           <ConfirmActions busy={busy} onCancel={onCancel} onConfirm={onConfirm} label="Remove account" />
-        </>
+        </div>
       ) : (
         <>
           <p className="text-[13px] leading-relaxed text-ink/55">
@@ -153,7 +153,7 @@ function ConfirmRemove({ feed, total, accountNumber, lastOne, onCancel, onConfir
   const n = `${feed.positions} holding${feed.positions === 1 ? '' : 's'}`
 
   return (
-    <div className="px-4 pb-4 pl-4 pt-0.5 sm:pl-[66px]">
+    <div className="modal-step px-4 pb-4 pl-4 pt-0.5 sm:pl-[66px]">
       {/* Say what is deleted, name it, and name what it takes with it. The old
           wording — "5 holdings leave this account", "the account goes with it" —
           described a deletion as a departure and never said where anything
@@ -185,6 +185,9 @@ function ConfirmRemove({ feed, total, accountNumber, lastOne, onCancel, onConfir
 export default function AccountDetailModal({ open, account, onClose, onRemoveSource, onRemoveAccount, busy }) {
   const [confirming, setConfirming] = useState(null)
   const [confirmingAccount, setConfirmingAccount] = useState(false)
+  const lastAccount = useRef(null)
+  if (account) lastAccount.current = account
+  const displayedAccount = account ?? lastAccount.current
 
   // The panel is mounted for the life of the page, so a half-answered
   // confirmation would otherwise follow you into the next account it opens —
@@ -192,28 +195,28 @@ export default function AccountDetailModal({ open, account, onClose, onRemoveSou
   useEffect(() => {
     setConfirming(null)
     setConfirmingAccount(false)
-  }, [open, account?.accountNumber])
+  }, [open, displayedAccount?.accountNumber])
 
   const feeds = useMemo(() => {
-    if (!account) return []
-    return accountSources(account).map((feed) => ({
+    if (!displayedAccount) return []
+    return accountSources(displayedAccount).map((feed) => ({
       ...feed,
-      value: (account.positions ?? [])
+      value: (displayedAccount.positions ?? [])
         .filter((p) => positionSource(p) === feed.id)
         .reduce((sum, p) => sum + Number(p['MARKET VALUE'] ?? 0), 0),
     }))
-  }, [account])
+  }, [displayedAccount])
 
   const top = useMemo(() => (
-    [...(account?.positions ?? [])]
+    [...(displayedAccount?.positions ?? [])]
       .sort((a, b) => Number(b['MARKET VALUE'] ?? 0) - Number(a['MARKET VALUE'] ?? 0))
       .slice(0, 8)
-  ), [account])
+  ), [displayedAccount])
 
-  if (!account) return null
+  if (!displayedAccount) return null
 
-  const total = account.stats?.totalMarketValue ?? 0
-  const holdings = account.positions.length
+  const total = displayedAccount.stats?.totalMarketValue ?? 0
+  const holdings = displayedAccount.positions.length
 
   return (
     <Modal open={open} onClose={onClose} labelledBy="account-detail-title">
@@ -222,7 +225,7 @@ export default function AccountDetailModal({ open, account, onClose, onRemoveSou
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-5 pt-5">
         <div className="px-1 pb-6">
           <h2 id="account-detail-title" className="pr-10 text-[13.5px] font-medium text-ink/45">
-            Account {account.accountNumber}
+            Account {displayedAccount.accountNumber}
           </h2>
           <p className="mt-1.5 font-display text-[34px] font-medium leading-none tracking-[-0.035em] tabular text-ink">
             {fmtCurrency(total)}
@@ -242,7 +245,7 @@ export default function AccountDetailModal({ open, account, onClose, onRemoveSou
             )}
             <p className="text-[13.5px] text-ink/45">
               {holdings} holding{holdings === 1 ? '' : 's'}
-              {account.cash !== 0 && ` · ${fmtCurrency(account.cash)} cash`}
+              {displayedAccount.cash !== 0 && ` · ${fmtCurrency(displayedAccount.cash)} cash`}
             </p>
           </div>
         </div>
@@ -253,13 +256,13 @@ export default function AccountDetailModal({ open, account, onClose, onRemoveSou
 
         {feeds.length === 0 ? (
           <NoImports
-            account={account}
+            account={displayedAccount}
             busy={busy}
             confirming={confirmingAccount}
             onStart={() => setConfirmingAccount(true)}
             onCancel={() => setConfirmingAccount(false)}
             onConfirm={async () => {
-              await onRemoveAccount?.(account.accountNumber)
+              await onRemoveAccount?.(displayedAccount.accountNumber)
               setConfirmingAccount(false)
             }}
           />
@@ -280,12 +283,12 @@ export default function AccountDetailModal({ open, account, onClose, onRemoveSou
                   <ConfirmRemove
                     feed={feed}
                     total={total}
-                    accountNumber={account.accountNumber}
+                    accountNumber={displayedAccount.accountNumber}
                     lastOne={feeds.length === 1}
                     busy={busy}
                     onCancel={() => setConfirming(null)}
                     onConfirm={async () => {
-                      await onRemoveSource?.(account.accountNumber, feed.id)
+                      await onRemoveSource?.(displayedAccount.accountNumber, feed.id)
                       setConfirming(null)
                     }}
                   />

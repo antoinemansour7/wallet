@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 // A task that begins and ends belongs in an overlay, not on a page. Rendered
@@ -7,13 +7,32 @@ import { createPortal } from 'react-dom'
 // page behind cannot be scrolled away underneath.
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])'
+// Keep this in sync with --motion-duration-long. The timeout is only a safety
+// net for browsers that do not dispatch animationend (for example, when a tab
+// is backgrounded while the sheet closes).
+const MODAL_EXIT_MS = 300
 
 export default function Modal({ open, onClose, labelledBy, children, className = '' }) {
   const panelRef = useRef(null)
   const restoreTo = useRef(null)
+  const [present, setPresent] = useState(open)
+
+  // Closing is still a state the dialog can render. Keeping it in the portal
+  // for one motion beat lets the sheet settle away instead of disappearing.
+  useEffect(() => {
+    if (open) {
+      setPresent(true)
+      return undefined
+    }
+    if (!present) return undefined
+
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    const timeout = window.setTimeout(() => setPresent(false), reducedMotion ? 0 : MODAL_EXIT_MS)
+    return () => window.clearTimeout(timeout)
+  }, [open, present])
 
   useEffect(() => {
-    if (!open) return undefined
+    if (!open || !present) return undefined
 
     restoreTo.current = document.activeElement
     const { overflow } = document.body.style
@@ -43,15 +62,22 @@ export default function Modal({ open, onClose, labelledBy, children, className =
       document.body.style.overflow = overflow
       restoreTo.current?.focus?.()
     }
-  }, [open, onClose])
+  }, [open, onClose, present])
 
-  if (!open) return null
+  if (!present) return null
+
+  const state = open ? 'open' : 'closing'
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+    <div
+      className={`fixed inset-0 z-50 flex items-end justify-center sm:items-center ${open ? '' : 'pointer-events-none'}`}
+      data-state={state}
+      aria-hidden={open ? undefined : 'true'}
+    >
       <div
         className="modal-backdrop absolute inset-0 bg-black/70 backdrop-blur-sm"
-        onClick={onClose}
+        data-state={state}
+        onClick={open ? onClose : undefined}
         aria-hidden="true"
       />
       <div
@@ -60,6 +86,10 @@ export default function Modal({ open, onClose, labelledBy, children, className =
         aria-modal="true"
         aria-labelledby={labelledBy}
         tabIndex={-1}
+        data-state={state}
+        onAnimationEnd={(event) => {
+          if (!open && event.target === event.currentTarget) setPresent(false)
+        }}
         // Full width on a phone so it reads as a sheet, centred and contained
         // above that. Capped by viewport height so a long list scrolls inside
         // the panel rather than pushing the actions off screen.

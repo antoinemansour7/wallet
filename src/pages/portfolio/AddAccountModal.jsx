@@ -129,7 +129,7 @@ function Changes({ preview, open, onToggle }) {
       </button>
 
       {open && (
-        <div className="mt-1.5">
+        <div className="modal-step mt-1.5">
           {lines.map((l) => (
             <div key={l.k} className="flex items-baseline gap-3 py-1.5">
               <span className="w-[68px] shrink-0 truncate text-[13.5px] font-medium text-ink/85">{l.symbol}</span>
@@ -261,7 +261,7 @@ export default function AddAccountModal({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-5">
         {loading && (
-          <div className="flex flex-col items-center py-16">
+          <div className="modal-step flex flex-col items-center py-16">
             <div className="relative h-8 w-8">
               <div className="absolute inset-0 rounded-full border-2 border-ink/[0.09]" />
               <div className="absolute inset-0 animate-spin rounded-full border-2 border-ink/50 border-t-transparent" />
@@ -272,7 +272,7 @@ export default function AddAccountModal({
 
         {/* Which accounts to import */}
         {!loading && discovered && (
-          <>
+          <div className="modal-step">
             <Group className="mt-2">
               {discovered.accounts.map((a) => (
                 <AccountChoice
@@ -288,12 +288,12 @@ export default function AddAccountModal({
               Only what you tick is read. Your bank may require connecting other
               accounts — they stay out of WallAI.
             </p>
-          </>
+          </div>
         )}
 
         {/* Pick a source */}
         {!loading && !pending && !discovered && !mode && (
-          <Group className="mt-2">
+          <Group className="modal-step mt-2">
             <Option
               icon={<IconStatement />}
               title="Import a statement"
@@ -315,7 +315,7 @@ export default function AddAccountModal({
             onDragOver={onDragOver}
             onDragLeave={onDragLeave}
             onDrop={onDrop}
-            className={`mt-2 cursor-pointer rounded-2xl border border-dashed px-6 py-14 text-center transition-colors ${
+            className={`modal-step mt-2 cursor-pointer rounded-2xl border border-dashed px-6 py-14 text-center transition-colors ${
               isDragging ? 'border-ink/30 bg-ink/[0.04]' : 'border-ink/[0.16] hover:border-ink/25 hover:bg-ink/[0.02]'
             }`}
           >
@@ -329,7 +329,7 @@ export default function AddAccountModal({
         )}
 
         {!loading && !pending && !discovered && mode === 'connect' && (
-          <div className="mt-2">
+          <div className="modal-step mt-2">
             <Group>
               <PlaidLinkButton userId={userId} onAccounts={onPlaidAccounts} onConnecting={onPlaidConnecting} onError={onPlaidError} />
             </Group>
@@ -343,7 +343,7 @@ export default function AddAccountModal({
             where it lands — so it leads at a size nothing competes with, and
             holds still while you move between destinations. */}
         {!loading && !discovered && pending && (
-          <>
+          <div className="modal-step">
             <div className="px-1 pb-6 pt-1">
               <h2 id="add-account-title" className="text-[13.5px] font-medium text-ink/45">{pending.name}</h2>
               <p className="mt-1.5 font-display text-[34px] font-medium leading-none tracking-[-0.035em] tabular text-ink">
@@ -418,14 +418,14 @@ export default function AddAccountModal({
             )}
             </>
             )}
-          </>
+          </div>
         )}
 
-        {error && <p className="mt-4 px-1 text-[13px] text-loss/90">{error}</p>}
+        {error && <p className="modal-step mt-4 px-1 text-[13px] text-loss/90">{error}</p>}
       </div>
 
       {!loading && discovered && (
-        <div className="px-4 pb-4 pt-2">
+        <div className="modal-step px-4 pb-4 pt-2">
           <PrimaryButton onClick={() => onImportDiscovered?.(picked)} disabled={busy || picked.length === 0}>
             {busy ? 'Importing…' : picked.length === 0 ? 'Pick at least one' : `Import ${picked.length} account${picked.length === 1 ? '' : 's'}`}
           </PrimaryButton>
@@ -433,7 +433,7 @@ export default function AddAccountModal({
       )}
 
       {!loading && !discovered && pending && (
-        <div className="px-4 pb-4 pt-2">
+        <div className="modal-step px-4 pb-4 pt-2">
           <PrimaryButton onClick={onConfirm} disabled={busy || (!preview && known.length === 0)}>
             {busy ? 'Adding…' : `Add to ${target}`}
           </PrimaryButton>
