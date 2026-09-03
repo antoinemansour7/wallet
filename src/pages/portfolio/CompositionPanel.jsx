@@ -132,7 +132,10 @@ export default function CompositionPanel({ rows, accounts }) {
                     {fmtCurrency(item.value)}
                   </p>
                   <p className="mt-2 truncate text-[11px] text-ink/45">
-                    {item.positions} position{item.positions === 1 ? '' : 's'}
+                    {/* "holding", not "position" — the strip above this one
+                        already says "holding", and this app has exactly one
+                        word for a thing you own. */}
+                    {item.positions} holding{item.positions === 1 ? '' : 's'}
                     {item.cash !== 0
                       ? ` · ${fmtCurrency(item.cash)} ${item.cashSource === 'explicit' ? 'cash' : 'inferred cash'}`
                       : ''}

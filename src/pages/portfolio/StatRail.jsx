@@ -90,7 +90,7 @@ function CashCell({ totalCash, share, onSave }) {
           </svg>
         </button>
       </div>
-      {totalCash !== 0 && <Sub>{share.toFixed(1)}% of portfolio</Sub>}
+      {totalCash !== 0 && <Sub>{share.toFixed(1)}% of total</Sub>}
     </Cell>
   )
 }
@@ -110,16 +110,25 @@ export default function StatRail({ rows, stats, accounts, onCashOverride }) {
           <Sub>{fmtPct(stats.dayChangePct)}</Sub>
         </Cell>
 
-        <Cell label="Return">
+        {/* "Return" alone left one real question unanswered — since when? — and
+            "all time" didn't answer it, it just moved the ambiguity into the
+            caption. "Total return" is the standard term for this exact figure
+            (cumulative gain or loss against what you paid), so the label now
+            carries the meaning on its own and the caption is free to be just
+            the number, the same shape as Today's. */}
+        <Cell label="Total return">
           <Value className={pnlCls}>
             {stats.totalPnl >= 0 ? '+' : ''}{fmtCurrency(stats.totalPnl)}
           </Value>
-          <Sub>{fmtPct(stats.totalPnlPct)} all time</Sub>
+          <Sub>{fmtPct(stats.totalPnlPct)}</Sub>
         </Cell>
 
         <CashCell totalCash={stats.totalCashValue} share={cashShare} onSave={onCashOverride} />
 
-        <Cell label="Positions">
+        {/* "Positions" here, "Holdings" on the tab one row up — two words for
+            the thing this whole page is about. Matches the vocabulary
+            CompositionPanel and the Holdings tab already use. */}
+        <Cell label="Holdings">
           <Value>{rows.length}</Value>
           <Sub>across {accounts.length} account{accounts.length === 1 ? '' : 's'}</Sub>
         </Cell>

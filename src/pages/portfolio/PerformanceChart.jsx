@@ -94,6 +94,25 @@ function fmtDateLabel(date) {
   return new Date(`${date}T12:00:00`).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+/**
+ * What the comparison is measured against, said the way a person would say
+ * it. This used to be `since ${pointLabel(basePoint)}` — on 1D that reads as
+ * "since 09:30 AM", the market open stated as a clock time, which puts the
+ * whole day's move at the reader's feet as though it just happened. Every
+ * other range had the same problem in a quieter form: a bare date
+ * ("since Jan 15, 2026") answers "since what moment" but not "over what
+ * period", which is the thing the range selector actually chose.
+ */
+const RANGE_LABELS = {
+  '1D': 'today',
+  '1W': 'this week',
+  '1M': 'this month',
+  '3M': 'the last 3 months',
+  '6M': 'the last 6 months',
+  '1Y': 'this year',
+  All: 'since you started',
+}
+
 // Tracks the real rendered width so the chart can be drawn 1:1 in CSS pixels.
 // A callback ref (not useEffect) so it reattaches whenever the node remounts —
 // the chart is swapped out for the loading and empty states.
@@ -336,7 +355,9 @@ export default function PerformanceChart({ stats, rows = [], hero = false }) {
               return (
                 <p className={`mt-1 text-[13px] tabular ${change >= 0 ? 'text-gain' : 'text-loss'}`}>
                   {change >= 0 ? '+' : ''}{fmtCurrency(change)} ({pct >= 0 ? '+' : ''}{pct.toFixed(2)}%)
-                  <span className="ml-2 text-white/30">{isScrubbing ? pointLabel(activePoint) : `since ${pointLabel(basePoint)}`}</span>
+                  <span className="ml-2 text-ink/40">
+                    {isScrubbing ? pointLabel(activePoint) : RANGE_LABELS[range] ?? `since ${pointLabel(basePoint)}`}
+                  </span>
                 </p>
               )
             })()}
