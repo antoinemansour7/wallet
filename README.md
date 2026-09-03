@@ -91,8 +91,10 @@ localStorage.
 | `/portfolio` | The seeded portfolio |
 | `/portfolio?empty` | The app with nothing in it, for empty states |
 
-Preview mode also answers the Plaid calls from the fixture, which is the **only**
-way to exercise the connect flow locally — see [API routes](#api-routes).
+Preview mode also answers the Plaid calls from the fixture. It is the
+credential-free way to exercise the connect flow locally; use the regular dev
+server with Plaid sandbox credentials when the real API round trip is what you
+need to test. See [API routes](#api-routes).
 
 ## Environment variables
 
@@ -247,29 +249,25 @@ rather than treated as a holding.
 
 ## API routes
 
-Twelve serverless functions under `api/`, which is **the Vercel Hobby limit** —
-there is no room for another without removing one.
+Eleven serverless functions live under `api/`, one below the Vercel Hobby limit.
 
-| Route | Runs locally? |
-|---|---|
-| `extract-pdf` | yes |
-| `live-prices` | yes |
-| `live-quote` | yes |
-| `refresh-prices` | yes |
-| `get-research` | yes |
-| `nightly-research` | yes |
-| `plaid` | **no** |
-| `get-research-history`, `position-sizing`, `signal-history`, `slack-events`, `track-performance` | no |
+| Route | Runs locally? | Notes |
+|---|---|---|
+| `extract-pdf` | yes | Vite middleware |
+| `live-prices` | yes | Vite middleware |
+| `refresh-prices` | yes | Vite middleware |
+| `get-research` | yes | Vite middleware |
+| `nightly-research` | yes | Vite middleware |
+| `plaid` | yes | The same `api/plaid.js` handler as production; needs Plaid sandbox and Firebase service-account credentials |
+| `get-research-history`, `position-sizing`, `signal-history`, `slack-events`, `track-performance` | no | Vercel only |
 
 The dev server hand-registers a middleware for each route it supports, in
-`vite.config.js`. **There is no plaid plugin**, so `api/plaid.js` only ever runs
-on Vercel — a request to `/api/plaid` from localhost hits the *deployed*
-function while the rest of the app is your local build.
-
-That split has already caused one production bug, where a client change relied on
-a server change that had not been deployed. Until it is fixed, exercise the
-connect flow in [preview mode](#preview-mode-no-credentials-needed), which needs
-no server at all.
+`vite.config.js`. The Plaid middleware is an adapter rather than a second
+implementation: it parses the local request, supplies Vercel's response helpers,
+and invokes the default export from `api/plaid.js`. A client and Plaid handler
+change can therefore be tested together on one machine. Without Plaid or
+Firebase credentials, use [preview mode](#preview-mode-no-credentials-needed),
+which keeps the whole connect flow inside fixtures.
 
 ## Tests
 

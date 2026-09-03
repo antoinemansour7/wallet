@@ -4,6 +4,47 @@ import { extractPositionsWithGroq } from './src/server/extractPositions.js'
 import { fetchYahooQuotes, refreshKnownYahooQuotes } from './src/server/yahooQuotes.js'
 import { Redis } from '@upstash/redis'
 
+/**
+ * Give a Vercel-style function the small request/response contract it expects.
+ * The route still executes the production handler; this only adapts Vite's
+ * Connect request to `req.body`, `res.status()` and `res.json()`.
+ */
+function serverlessHandlerPlugin({ name, route, loadHandler }) {
+  return {
+    name,
+    configureServer(server) {
+      server.middlewares.use(route, async (req, res) => {
+        try {
+          req.setEncoding('utf8')
+          let rawBody = ''
+          for await (const chunk of req) rawBody += chunk
+          req.body = rawBody ? JSON.parse(rawBody) : {}
+
+          res.status = (code) => {
+            res.statusCode = code
+            return res
+          }
+          res.json = (payload) => {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(payload))
+            return res
+          }
+
+          const { default: handler } = await loadHandler()
+          await handler(req, res)
+        } catch (err) {
+          if (res.writableEnded) return
+          res.statusCode = err instanceof SyntaxError ? 400 : 500
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({
+            error: err instanceof SyntaxError ? 'Invalid JSON body' : (err.message || 'Local API request failed'),
+          }))
+        }
+      })
+    },
+  }
+}
+
 // ─── Vite server plugin — adds POST /api/extract-pdf ──────────────────────
 function pdfExtractPlugin(apiKey) {
   return {
@@ -236,6 +277,13 @@ export default defineConfig(({ mode }) => {
   // loadEnv with '' prefix loads ALL vars (not just VITE_) — API key stays server-side only
   const env = loadEnv(mode, process.cwd(), '')
 
+  // Vercel functions read server credentials from process.env. loadEnv returns
+  // values without mutating it, so mirror that contract for handlers mounted
+  // locally. Shell variables keep precedence over values from .env files.
+  for (const [key, value] of Object.entries(env)) {
+    if (process.env[key] === undefined) process.env[key] = value
+  }
+
   return {
     plugins: [
       react(),
@@ -244,6 +292,11 @@ export default defineConfig(({ mode }) => {
       refreshPricesPlugin(),
       getResearchPlugin(),
       nightlyResearchPlugin(env),
+      serverlessHandlerPlugin({
+        name: 'plaid-api',
+        route: '/api/plaid',
+        loadHandler: () => import('./api/plaid.js'),
+      }),
     ],
     server: {
       // Vite rejects Host headers it does not recognise, which blocks the dev
