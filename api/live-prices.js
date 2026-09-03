@@ -1,6 +1,7 @@
 import { fetchMarketQuotes, fetchCachedMarketQuotes } from '../src/server/marketQuotes.js'
 import { getPortfolioSeries, getIntradaySeries } from '../src/server/portfolioSeries.js'
 import { isRateLimited } from '../src/server/rateLimit.js'
+import { withRunLog } from '../src/server/runLog.js'
 
 // A real portfolio has dozens of holdings, not thousands — this is nowhere
 // near that, and rejecting above it closes the cheapest version of sending an
@@ -18,7 +19,7 @@ function getBody(req) {
 // serverless functions, so portfolio history shares this route):
 //   { symbols }   → live quotes
 //   { positions } → reconstructed portfolio value history
-export default async function handler(req, res) {
+async function realHandler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
   }
@@ -62,3 +63,5 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: err.message })
   }
 }
+
+export default withRunLog('live-prices', realHandler)

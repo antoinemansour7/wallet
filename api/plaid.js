@@ -8,6 +8,7 @@ import { fetchMarketQuotes } from '../src/server/marketQuotes.js'
 import { initializeApp, cert, getApps } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
 import { getAuth } from 'firebase-admin/auth'
+import { withRunLog } from '../src/server/runLog.js'
 
 /**
  * Plaid retired the `development` environment; the SDK now ships only
@@ -520,7 +521,7 @@ async function verifyCaller(req) {
   }
 }
 
-export default async function handler(req, res) {
+async function realHandler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   // First gate, ahead of even the action name: an unauthenticated request
@@ -565,3 +566,5 @@ export default async function handler(req, res) {
     })
   }
 }
+
+export default withRunLog('plaid', realHandler)
