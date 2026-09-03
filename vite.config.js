@@ -280,8 +280,10 @@ export default defineConfig(({ mode }) => {
   // Vercel functions read server credentials from process.env. loadEnv returns
   // values without mutating it, so mirror that contract for handlers mounted
   // locally. Shell variables keep precedence over values from .env files.
-  for (const [key, value] of Object.entries(env)) {
-    if (process.env[key] === undefined) process.env[key] = value
+  if (mode !== 'test') {
+    for (const [key, value] of Object.entries(env)) {
+      if (process.env[key] === undefined) process.env[key] = value
+    }
   }
 
   return {

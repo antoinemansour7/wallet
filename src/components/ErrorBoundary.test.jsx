@@ -62,21 +62,22 @@ describe('ErrorBoundary', () => {
   })
 
   it('clears on manual retry and renders children again', () => {
-    // The bomb only throws once: retrying re-renders the same tree, and a
-    // component that throws every time would never demonstrate recovery.
+    // React may retry a thrown render before the boundary commits. Keep it
+    // armed through those internal retries, then disarm it for the user retry.
     let armed = true
-    function OnceThenFine() {
-      if (armed) { armed = false; throw new Error('boom') }
+    function BrokenUntilRetry() {
+      if (armed) throw new Error('boom')
       return <div>recovered</div>
     }
 
     render(
       <ErrorBoundary context="test" fallback={PanelFallback}>
-        <OnceThenFine />
+        <BrokenUntilRetry />
       </ErrorBoundary>,
     )
     expect(screen.getByText("This section couldn't load.")).toBeInTheDocument()
 
+    armed = false
     fireEvent.click(screen.getByText('Try again'))
     expect(screen.getByText('recovered')).toBeInTheDocument()
   })

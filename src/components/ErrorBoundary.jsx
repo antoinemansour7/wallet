@@ -70,7 +70,7 @@ export default class ErrorBoundary extends Component {
 
   componentDidUpdate(prevProps) {
     if (this.state.error && this.props.resetKey !== prevProps.resetKey) {
-      this.setState({ error: null }) // eslint-disable-line react/no-did-update-set-state
+      this.setState({ error: null })
     }
   }
 
