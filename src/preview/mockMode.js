@@ -85,6 +85,26 @@ const CONNECTED_USD_LOSS = {
 
 POSITIONS.push(CONNECTED_USD_LOSS)
 
+// A holding no market data provider will resolve, so it keeps whatever the
+// statement said and never takes a live quote. It is the only way to see the
+// staleness marker without waiting for a provider to fail: a row frozen at an
+// old value used to render identically to one priced seconds ago.
+const UNPRICEABLE = {
+  'ACCOUNT NUMBER': '68BB39Q',
+  SYMBOL: 'ZZQQ.DELISTED',
+  DESCRIPTION: 'Delisted Holdings Corp',
+  QUANTITY: '150',
+  'MARKET PRICE': '11.20',
+  'MARKET VALUE': '1680.00',
+  'BOOK VALUE': '2400.00',
+  'UNREALIZED GAIN/LOSS': '-720.00',
+  'UNREALIZED GAIN/LOSS %': '-30.00%',
+  // No __pricedAt: it has never taken a live quote, which is the whole point.
+  __sourceId: TFSA,
+}
+
+POSITIONS.push(UNPRICEABLE)
+
 export const PREVIEW_PORTFOLIO = {
   fileName: 'preview-sample.csv',
   rows: POSITIONS,
