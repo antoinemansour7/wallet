@@ -193,6 +193,65 @@ export function applyMerge({ accounts = {}, accountNumber, sourceId, rows = [], 
 }
 
 /**
+ * Which accounts a staged statement already knows it belongs to.
+ *
+ * A file says almost nothing reliable about this, so the destination is asked.
+ * A connected brokerage is the opposite: Plaid reports holdings per account and
+ * says which. Funnelling them all into one chosen destination pooled a TFSA and
+ * an RRSP into a single WallAI account with their holdings mixed and their cash
+ * summed — silently, and with a plausible-looking total.
+ *
+ * It also made the tax work impossible at the root: asset location cannot mean
+ * anything when two registration types share one record.
+ */
+export const PLAID_ACCOUNT_KEY = '__plaidAccountId'
+
+export function knownAccountsIn(rows = []) {
+  const seen = new Map()
+  for (const row of rows) {
+    if (!row?.[PLAID_ACCOUNT_KEY]) continue
+    const number = String(row['ACCOUNT NUMBER'] ?? '').trim()
+    if (!number) continue
+    if (!seen.has(number)) seen.set(number, { accountNumber: number, positions: 0, value: 0 })
+    const entry = seen.get(number)
+    entry.positions += 1
+    entry.value = round(entry.value + valueOf(row))
+  }
+  return [...seen.values()]
+}
+
+/**
+ * Apply a statement that already knows its accounts, keeping each row where it
+ * says it belongs instead of rewriting all of them to one destination.
+ *
+ * Every other account and every other source is copied through untouched, the
+ * same guarantee applyMerge gives.
+ */
+export function applyMergeByAccount({ accounts = {}, sourceId, rows = [], cashByAccount = {} }) {
+  const byAccount = new Map()
+  for (const row of rows) {
+    const number = String(row['ACCOUNT NUMBER'] ?? '').trim() || 'Unknown'
+    if (!byAccount.has(number)) byAccount.set(number, [])
+    byAccount.get(number).push(row)
+  }
+
+  let merged = normalizeStoredAccounts(accounts)
+  for (const [accountNumber, accountRows] of byAccount) {
+    merged = applyMerge({
+      accounts: merged,
+      accountNumber,
+      sourceId,
+      rows: accountRows,
+      cash: Object.prototype.hasOwnProperty.call(cashByAccount, accountNumber)
+        ? cashByAccount[accountNumber]
+        : null,
+      currency: String(accountRows[0]?.['ACCOUNT CURRENCY'] ?? '').toUpperCase(),
+    })
+  }
+  return merged
+}
+
+/**
  * Drop one feed from one account.
  *
  * An account whose last feed is removed has nothing left to describe it, so it

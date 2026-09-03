@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   previewMerge, applyMerge, removeAccount, plaidItemIdFor, PLAID_ITEM_KEY,
+  applyMergeByAccount, knownAccountsIn, PLAID_ACCOUNT_KEY,
 } from './accountMerge'
 import { buildAccountPortfolio } from './accountPortfolio'
 import { applyLivePrices, inferRowCurrency, CDR_KEY } from './livePrices'
@@ -312,6 +313,87 @@ describe('Plaid import', () => {
       const priceless = { ...row, 'MARKET PRICE': '' }
       const { updatedRows } = applyLivePrices([priceless], [{ symbol: 'ORAC', price: 142.5, currency: 'USD' }], null)
       expect(updatedRows).toBe(1)
+    })
+  })
+
+  describe('an import that already knows its accounts', () => {
+    // Plaid reports holdings per account and says which. Funnelling them into
+    // one chosen destination pooled a TFSA and an RRSP into a single WallAI
+    // account, with holdings mixed and cash summed — silently, and with a
+    // plausible total. It also makes asset location impossible at the root:
+    // the recommendation is meaningless when two registration types are one
+    // record.
+    const connected = (accountNumber, accountId, symbol, value) => ({
+      SYMBOL: symbol,
+      DESCRIPTION: symbol,
+      QUANTITY: 10,
+      'MARKET PRICE': value / 10,
+      'MARKET VALUE': value,
+      'BOOK VALUE': value,
+      'ACCOUNT NUMBER': accountNumber,
+      'ACCOUNT CURRENCY': 'CAD',
+      [PLAID_ACCOUNT_KEY]: accountId,
+    })
+
+    const rows = [
+      connected('TFSA 8830', 'acct-tfsa', 'VFV.TO', 1000),
+      connected('TFSA 8830', 'acct-tfsa', 'XEQT.TO', 500),
+      connected('RRSP 1177', 'acct-rrsp', 'ENB.TO', 2000),
+    ]
+
+    it('recognises which accounts the rows belong to', () => {
+      expect(knownAccountsIn(rows)).toEqual([
+        { accountNumber: 'TFSA 8830', positions: 2, value: 1500 },
+        { accountNumber: 'RRSP 1177', positions: 1, value: 2000 },
+      ])
+    })
+
+    it('says nothing for a statement, where the account is not knowable', () => {
+      expect(knownAccountsIn([plaidRow()])).toEqual([])
+    })
+
+    it('creates one account per connected account, not one for all of them', () => {
+      const merged = applyMergeByAccount({ accounts: {}, sourceId: 'plaid:ws', rows })
+
+      expect(Object.keys(merged).sort()).toEqual(['RRSP 1177', 'TFSA 8830'])
+      expect(merged['TFSA 8830'].positions).toHaveLength(2)
+      expect(merged['RRSP 1177'].positions).toHaveLength(1)
+    })
+
+    it('keeps each holding in the account that reported it', () => {
+      const merged = applyMergeByAccount({ accounts: {}, sourceId: 'plaid:ws', rows })
+      const symbols = (n) => merged[n].positions.map((p) => p.SYMBOL).sort()
+
+      expect(symbols('TFSA 8830')).toEqual(['VFV.TO', 'XEQT.TO'])
+      expect(symbols('RRSP 1177')).toEqual(['ENB.TO'])
+    })
+
+    it('gives each account only the cash that account reported', () => {
+      const merged = applyMergeByAccount({
+        accounts: {}, sourceId: 'plaid:ws', rows,
+        cashByAccount: { 'TFSA 8830': 1204.55, 'RRSP 1177': 340.12 },
+      })
+
+      expect(merged['TFSA 8830'].cash).toBe(1204.55)
+      expect(merged['RRSP 1177'].cash).toBe(340.12)
+    })
+
+    it('leaves accounts it was not told about untouched', () => {
+      const existing = applyMerge({
+        accounts: {}, accountNumber: 'Questrade', sourceId: 'file:q', rows: [plaidRow()],
+      })
+      const merged = applyMergeByAccount({ accounts: existing, sourceId: 'plaid:ws', rows })
+
+      expect(merged.Questrade.positions).toHaveLength(1)
+      expect(Object.keys(merged).sort()).toEqual(['Questrade', 'RRSP 1177', 'TFSA 8830'])
+    })
+
+    it('replaces its own earlier import rather than doubling it', () => {
+      const once = applyMergeByAccount({ accounts: {}, sourceId: 'plaid:ws', rows })
+      const twice = applyMergeByAccount({ accounts: once, sourceId: 'plaid:ws', rows })
+
+      expect(twice['TFSA 8830'].positions).toHaveLength(2)
+      expect(twice['RRSP 1177'].positions).toHaveLength(1)
     })
   })
 })

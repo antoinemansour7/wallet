@@ -6,7 +6,7 @@ import { recordIntradayPoint, saveDailySnapshot } from '../utils/portfolioHistor
 import { useAuth } from '../context/AuthContext'
 import Reveal from '../components/Reveal'
 import { buildAccountPortfolio, cashEntryAmount, flattenAccountRows, getAccountEntries, hasAccountPortfolio } from '../utils/accountPortfolio'
-import { PLAID_ITEM_KEY, accountSources, aggregateRowsBySymbol, applyMerge, plaidItemIdFor, previewMerge, removeAccount, removeSource, sourceIdFor } from '../utils/accountMerge'
+import { PLAID_ITEM_KEY, accountSources, aggregateRowsBySymbol, applyMerge, applyMergeByAccount, knownAccountsIn, plaidItemIdFor, previewMerge, removeAccount, removeSource, sourceIdFor } from '../utils/accountMerge'
 import { computeStats } from '../utils/portfolioStats'
 import { AUTO_PRICE_REFRESH_MS } from './portfolio/constants'
 import TabNav from './portfolio/TabNav'
@@ -257,9 +257,13 @@ export default function Portfolio() {
     // both hold a symbol arrive as two rows; leaving that until later meant the
     // sheet counted six holdings, listed five, and saved six.
     const rows = aggregateRowsBySymbol(incoming)
+    // A connected brokerage reports holdings per account and says which. Those
+    // stay where they belong instead of being funnelled into one destination.
+    const knownAccounts = knownAccountsIn(rows)
     setPending({
       name,
       rows,
+      knownAccounts,
       cashEntries,
       sourceId: sourceIdFor({ kind, name }),
       // What the file called the account, offered as the name for a new one.
@@ -268,7 +272,7 @@ export default function Portfolio() {
   }, [])
 
   const handleChooseDestination = useCallback((destination) => {
-    if (!pending) return
+    if (!pending || pending.knownAccounts?.length) return
     setPreview({
       ...previewMerge({
         accounts,
@@ -304,21 +308,36 @@ export default function Portfolio() {
     setError('')
   }, [])
 
+  /** Cash belongs to the account that reported it, not to the whole import. */
+  const cashByAccount = (entries = []) => entries.reduce((acc, entry) => {
+    const number = String(entry.accountNumber ?? '').trim()
+    if (!number) return acc
+    acc[number] = Math.round(((acc[number] ?? 0) + cashEntryAmount(entry)) * 100) / 100
+    return acc
+  }, {})
+
   const handleConfirmMerge = useCallback(async () => {
-    if (!pending || !preview) return
+    if (!pending || (!preview && !pending.knownAccounts?.length)) return
     setMerging(true)
     try {
       const cashForAccount = pending.cashEntries.length > 0
         ? pending.cashEntries.reduce((sum, entry) => sum + cashEntryAmount(entry), 0)
         : null
 
-      const nextAccounts = applyMerge({
-        accounts,
-        accountNumber: preview.accountNumber,
-        sourceId: pending.sourceId,
-        rows: pending.rows,
-        cash: cashForAccount,
-      })
+      const nextAccounts = pending.knownAccounts?.length
+        ? applyMergeByAccount({
+          accounts,
+          sourceId: pending.sourceId,
+          rows: pending.rows,
+          cashByAccount: cashByAccount(pending.cashEntries),
+        })
+        : applyMerge({
+          accounts,
+          accountNumber: preview.accountNumber,
+          sourceId: pending.sourceId,
+          rows: pending.rows,
+          cash: cashForAccount,
+        })
       const nextRows = flattenAccountRows(nextAccounts)
       setAccounts(nextAccounts)
       setRows(nextRows)

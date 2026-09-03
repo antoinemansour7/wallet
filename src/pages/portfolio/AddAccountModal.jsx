@@ -201,7 +201,7 @@ export default function AddAccountModal({
   }, [discovered])
 
   useEffect(() => {
-    if (!pending) { setChosen(null); return }
+    if (!pending || pending.knownAccounts?.length) { setChosen(null); return }
     setDetailOpen(false)
     const initial = { mode: 'new', accountNumber: pending.suggestedAccountNumber }
     setChosen(initial)
@@ -223,13 +223,22 @@ export default function AddAccountModal({
   // What this statement is worth, independent of where it lands — so the
   // headline figure holds still while you choose between destinations.
   const incomingTotal = useMemo(() => {
+    // An import that knows its own accounts is never previewed against a
+    // destination, because there is no destination to choose — so the sum comes
+    // from the accounts themselves rather than from a merge preview.
+    const known = pending?.knownAccounts ?? []
+    if (known.length) return known.reduce((s, a) => s + a.value, 0)
+
     if (!preview) return null
     const add = preview.added.reduce((s, x) => s + x.value, 0)
     const upd = preview.updated.reduce((s, x) => s + x.toValue, 0)
     return add + upd
-  }, [preview])
+  }, [pending, preview])
 
-  const target = chosen?.mode === 'new' ? 'new account' : chosen?.accountNumber
+  const known = pending?.knownAccounts ?? []
+  const target = known.length
+    ? (known.length === 1 ? known[0].accountNumber : `${known.length} accounts`)
+    : chosen?.mode === 'new' ? 'new account' : chosen?.accountNumber
   const back = pending ? onCancel : mode ? () => setMode(null) : undefined
   const togglePick = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
   const holdingCount = pending?.rows.length ?? 0
@@ -345,6 +354,35 @@ export default function AddAccountModal({
               </p>
             </div>
 
+            {/* A connected brokerage already reports which account each holding
+                sits in, so there is nothing to ask. Asking anyway is what
+                pooled a TFSA and an RRSP into one account. */}
+            {known.length > 0 ? (
+              <>
+                <p className="mb-2 px-1 text-[13.5px] font-medium text-ink/55">
+                  {known.length === 1 ? 'Account' : `${known.length} accounts`}
+                </p>
+                <Group>
+                  {known.map((a) => (
+                    <div key={a.accountNumber} className="flex items-center gap-3.5 px-4 py-3.5">
+                      <Tile><IconAccount /></Tile>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[15px] font-medium tracking-[-0.01em] text-ink">
+                          {a.accountNumber}
+                        </span>
+                        <span className="mt-0.5 block text-[13px] text-ink/45">
+                          {a.positions} holding{a.positions === 1 ? '' : 's'}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-[14px] font-medium tabular text-ink/70">
+                        {fmtCurrency(a.value)}
+                      </span>
+                    </div>
+                  ))}
+                </Group>
+              </>
+            ) : (
+            <>
             <p className="mb-2 px-1 text-[13.5px] font-medium text-ink/55">Add to</p>
             <Group role="radiogroup">
               <Destination
@@ -378,6 +416,8 @@ export default function AddAccountModal({
                 <Changes preview={preview} open={detailOpen} onToggle={() => setDetailOpen((v) => !v)} />
               </div>
             )}
+            </>
+            )}
           </>
         )}
 
@@ -394,7 +434,7 @@ export default function AddAccountModal({
 
       {!loading && !discovered && pending && (
         <div className="px-4 pb-4 pt-2">
-          <PrimaryButton onClick={onConfirm} disabled={busy || !preview}>
+          <PrimaryButton onClick={onConfirm} disabled={busy || (!preview && known.length === 0)}>
             {busy ? 'Adding…' : `Add to ${target}`}
           </PrimaryButton>
         </div>

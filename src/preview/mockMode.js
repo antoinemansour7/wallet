@@ -232,7 +232,10 @@ const plaidRow = (accountId, symbol, description, qty, price, book) => ({
   'BOOK VALUE': book,
   'UNREALIZED GAIN/LOSS': Number((qty * price - book).toFixed(2)),
   'ACCOUNT TYPE': accountId === 'pa-tfsa' ? 'TFSA' : 'RRSP',
-  'ACCOUNT NUMBER': accountId === 'pa-tfsa' ? '8830' : '1177',
+  // Type-led and unique, matching what api/plaid.js now labels an account:
+  // a bare four-digit mask can collide across account types at one institution.
+  'ACCOUNT NUMBER': accountId === 'pa-tfsa' ? 'TFSA 8830' : 'RRSP 1177',
+  __plaidAccountId: accountId,
   'ACCOUNT CURRENCY': 'CAD',
   CURRENCY: 'CAD',
   _source: 'plaid',
@@ -253,8 +256,8 @@ const PLAID_ROWS = [
 ]
 
 const PLAID_CASH = [
-  { account: 'TFSA', accountNumber: '8830', currency: 'CAD', amount: 1204.55, __accountId: 'pa-tfsa' },
-  { account: 'RRSP', accountNumber: '1177', currency: 'CAD', amount: 340.12, __accountId: 'pa-rrsp' },
+  { account: 'TFSA', accountNumber: 'TFSA 8830', currency: 'CAD', amount: 1204.55, __accountId: 'pa-tfsa' },
+  { account: 'RRSP', accountNumber: 'RRSP 1177', currency: 'CAD', amount: 340.12, __accountId: 'pa-rrsp' },
 ]
 
 /** What /api/plaid holdings would return for the chosen accounts. */

@@ -215,6 +215,25 @@ function tickerFor(security) {
   return ticker.includes('.') ? ticker : `${ticker}.NE`
 }
 
+/**
+ * What to call a connected account, and the name has to be unique.
+ *
+ * This used to be `mask || account_id.slice(-4)` — four characters, and the
+ * app keys its accounts map by exactly this string. Two accounts sharing a
+ * mask, which happens across account types at one institution, collapsed into
+ * a single WallAI account with their holdings pooled and their cash summed.
+ * The failure is silent and the total looks plausible.
+ *
+ * Leading with the registration type fixes both problems at once: it is unique
+ * where a bare mask is not, and "TFSA 8830" is what a person recognises where
+ * "17K9" is not.
+ */
+function accountLabel(account) {
+  const type = mapAccountType(account)
+  const mask = account?.mask || account?.account_id?.slice(-4) || ''
+  return [type, mask].filter(Boolean).join(' ') || 'Investment'
+}
+
 /** What the account itself is denominated in. Defaults Canadian, like the app. */
 function accountBaseCurrency(account) {
   return String(
@@ -318,7 +337,7 @@ async function handleHoldings(req, res) {
             : cashCurrency
           allCashEntries.push({
             account: mapAccountType(account),
-            accountNumber: account?.mask || account?.account_id?.slice(-4) || '',
+            accountNumber: accountLabel(account),
             currency: statedCashCurrency,
             // `amount` is what a parsed statement calls it, and the only name
             // the client ever read. Emitting `value` meant every connected cash
@@ -370,7 +389,10 @@ async function handleHoldings(req, res) {
           'UNREALIZED GAIN/LOSS': unrealizedPnl,
           'UNREALIZED GAIN/LOSS %': unrealizedPnlPct,
           'ACCOUNT TYPE': mapAccountType(storedAccount || account),
-          'ACCOUNT NUMBER': account?.mask || account?.account_id?.slice(-4) || '',
+          'ACCOUNT NUMBER': accountLabel(account),
+          // Plaid's own id for the account, which is unique by contract. The
+          // label above is for people; this is what identity is checked on.
+          '__plaidAccountId': account?.account_id || '',
           // The currency these figures are now stated in. Every consumer reads
           // this key; the route emitted only CURRENCY, so the live price refresh
           // could not tell a Canadian account from a US one and so converted
