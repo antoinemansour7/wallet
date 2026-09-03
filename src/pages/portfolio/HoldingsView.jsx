@@ -5,6 +5,7 @@ import Reveal from '../../components/Reveal'
 import EmptyState from './EmptyState'
 import { sortPositionsByValue } from './helpers'
 import { lastPricedAt, isPriceStale, PRICED_AT_KEY } from '../../utils/livePrices'
+import ErrorBoundary, { RowFallback } from '../../components/ErrorBoundary'
 
 // This screen is a ledger, and a ledger is read down its columns. What made it
 // hard to read was not density but repetition: every account stated its return
@@ -269,14 +270,19 @@ export default function HoldingsView({ rows, accounts, onUploadClick }) {
 
                   {account.positions.map((row, i) => {
                     const key = `${acct}:${row.SYMBOL ?? i}`
+                    // The one place fed directly by four sources this app does
+                    // not control — a statement, a PDF, Plaid, a price
+                    // provider. One malformed row must cost that row, not the
+                    // sight of every other holding in the account.
                     return (
-                      <PositionRow
-                        key={key}
-                        row={row}
-                        stale={isPriceStale(row, newestPricedAt)}
-                        expanded={expandedKey === key}
-                        onToggle={() => setExpandedKey(expandedKey === key ? null : key)}
-                      />
+                      <ErrorBoundary key={key} context="holdings-row" fallback={RowFallback}>
+                        <PositionRow
+                          row={row}
+                          stale={isPriceStale(row, newestPricedAt)}
+                          expanded={expandedKey === key}
+                          onToggle={() => setExpandedKey(expandedKey === key ? null : key)}
+                        />
+                      </ErrorBoundary>
                     )
                   })}
 

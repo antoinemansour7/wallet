@@ -5,6 +5,7 @@ import { clearPortfolio, loadLocalPortfolio, loadSavedPortfolioWithTimeout, save
 import { recordIntradayPoint, saveDailySnapshot } from '../utils/portfolioHistory'
 import { useAuth } from '../context/AuthContext'
 import Reveal from '../components/Reveal'
+import ErrorBoundary, { PanelFallback } from '../components/ErrorBoundary'
 import { buildAccountPortfolio, cashEntryAmount, flattenAccountRows, getAccountEntries, hasAccountPortfolio } from '../utils/accountPortfolio'
 import { PLAID_ITEM_KEY, accountSources, aggregateRowsBySymbol, applyMerge, applyMergeByAccount, knownAccountsIn, plaidItemIdFor, previewMerge, removeAccount, removeSource, sourceIdFor } from '../utils/accountMerge'
 import { computeStats } from '../utils/portfolioStats'
@@ -550,47 +551,53 @@ export default function Portfolio() {
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
         <TabNav activeView={visibleView} hasData={hasData} onChange={setActiveView} />
 
-        {visibleView === 'overview' && stats && (
-          <>
-            <LiveBanner liveStatus={liveStatus} liveMessage={liveMessage} lastUpdatedAt={lastUpdatedAt} />
-            <Reveal>
-              <PerformanceChart hero stats={stats} rows={rows} />
-            </Reveal>
-            <StatRail rows={rows} stats={stats} accounts={accountEntries} onCashOverride={handleCashOverride} />
-            <Reveal><CompositionPanel rows={rows} accounts={accountEntries} /></Reveal>
-          </>
-        )}
-        {visibleView === 'overview' && !stats && <EmptyState onUploadClick={() => openAdd()} />}
-
-        {visibleView === 'charts' && stats && (
-          <>
-            <LiveBanner liveStatus={liveStatus} liveMessage={liveMessage} lastUpdatedAt={lastUpdatedAt} />
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
+        {/* One boundary per visible tab, keyed on the tab itself: switching
+            away and back is the retry, so a crash on Charts does not require
+            reloading the whole app to see Holdings. */}
+        <ErrorBoundary key={visibleView} context={`portfolio-panel:${visibleView}`} resetKey={visibleView} fallback={PanelFallback}>
+          {visibleView === 'overview' && stats && (
+            <>
+              <LiveBanner liveStatus={liveStatus} liveMessage={liveMessage} lastUpdatedAt={lastUpdatedAt} />
               <Reveal>
-                <ChartPanel title="Allocation" meta={`${accountEntries.length} account${accountEntries.length === 1 ? '' : 's'}`} className="h-full">
-                  <AllocationDonut rows={rows} stats={stats} />
-                </ChartPanel>
+                <PerformanceChart hero stats={stats} rows={rows} />
               </Reveal>
-              <div className="flex flex-col gap-4">
-                <Reveal delay={80}><ValueVsBookChart stats={stats} /></Reveal>
-                <Reveal delay={160}><PnlBreakdownChart rows={rows} /></Reveal>
-              </div>
-            </div>
-          </>
-        )}
-        {visibleView === 'charts' && !stats && <EmptyState onUploadClick={() => openAdd()} />}
+              <StatRail rows={rows} stats={stats} accounts={accountEntries} onCashOverride={handleCashOverride} />
+              <Reveal><CompositionPanel rows={rows} accounts={accountEntries} /></Reveal>
+            </>
+          )}
+          {visibleView === 'overview' && !stats && <EmptyState onUploadClick={() => openAdd()} />}
 
-        {visibleView === 'holdings' && (
-          <HoldingsView rows={rows} accounts={accountEntries} onUploadClick={() => openAdd()} />
-        )}
-        {visibleView === 'add' && (
-          <AccountsView
-            accounts={accountEntries}
-            onAdd={openAdd}
-            onFile={addFromFile}
-            onOpenAccount={(account) => setOpenAccount(account)}
-          />
-        )}      </div>
+          {visibleView === 'charts' && stats && (
+            <>
+              <LiveBanner liveStatus={liveStatus} liveMessage={liveMessage} lastUpdatedAt={lastUpdatedAt} />
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
+                <Reveal>
+                  <ChartPanel title="Allocation" meta={`${accountEntries.length} account${accountEntries.length === 1 ? '' : 's'}`} className="h-full">
+                    <AllocationDonut rows={rows} stats={stats} />
+                  </ChartPanel>
+                </Reveal>
+                <div className="flex flex-col gap-4">
+                  <Reveal delay={80}><ValueVsBookChart stats={stats} /></Reveal>
+                  <Reveal delay={160}><PnlBreakdownChart rows={rows} /></Reveal>
+                </div>
+              </div>
+            </>
+          )}
+          {visibleView === 'charts' && !stats && <EmptyState onUploadClick={() => openAdd()} />}
+
+          {visibleView === 'holdings' && (
+            <HoldingsView rows={rows} accounts={accountEntries} onUploadClick={() => openAdd()} />
+          )}
+          {visibleView === 'add' && (
+            <AccountsView
+              accounts={accountEntries}
+              onAdd={openAdd}
+              onFile={addFromFile}
+              onOpenAccount={(account) => setOpenAccount(account)}
+            />
+          )}
+        </ErrorBoundary>
+      </div>
 
       <AddAccountModal
         open={addOpen}
