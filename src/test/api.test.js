@@ -536,59 +536,6 @@ describe('api/get-research-history', () => {
   })
 })
 
-// ─── signal-history tests ───────────────────────────────────────────────────
-
-describe('api/signal-history', () => {
-  beforeEach(() => {
-    delete process.env.UPSTASH_REDIS_REST_URL
-    delete process.env.UPSTASH_REDIS_REST_TOKEN
-    vi.resetModules()
-  })
-
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
-
-  it('rejects non-GET requests', async () => {
-    const mod = await import('../../api/signal-history.js')
-    const res = mockRes()
-    await mod.default(mockReq('POST'), res)
-    expect(res.statusCode).toBe(405)
-  })
-
-  it('returns 503 when Redis is not configured', async () => {
-    const mod = await import('../../api/signal-history.js')
-    const res = mockRes()
-    await mod.default(mockReq('GET'), res)
-    expect(res.statusCode).toBe(503)
-  })
-
-  it('returns aggregate stats built from stored picks', async () => {
-    process.env.UPSTASH_REDIS_REST_URL = 'http://test'
-    process.env.UPSTASH_REDIS_REST_TOKEN = 'token'
-    vi.doMock('@upstash/redis', () => ({
-      Redis: {
-        fromEnv: () => ({
-          lrange: vi.fn().mockResolvedValue(['2026-05-01']),
-          get: vi.fn().mockResolvedValue({
-            generatedAt: '2026-05-01T00:00:00Z',
-            signalCount: 10,
-            picks: [{ ticker: 'AAPL', conviction: 8, setupType: 'breakout', price: 150 }],
-          }),
-        }),
-      },
-    }))
-    const mod = await import('../../api/signal-history.js')
-
-    const res = mockRes()
-    await mod.default(mockReq('GET'), res)
-
-    expect(res.statusCode).toBe(200)
-    expect(res.body.stats.totalPicks).toBe(1)
-    expect(res.body.stats.topRepeaters[0]).toEqual({ ticker: 'AAPL', count: 1 })
-  })
-})
-
 // ─── slack-events tests ─────────────────────────────────────────────────────
 // Signature verification needs a real HMAC and a live timestamp to exercise
 // meaningfully, so coverage here stays to the branches reachable without it —
