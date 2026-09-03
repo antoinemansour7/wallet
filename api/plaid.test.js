@@ -13,6 +13,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const verifyIdToken = vi.fn()
 const linkTokenCreate = vi.fn().mockResolvedValue({ data: { link_token: 'link-abc' } })
+const investmentsHoldingsGet = vi.fn()
+const getFirestore = vi.fn()
 
 vi.mock('firebase-admin/auth', () => ({
   getAuth: () => ({ verifyIdToken }),
@@ -25,7 +27,7 @@ vi.mock('firebase-admin/app', () => ({
 }))
 
 vi.mock('firebase-admin/firestore', () => ({
-  getFirestore: vi.fn(),
+  getFirestore: (...args) => getFirestore(...args),
 }))
 
 vi.mock('plaid', () => ({
@@ -33,7 +35,7 @@ vi.mock('plaid', () => ({
   // A regular function, not an arrow one: getPlaidClient() calls `new
   // PlaidApi(config)`, and an arrow function has no [[Construct]] — `new` on
   // one throws "is not a constructor" regardless of what vi.fn wraps it in.
-  PlaidApi: vi.fn(function PlaidApiMock() { return { linkTokenCreate } }),
+  PlaidApi: vi.fn(function PlaidApiMock() { return { linkTokenCreate, investmentsHoldingsGet } }),
   PlaidEnvironments: { sandbox: 'https://sandbox.plaid.com' },
   Products: { Investments: 'investments' },
   CountryCode: { Ca: 'CA', Us: 'US' },
@@ -56,6 +58,19 @@ beforeEach(async () => {
   // import keeps this test file independent of import order.
   handler = (await import('./plaid.js')).default
 })
+
+/** A fake Firestore db exposing just the chain handleHoldings walks. */
+function makeFirestoreDb(docs) {
+  return {
+    collection: () => ({
+      doc: () => ({
+        collection: () => ({
+          get: async () => ({ empty: docs.length === 0, docs }),
+        }),
+      }),
+    }),
+  }
+}
 
 /** A minimal stand-in for the (req, res) pair Vercel functions receive. */
 function makeReqRes({ body, headers = {} } = {}) {
@@ -133,5 +148,68 @@ describe('POST /api/plaid — who is calling', () => {
     await handler(req, res)
 
     expect(res.statusCode).toBe(401)
+  })
+})
+
+describe('POST /api/plaid — holdings, partial failure', () => {
+  beforeEach(() => {
+    verifyIdToken.mockResolvedValue({ uid: 'user-1' })
+  })
+
+  it('reports a failed connection in the response instead of a bare 200', async () => {
+    investmentsHoldingsGet.mockRejectedValue(new Error('ITEM_LOGIN_REQUIRED'))
+    getFirestore.mockReturnValue(makeFirestoreDb([
+      {
+        id: 'item-1',
+        data: () => ({
+          accessToken: 'token-1',
+          accounts: [],
+          institution: 'Wealthsimple',
+          enabledAccountIds: null,
+        }),
+      },
+    ]))
+
+    const { req, res } = makeReqRes({
+      body: { action: 'holdings', userId: 'user-1', itemId: 'item-1' },
+      headers: { authorization: 'Bearer good-token' },
+    })
+
+    await handler(req, res)
+
+    // Not a 500 or a 404: the connection is real, the fetch for it just
+    // failed, and the response still needs to name that plainly.
+    expect(res.statusCode).toBe(200)
+    expect(res.body.rows).toEqual([])
+    expect(res.body.errors).toEqual([
+      { itemId: 'item-1', institution: 'Wealthsimple', message: 'ITEM_LOGIN_REQUIRED' },
+    ])
+  })
+
+  it('reports an empty errors array when every connection loads fine', async () => {
+    investmentsHoldingsGet.mockResolvedValue({
+      data: { holdings: [], securities: [], accounts: [] },
+    })
+    getFirestore.mockReturnValue(makeFirestoreDb([
+      {
+        id: 'item-1',
+        data: () => ({
+          accessToken: 'token-1',
+          accounts: [],
+          institution: 'Wealthsimple',
+          enabledAccountIds: null,
+        }),
+      },
+    ]))
+
+    const { req, res } = makeReqRes({
+      body: { action: 'holdings', userId: 'user-1', itemId: 'item-1' },
+      headers: { authorization: 'Bearer good-token' },
+    })
+
+    await handler(req, res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.errors).toEqual([])
   })
 })

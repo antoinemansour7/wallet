@@ -289,13 +289,14 @@ async function handleHoldings(req, res) {
   const plaidDocs = await db.collection('users').doc(userId).collection('plaid').get()
 
   if (plaidDocs.empty) {
-    return res.status(200).json({ rows: [], accounts: [], cashEntries: [] })
+    return res.status(200).json({ rows: [], accounts: [], cashEntries: [], errors: [] })
   }
 
   const client = getPlaidClient()
   const allRows = []
   const allCashEntries = []
   const connectedAccounts = []
+  const errors = []
 
   // An import brings in the connection the person just linked, so it asks for
   // that one. Without the filter this returned every stored item's holdings, so
@@ -416,11 +417,16 @@ async function handleHoldings(req, res) {
         })
       }
     } catch (err) {
+      const message = err.response?.data?.error_message || err.message
       console.error(`[plaid] holdings failed for item ${doc.id}:`, err.response?.data || err.message)
+      // A failed fetch used to disappear into this log line while the response
+      // still came back 200 — the client had no way to tell "nothing here" from
+      // "this one didn't load". Reported here instead, so it can say so.
+      errors.push({ itemId: doc.id, institution: institution || 'Connected', message })
     }
   }
 
-  return res.status(200).json({ rows: allRows, cashEntries: allCashEntries, connectedAccounts })
+  return res.status(200).json({ rows: allRows, cashEntries: allCashEntries, connectedAccounts, errors })
 }
 
 // ─── Disconnect ───────────────────────────────────────────────────────────────
