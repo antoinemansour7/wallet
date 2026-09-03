@@ -1,45 +1,102 @@
-# Wallet
+# WallAI
 
-A stock portfolio tracker with daily research. Built with React + Firebase.
+A portfolio tracker for Canadian retail investors. Connect a brokerage or import a
+statement, and it keeps one view of what you own across every account and
+institution — with live prices, currency handled properly, and Canadian
+instruments (CDRs, TSX listings, registered accounts) treated as first-class
+rather than as edge cases.
 
-## Stack
+There is also a nightly research pipeline that produces daily stock ideas. It is
+the older half of the app and is being deliberately kept separate from the
+portfolio side.
 
-| Layer | Tech |
-|---|---|
-| Frontend | React 18 + Vite |
-| Auth | Firebase (Google sign-in only) |
-| User data | Firebase Firestore |
-| Routing | React Router v6 |
-| Styling | Tailwind CSS |
-| AI extraction | Groq-hosted model |
-| Excel parsing | xlsx |
-| PDF parsing | pdfjs-dist |
-| Stock API | Polygon/Massive for US stocks, Yahoo Finance fallback/CDRs |
-| Quote cache | Upstash Redis |
+## Contents
 
-## Setup
+- [What it does](#what-it-does)
+- [Running it](#running-it)
+- [Preview mode](#preview-mode-no-credentials-needed)
+- [Environment variables](#environment-variables)
+- [How the portfolio is modelled](#how-the-portfolio-is-modelled)
+- [Statement format](#statement-format)
+- [API routes](#api-routes)
+- [Tests](#tests)
+- [Deploying](#deploying)
 
-### 1. Clone & install
+## What it does
+
+**Accounts.** An account is one or more *imports* stacked on top of each other —
+a connected brokerage, a CSV, a PDF statement. Each import keeps its own
+identity, so you can remove one without losing the others, and see what an
+account is actually made of.
+
+**Connect a brokerage** through Plaid, or **import a statement** (CSV, XLSX, or
+PDF). A connected brokerage reports which account each holding belongs to, so
+those accounts are created as they come. A file cannot say that reliably, so it
+asks where the statement should land, and states what the merge will do before
+doing it.
+
+**Live prices** refresh on load and every five minutes, cached in Redis by
+ticker. Holdings whose price could not be refreshed say when they were last
+priced rather than presenting an old number as current.
+
+**Currency.** Rows carry two separate facts: `ACCOUNT CURRENCY` — what the
+figures are denominated in — and `CURRENCY`, what the security trades in. A US
+holding in a Canadian account is converted, its cost basis converted with it, so
+the return is a return and not the exchange rate.
+
+**Canadian instruments.** Canadian Depositary Receipts are identified from what
+the institution reports and priced against their Cboe Canada listing, not the US
+share. TSX-listed securities that providers will not resolve bare are retried
+with `.TO`.
+
+**Light and dark themes**, following the system preference unless overridden.
+
+**Research** (separate from the above): a nightly pipeline reads X, news and
+screeners, extracts candidate tickers, and generates reports.
+
+## Running it
+
+Requires **Node 20.19 or newer**. See [Tests](#tests) for why the exact version
+matters.
 
 ```bash
 git clone https://github.com/antoinemansour7/wallet.git
 cd wallet
 npm install
+cp .env.example .env     # then fill it in — see below
+npm run dev
 ```
 
-### 2. Configure Firebase
+The fastest way to see the app working is **preview mode**, which needs no
+credentials at all.
 
-1. Create a project at [console.firebase.google.com](https://console.firebase.google.com)
-2. Enable **Authentication → Sign-in method → Google**
-3. Enable **Firestore Database**
-4. Register a web app and copy the config
-5. Copy `.env.example` to `.env` and fill in your values:
+## Preview mode (no credentials needed)
 
 ```bash
-cp .env.example .env
+VITE_MOCK_AUTH=true npx vite
 ```
 
-Required env vars:
+Every page except `/login` sits behind Firebase Google sign-in, so a dev server
+alone shows you nothing. Preview mode signs in a mock user and seeds a fixture
+portfolio — deliberately awkward data rather than tidy data: two accounts, three
+imports, a CDR, a leveraged ETF, a US holding bought at a loss, a cash-only
+account, and a holding no price provider will resolve. Those shapes are the ones
+that break things.
+
+Both write paths are guarded, so the fixture can never reach Firestore or
+localStorage.
+
+| URL | Shows |
+|---|---|
+| `/portfolio` | The seeded portfolio |
+| `/portfolio?empty` | The app with nothing in it, for empty states |
+
+Preview mode also answers the Plaid calls from the fixture, which is the **only**
+way to exercise the connect flow locally — see [API routes](#api-routes).
+
+## Environment variables
+
+### Required to run at all
 
 ```
 VITE_FIREBASE_API_KEY
@@ -48,45 +105,14 @@ VITE_FIREBASE_PROJECT_ID
 VITE_FIREBASE_STORAGE_BUCKET
 VITE_FIREBASE_MESSAGING_SENDER_ID
 VITE_FIREBASE_APP_ID
-GROQ_API_KEY
-UPSTASH_REDIS_REST_URL
-UPSTASH_REDIS_REST_TOKEN
-POLYGON_API_KEY
-ANTHROPIC_API_KEY
-PERPLEXITY_API_KEY
+VITE_FIREBASE_MEASUREMENT_ID    # optional
 ```
 
-Optional server-side cache controls:
+Create a project at [console.firebase.google.com](https://console.firebase.google.com),
+enable **Authentication → Sign-in method → Google** and **Firestore Database**,
+register a web app, and copy the config.
 
-```
-QUOTE_CACHE_TTL_SECONDS=300
-QUOTE_CACHE_RETENTION_SECONDS=86400
-QUOTE_REFRESH_CONCURRENCY=5
-QUOTE_REFRESH_LIMIT=100
-CRON_SECRET=your_cron_secret
-```
-
-Optional research/scraper auth:
-
-```
-X_API_KEY
-X_API_KEY_SECRET
-X_BEARER_TOKEN
-X_ACCESS_TOKEN
-X_ACCESS_TOKEN_SECRET
-TWITTER_COOKIES_JSON
-TWITTER_COOKIES_BASE64
-TWITTER_AUTH_TOKEN
-TWITTER_CT0
-TWITTER_USERNAME
-TWITTER_PASSWORD
-TWITTER_EMAIL
-TWITTER_2FA_SECRET
-```
-
-`X_BEARER_TOKEN` is the main credential for app-only read access on the official X API, and it now powers the nightly research pipeline's tracked-account reads plus adaptive recent searches. `X_ACCESS_TOKEN` and `X_ACCESS_TOKEN_SECRET` are only needed if you later move to user-context endpoints. The `TWITTER_*` cookie credentials are legacy fallback auth for the old unofficial scraper path.
-
-Recommended Firestore rule for saved portfolios:
+Firestore rules:
 
 ```js
 rules_version = '2';
@@ -99,90 +125,189 @@ service cloud.firestore {
 }
 ```
 
-### 3. Run
+The recursive wildcard covers the `portfolio-history` subcollection the
+performance chart writes to. If the browser console reports `permission-denied`
+against it, the deployed rules are narrower than the ones above.
+
+### Connecting a brokerage
+
+```
+PLAID_CLIENT_ID
+PLAID_SECRET
+PLAID_ENV                       # sandbox | production
+FIREBASE_SERVICE_ACCOUNT        # service-account JSON, as one line
+```
+
+`FIREBASE_SERVICE_ACCOUNT` is what the serverless functions use to reach
+Firestore, from Firebase Console → Project Settings → Service Accounts. Plaid
+retired the `development` environment; only `sandbox` and `production` are valid.
+
+### Market data
+
+```
+UPSTASH_REDIS_REST_URL
+UPSTASH_REDIS_REST_TOKEN
+POLYGON_API_KEY                 # optional — preferred for US equities
+POLYGON_API_BASE_URL            # optional
+MASSIVE_API_KEY                 # optional
+MASSIVE_API_BASE_URL            # optional
+```
+
+Yahoo Finance needs no key and is the fallback, the source for CDR (`.NE`)
+listings, and where the USD/CAD rate comes from. Without Redis, every refresh
+calls the providers directly.
+
+### Research pipeline
+
+```
+GROQ_API_KEY                    # ticker extraction from statements and signals
+OPENAI_API_KEY
+ANTHROPIC_API_KEY
+EXA_API_KEY                     # discovery search
+X_BEARER_TOKEN                  # app-only read access to the X API
+X_PROVIDER                      # which read path to use
+X_API_BASE_URL
+TWITTERAPI_IO_KEY               # alternative X read path
+TWITTERAPI_IO_BASE
+CRON_SECRET                     # guards the scheduled endpoints
+```
+
+`GROQ_API_KEY` is also used by PDF statement extraction, so it is worth setting
+even if you never run research.
+
+### Slack (optional)
+
+```
+SLACK_BOT_TOKEN
+SLACK_CHANNEL_ID
+SLACK_SIGNING_SECRET
+```
+
+### Tuning (all optional)
+
+```
+QUOTE_CACHE_TTL_SECONDS=300
+QUOTE_CACHE_RETENTION_SECONDS=86400
+QUOTE_REFRESH_CONCURRENCY=5
+QUOTE_REFRESH_LIMIT=100
+NEWS_MAX_AGE_HOURS
+RESEARCH_EFFORT
+SCREENER_MAX_PAGES
+TWITTERAPI_IO_DELAY_MS
+TWITTERAPI_IO_MAX_PAGES
+```
+
+## How the portfolio is modelled
+
+Worth knowing before changing anything in `src/utils/`:
+
+- **An account is a set of imports.** Every position carries `__sourceId`
+  identifying which import it came from. Removing an import removes only its
+  positions; removing the last one removes the account.
+- **A new import adds, a repeat replaces.** A statement from a source not seen
+  before is added alongside. A fresher statement from the same source replaces
+  what that source loaded last time.
+- **A merge states its effects before running**, so combining two brokerages is
+  not a gamble.
+- **A price refresh is not a statement.** `buildAccountPortfolio` does not infer
+  trades. Rows missing from a refresh are a gap in the data, not a sale — reading
+  them as sales once emptied an account and credited it with proceeds nobody
+  received.
+- **Same-symbol rows are pooled**, so two accounts holding one ETF import as a
+  single line with the quantities added rather than as a duplicate.
+
+## Statement format
+
+CSV, XLSX and PDF are accepted. Columns are matched case-insensitively against
+these names and a set of aliases, and only `SYMBOL` (or `DESCRIPTION`) plus a
+value is really needed — anything missing is derived or left empty.
+
+| Column | Also accepted as | Example |
+|---|---|---|
+| `SYMBOL` | ticker | `VFV.TO` |
+| `DESCRIPTION` | security, name | `VANGUARD S&P 500 INDEX ETF` |
+| `QUANTITY` | shares, units | `96` |
+| `MARKET PRICE` | price, last price | `148.20` |
+| `MARKET VALUE` | mkt value, value | `14227.20` |
+| `BOOK VALUE` | cost basis, total cost | `12100.00` |
+| `AVERAGE UNIT COST` | avg cost, cost basis per share | `126.04` |
+| `ACCOUNT NUMBER` | account, account no | `68BB39Q` |
+| `ACCOUNT CURRENCY` | currency | `CAD` |
+| `DAY CHANGE` | today change | `58.90` |
+| `DAY CHANGE %` | change % | `0.41%` |
+| `UNREALIZED GAIN/LOSS` | unrealized p&l, p&l | `2127.20` |
+| `UNREALIZED GAIN/LOSS %` | p&l % | `17.58%` |
+
+Rows whose symbol or description reads as cash are pulled out as a cash balance
+rather than treated as a holding.
+
+> A CDR row must stay on its Canadian listing. A row like `MSTR` with `CDR` in
+> the description is priced as `MSTR.NE`, not the US Nasdaq `MSTR` — the two
+> differ by several times.
+
+## API routes
+
+Twelve serverless functions under `api/`, which is **the Vercel Hobby limit** —
+there is no room for another without removing one.
+
+| Route | Runs locally? |
+|---|---|
+| `extract-pdf` | yes |
+| `live-prices` | yes |
+| `live-quote` | yes |
+| `refresh-prices` | yes |
+| `get-research` | yes |
+| `nightly-research` | yes |
+| `plaid` | **no** |
+| `get-research-history`, `position-sizing`, `signal-history`, `slack-events`, `track-performance` | no |
+
+The dev server hand-registers a middleware for each route it supports, in
+`vite.config.js`. **There is no plaid plugin**, so `api/plaid.js` only ever runs
+on Vercel — a request to `/api/plaid` from localhost hits the *deployed*
+function while the rest of the app is your local build.
+
+That split has already caused one production bug, where a client change relied on
+a server change that had not been deployed. Until it is fixed, exercise the
+connect flow in [preview mode](#preview-mode-no-credentials-needed), which needs
+no server at all.
+
+## Tests
 
 ```bash
-npm run dev
+npm run test:run
 ```
 
-### 4. Deploy on Vercel
+**Node 20.19+ is required.** `vite.config.js` sets the test environment to jsdom
+globally, and jsdom 29 pulls a dependency that needs `require(esm)`, which landed
+in Node 20.19. On older 20.x every worker dies at startup with `ERR_REQUIRE_ESM`
+before a single test file loads.
 
-Set the same Firebase `VITE_*`, `GROQ_API_KEY`, and Upstash Redis variables in Vercel Project Settings.
-Set `POLYGON_API_KEY` if you want normal US equities to price through Polygon/Massive instead of Yahoo.
-The app includes Vercel serverless functions under `api/` for AI extraction and market price refresh.
-The scheduled `/api/refresh-prices` function is configured in `vercel.json`.
+On an older Node you can still get most of the signal:
 
-## CI/CD
-
-GitHub Actions uses separate CI and CD workflows.
-
-- CI: `.github/workflows/ci.yml`
-- CD: `.github/workflows/cd.yml`
-
-CI runs on pull requests to `main`, pushes to `main`, merges into `main`, and manual `workflow_dispatch` runs. It installs dependencies, runs tests, and builds the app.
-
-CD deploys production to Vercel after the `CI` workflow succeeds on `main`. It can also be run manually from the GitHub Actions tab.
-
-Required GitHub repository secrets for Actions-based Vercel deployments:
-
-```
-VERCEL_TOKEN
-VERCEL_ORG_ID
-VERCEL_PROJECT_ID
+```bash
+NODE_ENV=test npx vitest run src --environment=node
 ```
 
-If you use Vercel's built-in Git integration instead, leave those GitHub secrets unset. The CI job will still run, and the deploy jobs will skip without failing.
+That runs everything that does not need a DOM. `ProtectedRoute.test.jsx`,
+`Login.test.jsx` and one `FileReader` case in `parseSpreadsheet.test.js` fail
+under it — because of the environment, not because of a defect.
 
-## Features
+## Deploying
 
-### Portfolio
-- Upload a CSV, Excel (.xlsx/.xls), or PDF document of your holdings
-- Dashboard renders after upload with KPI cards, charts, and grouped holdings
-- Saved portfolios reload automatically when the same Google user signs back in
-- Polygon/Massive refreshes normal US equity prices when `POLYGON_API_KEY` is configured
-- Yahoo Finance still handles Canadian CDRs (`.NE`) and USD/CAD FX, and remains the fallback if Polygon is unavailable
-- Market quote refresh updates market price, market value, day change, and unrealized P&L when symbols match
-- Redis caches quotes by ticker so repeated refreshes reuse fresh prices instead of calling providers every time
+Vercel hosts both the static build and the functions in `api/`. `vercel.json`
+holds the SPA rewrite and four cron schedules.
 
-> Uploaded files remain the source for share counts, account numbers, and book values.
-> Canadian CDR rows must stay on their CAD listing. A CSV row like `MSTR` with `CDR` in the description is priced as `MSTR.NE`, not the US Nasdaq `MSTR`.
+Two deploy paths exist and only one of them works:
 
-Quote refresh behavior:
+- **Vercel's Git integration** deploys on push to `main`. This is what actually
+  ships.
+- **GitHub Actions** (`.github/workflows/cd.yml`) deploys after CI succeeds on
+  `main`, but only if `VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` are
+  set as repository secrets. Without them every step skips and the job still
+  reports success.
 
-- The Portfolio page refreshes prices automatically after upload and every 5 minutes while holdings are open.
-- `/api/live-prices` checks Redis first and only calls Polygon/Yahoo for missing or stale tickers.
-- Stale cached prices can still be returned if a provider fails.
-- `vercel.json` schedules `/api/refresh-prices` daily to warm known ticker prices in the background.
+CI (`.github/workflows/ci.yml`) runs on pull requests and pushes to `main`,
+installing, testing and building.
 
-### Research
-- Yahoo Finance RSS headlines
-- Claude extracts candidate tickers from social/news signals
-- Perplexity generates full deep-research reports with citations
-- Twitter/X scraping works best with session cookies; username/password login is only a fallback
-
-## Live Price API Options
-
-The current app uses a hybrid market data router after parsing symbols:
-
-- Polygon/Massive (`POLYGON_API_KEY`) — preferred for normal US stocks
-- Yahoo Finance (unofficial, no key) — fallback, CDR `.NE` symbols, and USD/CAD FX
-- Alpha Vantage (free key, limited daily quota)
-
-## Roadmap
-
-- [x] Wire up stock API for price refresh after upload
-- [ ] Compute P&L per position from uploaded spreadsheet
-- [ ] Chart portfolio value over time
-- [ ] Watchlist with price alerts
-- [ ] Live market news feed
-
-## Spreadsheet Format
-
-The app accepts CSV, Excel, and PDF files. Recommended columns:
-
-| Column | Example |
-|---|---|
-| Symbol | AAPL |
-| Shares | 10 |
-| Avg Cost | 150.00 |
-| Purchase Date | 2023-01-15 |
+Set the same environment variables in Vercel Project Settings that you set
+locally.
