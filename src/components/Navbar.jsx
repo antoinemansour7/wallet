@@ -162,7 +162,10 @@ export default function Navbar() {
 
   return (
     <>
-      <header className="glass sticky top-0 z-40 border-b border-ink/[0.06]">
+      {/* Light-mode chrome deliberately matches the page's paper tone so white
+          remains the content surface. This shared hairline also matches the
+          page-level tab row; dark mode keeps its existing near-black chrome. */}
+      <header className="glass sticky top-0 z-40 border-b border-ink/[0.08]">
         <div className="mx-auto flex h-16 max-w-7xl items-center gap-6 px-4 sm:px-6">
           <NavLink
             to="/portfolio"
@@ -205,7 +208,7 @@ export default function Navbar() {
       </header>
 
       {/* ── Mobile bottom tab bar ────────────────────────────────────── */}
-      <nav className="glass fixed inset-x-0 bottom-0 z-50 border-t border-ink/[0.06] pb-[env(safe-area-inset-bottom)] lg:hidden">
+      <nav className="glass fixed inset-x-0 bottom-0 z-50 border-t border-ink/[0.08] pb-[env(safe-area-inset-bottom)] lg:hidden">
         <div className="grid grid-cols-3">
           {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
             <NavLink

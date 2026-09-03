@@ -41,7 +41,8 @@
     --color-wall-elevated: 237 243 238;
     --body-bg: #f5f7f4;
     --body-text: #17211d;
-    --glass-bg: rgba(255, 255, 255, 0.92);
+    /* App chrome shares the paper ground; white stays reserved for content surfaces. */
+    --glass-bg: rgba(245, 247, 244, 0.92);
     --glass-saturation: 1.1;
     --login-bg: #101914;
     --text-gradient: linear-gradient(120deg, #fafafa 0%, #a1a1aa 100%);
