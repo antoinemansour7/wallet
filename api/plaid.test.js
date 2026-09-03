@@ -220,4 +220,61 @@ describe('POST /api/plaid — holdings, partial failure', () => {
     expect(res.statusCode).toBe(200)
     expect(res.body.errors).toEqual([])
   })
+
+  it('runs multiple connections concurrently rather than one after another', async () => {
+    // Each call raises a counter on entry and lowers it after a real delay —
+    // if the batch were still sequential, no two calls would ever overlap and
+    // the counter would never rise above 1.
+    let concurrent = 0
+    let maxConcurrent = 0
+    investmentsHoldingsGet.mockImplementation(async () => {
+      concurrent += 1
+      maxConcurrent = Math.max(maxConcurrent, concurrent)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      concurrent -= 1
+      return { data: { holdings: [], securities: [], accounts: [] } }
+    })
+    getFirestore.mockReturnValue(makeFirestoreDb([
+      { id: 'item-1', data: () => ({ accessToken: 'a', accounts: [], institution: 'A', enabledAccountIds: null }) },
+      { id: 'item-2', data: () => ({ accessToken: 'b', accounts: [], institution: 'B', enabledAccountIds: null }) },
+      { id: 'item-3', data: () => ({ accessToken: 'c', accounts: [], institution: 'C', enabledAccountIds: null }) },
+    ]))
+
+    // No itemId: every stored connection fans out in one request, the case
+    // that used to pay for each connection's round trip in sequence.
+    const { req, res } = makeReqRes({
+      body: { action: 'holdings', userId: 'user-1' },
+      headers: { authorization: 'Bearer good-token' },
+    })
+
+    await handler(req, res)
+
+    expect(res.statusCode).toBe(200)
+    expect(investmentsHoldingsGet).toHaveBeenCalledTimes(3)
+    expect(maxConcurrent).toBeGreaterThan(1)
+  })
+
+  it('one failed connection does not drop the others from the batch', async () => {
+    investmentsHoldingsGet
+      .mockResolvedValueOnce({ data: { holdings: [], securities: [], accounts: [] } })
+      .mockRejectedValueOnce(new Error('ITEM_LOGIN_REQUIRED'))
+      .mockResolvedValueOnce({ data: { holdings: [], securities: [], accounts: [] } })
+    getFirestore.mockReturnValue(makeFirestoreDb([
+      { id: 'item-1', data: () => ({ accessToken: 'a', accounts: [], institution: 'A', enabledAccountIds: null }) },
+      { id: 'item-2', data: () => ({ accessToken: 'b', accounts: [], institution: 'B', enabledAccountIds: null }) },
+      { id: 'item-3', data: () => ({ accessToken: 'c', accounts: [], institution: 'C', enabledAccountIds: null }) },
+    ]))
+
+    const { req, res } = makeReqRes({
+      body: { action: 'holdings', userId: 'user-1' },
+      headers: { authorization: 'Bearer good-token' },
+    })
+
+    await handler(req, res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.errors).toEqual([
+      { itemId: 'item-2', institution: 'B', message: 'ITEM_LOGIN_REQUIRED' },
+    ])
+  })
 })
