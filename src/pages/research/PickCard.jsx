@@ -119,7 +119,19 @@ function Section({ label, trailing, children }) {
 
 // ─── Card ──────────────────────────────────────────────────────────────────────
 
-export default function PickCard({ pick, rank, defaultOpen = false }) {
+/** When the overnight run happened, said the way a person would say it. */
+function runLabel(generatedAt) {
+  const ms = Date.parse(String(generatedAt ?? ''))
+  if (!Number.isFinite(ms)) return 'the last run'
+
+  const hours = Math.floor((Date.now() - ms) / 3600000)
+  if (hours < 1) return 'this run'
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return days === 1 ? 'yesterday' : `${days} days ago`
+}
+
+export default function PickCard({ pick, rank, defaultOpen = false, live, generatedAt }) {
   const [open, setOpen] = useState(defaultOpen)
   const {
     ticker, conviction, reason, setupType, sources = [], themes = [],
@@ -128,8 +140,13 @@ export default function PickCard({ pick, rank, defaultOpen = false }) {
     price, quoteChangePercent, stopLoss, target,
   } = pick
 
-  const change = num(quoteChangePercent)
-  const entry = num(price)
+  // The live quote wins where there is one. The stored figures were captured
+  // when the pipeline ran and are what the ranking was built on — right for
+  // scoring, wrong to show, because a card rendering them looked current while
+  // being up to a day old. That is why every pick read 0.00%.
+  const entry = num(live?.price) || num(price)
+  const change = live ? live.changePercent : null
+  const priceIsLive = Boolean(live)
   const stop = num(stopLoss)
   const tgt = num(target)
   const priceLabel = money(entry)
@@ -172,10 +189,17 @@ export default function PickCard({ pick, rank, defaultOpen = false }) {
           {priceLabel && (
             <div className="text-right">
               <p className="text-[17px] font-semibold tabular leading-none text-ink">{priceLabel}</p>
-              {change != null && (
-                <p className={`mt-1.5 text-[13px] font-semibold tabular leading-none ${change >= 0 ? 'text-gain' : 'text-loss'}`}>
-                  {change >= 0 ? '+' : ''}{change.toFixed(2)}%
+              {/* A flat day and a missing quote must not render identically —
+                  showing 0.00% for "we do not know" is what made every card
+                  look like nothing had moved. */}
+              {change != null ? (
+                <p className={`mt-1.5 text-[13px] font-semibold tabular leading-none ${
+                  change > 0 ? 'text-gain' : change < 0 ? 'text-loss' : 'text-ink/45'
+                }`}>
+                  {change > 0 ? '+' : ''}{change.toFixed(2)}%
                 </p>
+              ) : (
+                <p className="mt-1.5 text-[13px] font-medium leading-none text-ink/30">—</p>
               )}
             </div>
           )}
@@ -274,7 +298,12 @@ export default function PickCard({ pick, rank, defaultOpen = false }) {
             {themes.length > 0 && (
               <span className="text-ink/25">About: {themes.slice(0, 4).join(', ')}</span>
             )}
-            {quoteVerified && <span className="text-ink/25">Price checked just now</span>}
+            {/* This said "Price checked just now" regardless, on a figure written
+                once by the overnight run — false for the entire life of the
+                payload. It now says which of the two it is. */}
+            {priceIsLive
+              ? <span className="text-ink/25">Price live</span>
+              : quoteVerified && <span className="text-ink/25">Price from {runLabel(generatedAt)}</span>}
           </div>
         </div>
       )}
