@@ -60,6 +60,7 @@ export default function Research() {
   const [research, setResearch] = useState(null)
   const [loadingResearch, setLoadingResearch] = useState(true)
   const [showBelow, setShowBelow] = useState(false)
+  const [livePrices, setLivePrices] = useState({})
   const [sizing, setSizing] = useState(null)
   const [sizingLoading, setSizingLoading] = useState(false)
   const { user } = useAuth()
@@ -78,6 +79,50 @@ export default function Research() {
       setResearch({ empty: true, picks: [], signalCount: 0, generatedAt: null })
     } finally {
       setLoadingResearch(false)
+    }
+  }
+
+  /**
+   * Prices for the picks, taken now rather than read back out of the payload.
+   *
+   * The pipeline captures a price and a day change when it runs and stores them
+   * beside the pick. The page used to render those straight back, so a figure
+   * could be a full day old and the change was whatever was true at the moment
+   * the pipeline happened to ask — which is why every card showed 0.00% and a
+   * price that never moved.
+   *
+   * The stored figures are kept, because the ranking is built on what was true
+   * when the pick was made. They are just the wrong thing to show.
+   */
+  async function loadLivePrices(picksToPrice) {
+    const symbols = [...new Set(picksToPrice.map((p) => p.ticker).filter(Boolean))]
+    if (symbols.length === 0) return
+
+    try {
+      const res = await fetch('/api/live-prices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbols }),
+      })
+      if (!res.ok) return
+
+      const data = await res.json()
+      const at = new Date().toISOString()
+      const next = {}
+      for (const quote of data.quotes ?? []) {
+        const symbol = quote.requestedSymbol ?? quote.symbol
+        const price = Number(quote.price ?? quote.regularMarketPrice)
+        if (!symbol || !Number.isFinite(price)) continue
+        next[symbol] = {
+          price,
+          changePercent: Number.isFinite(Number(quote.changePercent)) ? Number(quote.changePercent) : null,
+          at,
+        }
+      }
+      setLivePrices(next)
+    } catch {
+      // A failed refresh leaves the stored figures showing, and the card says
+      // when they were taken. Silence is fine; a wrong number is not.
     }
   }
 
@@ -105,6 +150,17 @@ export default function Research() {
   }
 
   useEffect(() => { loadResearch() }, [])
+
+  // Priced on arrival, then every five minutes, matching the portfolio.
+  useEffect(() => {
+    const all = research?.picks ?? []
+    if (all.length === 0) return undefined
+
+    loadLivePrices(all)
+    const id = window.setInterval(() => loadLivePrices(all), 5 * 60 * 1000)
+    return () => window.clearInterval(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [research])
 
   const { picks, below } = useMemo(() => {
     const all = [...(research?.picks ?? [])].sort((a, b) => b.conviction - a.conviction)
@@ -171,7 +227,13 @@ export default function Research() {
                   {/* Lead with the top pick already open: the page opens on an
                       argument rather than on a row you have to discover is
                       clickable, and it balances the context rail beside it. */}
-                  <PickCard pick={pick} rank={i + 1} defaultOpen={i === 0} />
+                  <PickCard
+                    pick={pick}
+                    rank={i + 1}
+                    defaultOpen={i === 0}
+                    live={livePrices[pick.ticker]}
+                    generatedAt={research?.generatedAt}
+                  />
                 </Reveal>
               ))}
             </div>
@@ -206,7 +268,13 @@ export default function Research() {
                 {showBelow && (
                   <div className="mt-2.5 space-y-2.5 opacity-70">
                     {below.map((pick, i) => (
-                      <PickCard key={pick.ticker} pick={pick} rank={picks.length + i + 1} />
+                      <PickCard
+                        key={pick.ticker}
+                        pick={pick}
+                        rank={picks.length + i + 1}
+                        live={livePrices[pick.ticker]}
+                        generatedAt={research?.generatedAt}
+                      />
                     ))}
                   </div>
                 )}
