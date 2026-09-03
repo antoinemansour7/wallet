@@ -265,7 +265,7 @@ export default function HoldingsView({ rows, accounts, onUploadClick }) {
 
                 <div className="divide-y divide-ink/[0.06] overflow-hidden rounded-2xl border border-ink/[0.08] bg-wall-surface">
                   {account.positions.length === 0 && (
-                    <p className="px-5 py-4 text-[13.5px] text-ink/45">No open positions in this account.</p>
+                    <p className="px-5 py-4 text-[13.5px] text-ink/45">No holdings in this account.</p>
                   )}
 
                   {account.positions.map((row, i) => {
