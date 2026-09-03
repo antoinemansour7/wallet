@@ -70,9 +70,19 @@ export default function Research() {
     // shows nothing about how the copy reads.
     if (IS_PREVIEW) { setResearch(PREVIEW_RESEARCH); setLoadingResearch(false); return }
     try {
-      const res = await fetch('/api/get-research')
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      setResearch(await res.json())
+      // Two routes as of #68 — market conditions used to be bundled into
+      // get-research's response because there was nowhere else to put them.
+      // Fetched together, same as they were computed together server-side
+      // before the split; a failed regime fetch shouldn't cost the picks,
+      // so it's caught on its own rather than failing the whole load.
+      const [researchRes, regimeRes] = await Promise.all([
+        fetch('/api/get-research'),
+        fetch('/api/market-regime').catch(() => null),
+      ])
+      if (!researchRes.ok) throw new Error(`HTTP ${researchRes.status}`)
+      const data = await researchRes.json()
+      const regime = regimeRes?.ok ? (await regimeRes.json()).regime : null
+      setResearch({ ...data, regime })
     } catch (err) {
       console.error('[Research] failed to load research:', err.message)
       setResearch({ empty: true, picks: [], signalCount: 0, generatedAt: null })

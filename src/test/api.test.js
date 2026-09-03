@@ -108,6 +108,82 @@ describe('api/get-research', () => {
 
     expect(res.headers['Cache-Control']).toContain('s-maxage=900')
   })
+
+  it('no longer bundles market conditions — that moved to its own route (#68)', async () => {
+    vi.doMock('@upstash/redis', () => ({
+      Redis: { fromEnv: () => ({ get: vi.fn().mockResolvedValue({ picks: [] }) }) },
+    }))
+    const mod = await import('../../api/get-research.js')
+
+    const res = mockRes()
+    await mod.default(mockReq('GET'), res)
+
+    expect(res.body.regime).toBeUndefined()
+  })
+})
+
+// ─── market-regime tests ────────────────────────────────────────────────────
+// Split out of get-research.js in #68 — market conditions get their own
+// route now, restoring get-research to one job.
+
+describe('api/market-regime', () => {
+  beforeEach(() => {
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('rejects non-GET requests', async () => {
+    vi.doMock('../server/marketRegime.js', () => ({ getMarketRegime: vi.fn() }))
+    const mod = await import('../../api/market-regime.js')
+
+    const res = mockRes()
+    await mod.default(mockReq('POST'), res)
+
+    expect(res.statusCode).toBe(405)
+  })
+
+  it('returns the current regime', async () => {
+    vi.doMock('../server/marketRegime.js', () => ({
+      getMarketRegime: vi.fn().mockResolvedValue({ score: 5.1, label: 'Mixed' }),
+    }))
+    const mod = await import('../../api/market-regime.js')
+
+    const res = mockRes()
+    await mod.default(mockReq('GET'), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.regime).toEqual({ score: 5.1, label: 'Mixed' })
+  })
+
+  it('answers null rather than an error status when the regime lookup fails', async () => {
+    // Never fatal on the client's side — the picks matter more than the
+    // gauge above them, so this degrades instead of erroring the page.
+    vi.doMock('../server/marketRegime.js', () => ({
+      getMarketRegime: vi.fn().mockRejectedValue(new Error('fetch failed')),
+    }))
+    const mod = await import('../../api/market-regime.js')
+
+    const res = mockRes()
+    await mod.default(mockReq('GET'), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.regime).toBeNull()
+  })
+
+  it('sets Cache-Control header', async () => {
+    vi.doMock('../server/marketRegime.js', () => ({
+      getMarketRegime: vi.fn().mockResolvedValue(null),
+    }))
+    const mod = await import('../../api/market-regime.js')
+
+    const res = mockRes()
+    await mod.default(mockReq('GET'), res)
+
+    expect(res.headers['Cache-Control']).toContain('s-maxage=900')
+  })
 })
 
 // ─── live-prices tests ──────────────────────────────────────────────────────
