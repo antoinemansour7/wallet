@@ -7,6 +7,7 @@ import { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } fro
 import { fetchMarketQuotes } from '../src/server/marketQuotes.js'
 import { initializeApp, cert, getApps } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
+import { getAuth } from 'firebase-admin/auth'
 
 /**
  * Plaid retired the `development` environment; the SDK now ships only
@@ -486,14 +487,57 @@ const ACTIONS = {
   'disconnect': handleDisconnect,
 }
 
+/**
+ * Every handler below reads `const { userId } = req.body` — until now, that
+ * meant the caller could name any Firebase UID and this route would act as
+ * that person: read their brokerage holdings, disconnect their bank, or
+ * attach a new connection to their account. Firestore's security rules never
+ * saw any of this, because these calls go through firebase-admin on the
+ * server, which bypasses rules by design.
+ *
+ * A Firebase ID token proves who is actually asking, and the client already
+ * has one — every signed-in user holds a token from `getIdToken()`. This
+ * verifies it and returns the real uid, or throws a tagged error the caller
+ * turns into a 401 before anything downstream — Firestore included — runs.
+ */
+async function verifyCaller(req) {
+  const header = req.headers.authorization || ''
+  const token = header.startsWith('Bearer ') ? header.slice(7) : null
+  if (!token) {
+    throw Object.assign(new Error('Missing Authorization header'), { status: 401 })
+  }
+  try {
+    const decoded = await getAuth().verifyIdToken(token)
+    return decoded.uid
+  } catch (err) {
+    throw Object.assign(new Error('Invalid or expired session'), { status: 401, cause: err })
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+
+  // First gate, ahead of even the action name: an unauthenticated request
+  // learns nothing about this route beyond "you are not signed in", not which
+  // action names exist or whether Plaid is configured.
+  try {
+    // Overwritten, not merely checked. Every handler below still reads
+    // `userId` from the body — rather than editing each one to read it from
+    // somewhere else, the body's claim is replaced with the verified truth
+    // before any handler sees it, so a request naming someone else's uid acts
+    // as the caller's own account instead of failing loudly or silently
+    // succeeding as the wrong person.
+    req.body = req.body || {}
+    req.body.userId = await verifyCaller(req)
+  } catch (err) {
+    return res.status(err.status ?? 401).json({ error: err.message })
+  }
 
   if (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_SECRET) {
     return res.status(500).json({ error: 'Plaid credentials not configured' })
   }
 
-  const { action } = req.body || {}
+  const { action } = req.body
   const actionHandler = ACTIONS[action]
   if (!actionHandler) {
     return res.status(400).json({ error: `Invalid action. Use: ${Object.keys(ACTIONS).join(', ')}` })
