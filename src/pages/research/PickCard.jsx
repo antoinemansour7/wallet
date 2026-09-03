@@ -137,7 +137,7 @@ export default function PickCard({ pick, rank, defaultOpen = false, live, genera
     ticker, conviction, reason, setupType, sources = [], themes = [],
     signalCount, technicals, bearCase, riskScore, quoteVerified,
     catalystVerified, catalystDetail, catalystTimeline, catalystPricedIn,
-    price, quoteChangePercent, stopLoss, target,
+    price, stopLoss, target,
   } = pick
 
   // The live quote wins where there is one. The stored figures were captured

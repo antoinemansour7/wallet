@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { candidatesToSignals } from './technicalScreener'
 
 // We can't easily unit-test fetchBreakoutCandidates without mocking Redis + Finviz HTML.

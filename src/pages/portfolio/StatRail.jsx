@@ -38,7 +38,7 @@ function CashCell({ totalCash, share, onSave }) {
   }, [totalCash])
 
   const save = useCallback(() => {
-    const num = parseFloat(draft.replace(/[^0-9.\-]/g, ''))
+    const num = parseFloat(draft.replace(/[^0-9.-]/g, ''))
     if (!Number.isNaN(num)) onSave(num)
     setEditing(false)
   }, [draft, onSave])

@@ -36,7 +36,7 @@ const PAD_X = 7
 const PAD_Y = 12
 
 function parseQty(value) {
-  const n = Number(String(value ?? '').replace(/[^0-9.\-]/g, ''))
+  const n = Number(String(value ?? '').replace(/[^0-9.-]/g, ''))
   return Number.isFinite(n) ? n : 0
 }
 

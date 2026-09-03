@@ -17,7 +17,7 @@ async function fetchFinvizTickers(url) {
   if (!res.ok) return []
   const html = await res.text()
   return [...new Set(
-    [...html.matchAll(/stock\?t=([A-Z][A-Z0-9.\-]{0,5})[&"]/g)].map((m) => m[1]),
+    [...html.matchAll(/stock\?t=([A-Z][A-Z0-9.-]{0,5})[&"]/g)].map((m) => m[1]),
   )]
 }
 

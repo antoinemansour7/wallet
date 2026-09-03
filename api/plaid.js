@@ -51,7 +51,7 @@ function getPlaidClient() {
  * value is missing rather than letting cert() complain about `project_id`.
  */
 function loadServiceAccount() {
-  const raw = (process.env.FIREBASE_SERVICE_ACCOUNT || '').replace(/^﻿/, '').trim()
+  const raw = (process.env.FIREBASE_SERVICE_ACCOUNT || '').replace(/^\uFEFF/, '').trim()
   if (!raw) {
     throw new Error(
       'FIREBASE_SERVICE_ACCOUNT is not set. Generate a key in Firebase Console → '

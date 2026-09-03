@@ -159,7 +159,6 @@ export default function Research() {
     loadLivePrices(all)
     const id = window.setInterval(() => loadLivePrices(all), 5 * 60 * 1000)
     return () => window.clearInterval(id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [research])
 
   const { picks, below } = useMemo(() => {

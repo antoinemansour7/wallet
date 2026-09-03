@@ -146,7 +146,7 @@ export function getSectorExposure(portfolioRows) {
  * Returns which tickers the user already holds and at what weight.
  */
 export function checkOverlap(portfolioRows, tickers) {
-  const { holdings, totalValue } = getUserHoldings(portfolioRows)
+  const { holdings } = getUserHoldings(portfolioRows)
   const holdingMap = new Map(holdings.map((h) => [h.symbol, h]))
 
   return tickers.map((ticker) => {

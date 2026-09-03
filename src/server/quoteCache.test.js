@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { describe, expect, it, beforeEach } from 'vitest'
 import { isFreshQuote, setCachedQuote, getCachedQuote, rememberQuoteSymbols, getKnownQuoteSymbols } from './quoteCache'
 
 // quoteCache uses in-memory fallback when Redis is not available (no env vars set)

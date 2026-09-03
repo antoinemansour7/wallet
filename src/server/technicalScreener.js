@@ -32,7 +32,7 @@ function getRedis() {
 // keying on the href makes the two impossible to confuse.
 export function parseFinvizTickers(html) {
   return [...new Set(
-    [...html.matchAll(/stock\?t=([A-Z][A-Z0-9.\-]{0,5})[&"]/g)].map((m) => m[1]),
+    [...html.matchAll(/stock\?t=([A-Z][A-Z0-9.-]{0,5})[&"]/g)].map((m) => m[1]),
   )]
 }
 

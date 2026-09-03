@@ -191,7 +191,7 @@ const THEME_LIBRARY = {
   defense: {
     label: 'Defense',
     keywords: ['defense', 'drone', 'missile', 'aerospace', 'military', 'pentagon', 'contract award'],
-    query: '(defense OR aerospace OR drone OR missile OR pentagon OR \"contract award\") lang:en -is:retweet',
+    query: '(defense OR aerospace OR drone OR missile OR pentagon OR "contract award") lang:en -is:retweet',
     weight: 1,
   },
 }
@@ -475,7 +475,7 @@ async function lookupUsersByUsername(usernames, token) {
       for (const user of data.data || []) {
         usersByName.set(user.username.toLowerCase(), user)
       }
-    } catch (err) {
+    } catch {
       for (const username of batch) {
         try {
           const data = await xApiGet(`/2/users/by/username/${encodeURIComponent(username)}`, {
