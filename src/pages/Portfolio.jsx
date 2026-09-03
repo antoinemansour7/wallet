@@ -520,6 +520,13 @@ export default function Portfolio() {
         rows: (holdingsData.rows || []).map((row) => ({ ...row, [PLAID_ITEM_KEY]: discovered.itemId })),
         cashEntries: holdingsData.cashEntries || [],
       })
+      // stageStatement clears the error on success, so this has to come after
+      // it: a connection can partially fail and still return rows worth
+      // staging, and that should say so rather than just showing fewer
+      // holdings than the account actually has.
+      if (holdingsData.errors?.length) {
+        setError(`Imported, but ${institutionName || 'this connection'} didn't fully load — some holdings may be missing. Try again in a moment.`)
+      }
     } catch (err) {
       setError(err.message || 'Failed to import accounts')
     } finally {
