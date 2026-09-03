@@ -1,9 +1,14 @@
 import { runPositionSizingAgent } from '../src/server/agents/positionSizingAgent.js'
+import { isRateLimited } from '../src/server/rateLimit.js'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
   }
+
+  // This calls Claude on every request — the cheapest endpoint here to abuse
+  // into running up a bill, so it gets the tightest budget.
+  if (await isRateLimited(req, res, 'position-sizing', { requests: 5, window: '1 m' })) return
 
   const { picks, portfolioRows } = req.body || {}
 

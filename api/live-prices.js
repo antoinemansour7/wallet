@@ -1,5 +1,12 @@
 import { fetchMarketQuotes, fetchCachedMarketQuotes } from '../src/server/marketQuotes.js'
 import { getPortfolioSeries, getIntradaySeries } from '../src/server/portfolioSeries.js'
+import { isRateLimited } from '../src/server/rateLimit.js'
+
+// A real portfolio has dozens of holdings, not thousands — this is nowhere
+// near that, and rejecting above it closes the cheapest version of sending an
+// unbounded array into a metered price lookup.
+const MAX_SYMBOLS = 200
+const MAX_POSITIONS = 500
 
 function getBody(req) {
   if (!req.body) return {}
@@ -16,8 +23,17 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
+  if (await isRateLimited(req, res, 'live-prices', { requests: 30, window: '1 m' })) return
+
   try {
     const body = getBody(req)
+
+    if (Array.isArray(body.symbols) && body.symbols.length > MAX_SYMBOLS) {
+      return res.status(400).json({ error: `Maximum ${MAX_SYMBOLS} symbols allowed` })
+    }
+    if (Array.isArray(body.positions) && body.positions.length > MAX_POSITIONS) {
+      return res.status(400).json({ error: `Maximum ${MAX_POSITIONS} positions allowed` })
+    }
 
     // Instant first paint: serve Redis-cached quotes without a live fetch
     if (body.cachedOnly && Array.isArray(body.symbols)) {
