@@ -47,5 +47,15 @@ were moved to Issues.
 ## Housekeeping that outgrew this note
 
 These became Issues and should not be tracked here any more: migrating the
-deprecated model id, alerting when the nightly run fails, mobile wrapping, and
-the watchlist.
+deprecated model id, mobile wrapping, and the watchlist.
+
+**Already done, and this note was wrong about it.** "Add alerting — if nightly
+run fails, send notification" sat here as an open idea long after it shipped.
+`src/server/runLog.js` records every cron run to Redis with its duration and
+outcome, keeps the last 90, and posts to Slack on failure — built because Hobby
+retains runtime logs for about an hour, so 3 AM output is gone by morning.
+
+That stale line cost real time: it was cited as evidence in issue #33, which
+argued the nightly pipeline was failing silently. It was not. This is exactly
+the drift the "what lives where" rule in [[Home]] exists to prevent — a note
+describing the state of the code, left to rot.
