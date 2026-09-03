@@ -259,7 +259,8 @@ Eleven serverless functions live under `api/`, one below the Vercel Hobby limit.
 | `get-research` | yes | Vite middleware |
 | `nightly-research` | yes | Vite middleware |
 | `plaid` | yes | The same `api/plaid.js` handler as production; needs Plaid sandbox and Firebase service-account credentials |
-| `get-research-history`, `position-sizing`, `signal-history`, `slack-events`, `track-performance` | no | Vercel only |
+| `market-regime` | yes | Same real-handler pattern as `plaid` — split out of `get-research` in #68 so each route stays to one job |
+| `get-research-history`, `position-sizing`, `slack-events`, `track-performance` | no | Vercel only |
 
 The dev server hand-registers a middleware for each route it supports, in
 `vite.config.js`. The Plaid middleware is an adapter rather than a second
