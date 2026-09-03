@@ -78,7 +78,7 @@ function NavButton({ label, onClick, children }) {
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-ink/45 transition-colors duration-150 hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/25"
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-ink/45 transition-colors duration-motion-short hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/25"
     >
       {children}
     </button>

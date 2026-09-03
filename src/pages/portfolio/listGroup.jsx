@@ -26,7 +26,7 @@ export function Option({ icon, title, hint, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-3.5 px-4 py-4 text-left transition-colors duration-150 hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:bg-ink/[0.04]"
+      className="flex w-full items-center gap-3.5 px-4 py-4 text-left transition-colors duration-motion-short hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:bg-ink/[0.04]"
     >
       <Tile>{icon}</Tile>
       <span className="min-w-0 flex-1">

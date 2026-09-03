@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
-import Reveal from '../components/Reveal'
 import { SearchSpot } from '../components/illustrations'
 import { loadLocalPortfolio } from '../utils/portfolioStorage'
 import { IS_PREVIEW, PREVIEW_RESEARCH } from '../preview/mockMode'
@@ -175,7 +174,7 @@ export default function Research() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-wall-bg">
-      <div className="glow-orb blob-drift absolute -top-72 left-1/2 h-[520px] w-[520px] -translate-x-1/2" />
+      <div className="glow-orb absolute -top-72 left-1/2 h-[520px] w-[520px] -translate-x-1/2" />
       <div className="relative mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-14">
 
         <header className="mb-7">
@@ -221,19 +220,18 @@ export default function Research() {
         ) : (
           <>
             <div className="space-y-2.5">
+              {/* Lead with the top pick already open: the page opens on an
+                  argument rather than on a row you have to discover is
+                  clickable, and it balances the context rail beside it. */}
               {picks.map((pick, i) => (
-                <Reveal key={pick.ticker} delay={i * 60}>
-                  {/* Lead with the top pick already open: the page opens on an
-                      argument rather than on a row you have to discover is
-                      clickable, and it balances the context rail beside it. */}
-                  <PickCard
-                    pick={pick}
-                    rank={i + 1}
-                    defaultOpen={i === 0}
-                    live={livePrices[pick.ticker]}
-                    generatedAt={research?.generatedAt}
-                  />
-                </Reveal>
+                <PickCard
+                  key={pick.ticker}
+                  pick={pick}
+                  rank={i + 1}
+                  defaultOpen={i === 0}
+                  live={livePrices[pick.ticker]}
+                  generatedAt={research?.generatedAt}
+                />
               ))}
             </div>
 
@@ -252,20 +250,20 @@ export default function Research() {
                   type="button"
                   onClick={() => setShowBelow((v) => !v)}
                   aria-expanded={showBelow}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-ink/[0.05] py-2.5 text-[11.5px] text-ink/35 transition-colors duration-200 hover:border-ink/[0.10] hover:text-ink/60"
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-ink/[0.05] py-2.5 text-[11.5px] text-ink/35 transition-colors duration-motion-short hover:border-ink/[0.10] hover:text-ink/60"
                 >
                   {showBelow ? 'Hide the weaker ideas' : `Show ${below.length} weaker idea${below.length === 1 ? '' : 's'}`}
                   <svg
                     width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                     strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                    className={`transition-transform duration-200 ${showBelow ? 'rotate-180' : ''}`}
+                    className={`transition-transform duration-motion-short ${showBelow ? 'rotate-180' : ''}`}
                   >
                     <path d="M6 9l6 6 6-6" />
                   </svg>
                 </button>
 
                 {showBelow && (
-                  <div className="mt-2.5 space-y-2.5 opacity-70">
+                  <div className="motion-enter mt-2.5 space-y-2.5 opacity-70">
                     {below.map((pick, i) => (
                       <PickCard
                         key={pick.ticker}
@@ -289,7 +287,7 @@ export default function Research() {
               <button
                 onClick={() => loadPositionSizing(picks)}
                 disabled={sizingLoading}
-                className="w-full rounded-xl border border-ink/[0.07] bg-wall-surface py-3.5 text-[13.5px] font-medium text-ink/65 transition-colors duration-200 hover:border-ink/[0.14] hover:text-ink/90 disabled:opacity-50"
+                className="w-full rounded-xl border border-ink/[0.07] bg-wall-surface py-3.5 text-[13.5px] font-medium text-ink/65 transition-colors duration-motion-short hover:border-ink/[0.14] hover:text-ink/90 disabled:opacity-50"
               >
                 {sizingLoading ? 'Analyzing…' : 'Size against my portfolio'}
               </button>

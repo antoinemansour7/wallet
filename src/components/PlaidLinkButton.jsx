@@ -88,7 +88,7 @@ export default function PlaidLinkButton({ userId, onAccounts, onConnecting, onEr
       type="button"
       onClick={() => (IS_PREVIEW ? openPreview() : open())}
       disabled={disabled}
-      className={`flex w-full items-center gap-3.5 px-4 py-4 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:bg-ink/[0.04] ${
+      className={`flex w-full items-center gap-3.5 px-4 py-4 text-left transition-colors duration-motion-short focus-visible:outline-none focus-visible:bg-ink/[0.04] ${
         disabled ? 'cursor-not-allowed opacity-45' : 'hover:bg-ink/[0.03]'
       }`}
     >

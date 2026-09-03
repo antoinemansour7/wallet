@@ -50,6 +50,13 @@
     --scroll-thumb: #aab7b0;
     --scroll-thumb-hover: #829087;
 
+    /* Motion has one curve and two speeds. The short token acknowledges small
+       selections and hovers; the long token is reserved for a panel opening or
+       a value changing. */
+    --motion-ease: cubic-bezier(0.76, 0, 0.24, 1);
+    --motion-duration-short: 150ms;
+    --motion-duration-long: 300ms;
+
     /* Categorical chart series — identity, not magnitude, so these are
        distinct hues rather than a ramp. Stepped separately for each surface;
        the dark column is the same six hues restepped, not a flip. Validated
@@ -147,8 +154,14 @@
   ::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); }
 
   @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
     *, *::before, *::after {
       animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
       transition-duration: 0.01ms !important;
     }
   }
@@ -156,76 +169,38 @@
 
 /* ── Wealthsimple-style motion ──────────────────────────────────────────── */
 
-/* Scroll-reveal: elements rise into place as they enter the viewport */
-.reveal {
-  opacity: 0;
-  transform: translateY(16px);
-  transition:
-    opacity 0.6s cubic-bezier(0.76, 0, 0.24, 1),
-    transform 0.6s cubic-bezier(0.76, 0, 0.24, 1);
+/*
+ * WallAI moves to explain change, never to decorate or stage a screen.
+ * Financial data, charts and routes render at their final state immediately.
+ * User-triggered panels may enter with opacity/transform, selections may move,
+ * and refreshed values receive a paint-only tint. List inserts/removals stay
+ * immediate: animating their geometry would move the ledger under the reader.
+ * Loading spinners/pulses are functional status indicators; all other motion
+ * uses the curve and short/long duration tokens above.
+ */
+@keyframes motion-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
-.reveal-in {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-/* Chart line draw-in (pair with pathLength="1" on the SVG path) */
-@keyframes draw-line {
-  from { stroke-dashoffset: 1; }
-  to   { stroke-dashoffset: 0; }
-}
-.draw-line {
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-  animation: draw-line 1s cubic-bezier(0.76, 0, 0.24, 1) forwards;
+.motion-enter {
+  animation: motion-enter var(--motion-duration-long) var(--motion-ease) both;
 }
 
-/* Area fill fades in after the line finishes drawing */
-@keyframes fade-in-late {
-  0%, 60% { opacity: 0; }
-  100%    { opacity: 1; }
+@keyframes motion-value-change {
+  from { background-color: rgb(var(--color-accent) / 0.16); }
+  to   { background-color: transparent; }
 }
-.fade-in-late {
-  animation: fade-in-late 1.4s ease-out forwards;
-}
-
-/* Ambient background blobs drift slowly (WS Blobs pattern) */
-@keyframes blob-drift {
-  0%   { transform: rotate(0deg) scale(1) translateY(0); }
-  50%  { transform: rotate(8deg) scale(1.12) translateY(-24px); }
-  100% { transform: rotate(0deg) scale(1) translateY(0); }
-}
-.blob-drift {
-  animation: blob-drift 14s ease-in-out infinite;
-}
-.blob-drift-late {
-  animation: blob-drift 18s ease-in-out infinite reverse;
+.motion-value-change {
+  animation: motion-value-change var(--motion-duration-long) var(--motion-ease);
 }
 
-/* Live price flash on each new trade (green up / red down, fading to white) */
-@keyframes flash-up {
-  0% { color: #34d399; text-shadow: 0 0 14px rgba(52,211,153,0.45); }
-  100% { color: #ffffff; text-shadow: none; }
-}
-@keyframes flash-down {
-  0% { color: #fb7185; text-shadow: 0 0 14px rgba(251,113,133,0.45); }
-  100% { color: #ffffff; text-shadow: none; }
-}
-.flash-up { animation: flash-up 0.6s ease-out; }
-.flash-down { animation: flash-down 0.6s ease-out; }
-
-/* Pulsing "live" indicator dot */
-@keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
-.live-dot { animation: live-pulse 1.4s ease-in-out infinite; }
-
-/* Active tab underline grows from the left */
-@keyframes grow-x {
+@keyframes motion-select {
   from { transform: scaleX(0); }
   to   { transform: scaleX(1); }
 }
-.grow-x {
+.motion-select {
   transform-origin: left;
-  animation: grow-x 0.35s cubic-bezier(0.76, 0, 0.24, 1) forwards;
+  animation: motion-select var(--motion-duration-short) var(--motion-ease) both;
 }
 
 .login-shell {

@@ -63,21 +63,13 @@ export default {
         'gradient-accent': 'linear-gradient(180deg, #ffffff 0%, #ededed 100%)',
       },
       transitionTimingFunction: {
-        ws: 'cubic-bezier(0.76, 0, 0.24, 1)',
+        DEFAULT: 'var(--motion-ease)',
+        motion: 'var(--motion-ease)',
       },
       transitionDuration: {
-        ws: '350ms',
-      },
-      animation: {
-        'spin-slow':  'spin 1.5s linear infinite',
-        'pulse-slow': 'pulse 3s ease-in-out infinite',
-        'fade-in':    'fadeIn 0.35s cubic-bezier(0.76, 0, 0.24, 1)',
-      },
-      keyframes: {
-        fadeIn: {
-          '0%':   { opacity: '0', transform: 'translateY(8px)' },
-          '100%': { opacity: '1', transform: 'translateY(0)' },
-        },
+        DEFAULT: 'var(--motion-duration-short)',
+        'motion-short': 'var(--motion-duration-short)',
+        'motion-long': 'var(--motion-duration-long)',
       },
     },
   },

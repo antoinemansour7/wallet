@@ -62,7 +62,7 @@ function ThemeToggle() {
       aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
       aria-pressed={isDark}
       title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-      className="flex size-9 shrink-0 items-center justify-center rounded-full border border-ink/[0.08] text-ink/55 transition-colors duration-150 hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
+      className="flex size-9 shrink-0 items-center justify-center rounded-full border border-ink/[0.08] text-ink/55 transition-colors duration-motion-short hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
     >
       {isDark ? <SunIcon /> : <MoonIcon />}
     </button>
@@ -110,7 +110,7 @@ function AccountMenu({ user, onSignOut }) {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Account menu"
-        className={`flex items-center gap-2 rounded-full py-1 pl-1 pr-2 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30 ${
+        className={`flex items-center gap-2 rounded-full py-1 pl-1 pr-2 transition-colors duration-motion-short focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30 ${
           open ? 'bg-ink/[0.08]' : 'hover:bg-ink/[0.05]'
         }`}
       >
@@ -121,7 +121,7 @@ function AccountMenu({ user, onSignOut }) {
         <svg
           width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"
-          className={`text-ink/35 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+          className={`text-ink/35 transition-transform duration-motion-short ${open ? 'rotate-180' : ''}`}
         >
           <polyline points="6 9 12 15 18 9" />
         </svg>
@@ -130,7 +130,7 @@ function AccountMenu({ user, onSignOut }) {
       {open && (
         <div
           role="menu"
-          className="animate-fade-in absolute right-0 top-[calc(100%+8px)] z-50 w-60 overflow-hidden rounded-xl border border-ink/10 bg-wall-elevated shadow-card"
+          className="motion-enter absolute right-0 top-[calc(100%+8px)] z-50 w-60 overflow-hidden rounded-xl border border-ink/10 bg-wall-elevated shadow-card"
         >
           <div className="flex items-center gap-3 border-b border-ink/[0.06] px-3.5 py-3">
             <Avatar user={user} size={34} />
@@ -183,7 +183,7 @@ export default function Navbar() {
                 key={to}
                 to={to}
                 className={({ isActive }) =>
-                  `relative rounded-lg px-3.5 py-2 text-[13.5px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30 ${
+                  `relative rounded-lg px-3.5 py-2 text-[13.5px] font-medium transition-colors duration-motion-short focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30 ${
                     isActive
                       ? 'bg-accent/[0.12] text-ink dark:bg-white/[0.08] dark:text-white'
                       : 'text-ink/50 hover:bg-ink/[0.04] hover:text-ink/90'
@@ -215,7 +215,7 @@ export default function Navbar() {
               key={to}
               to={to}
               className={({ isActive }) =>
-                `relative flex flex-col items-center gap-1.5 py-2.5 text-[10px] font-medium transition-colors duration-150 ${
+                `relative flex flex-col items-center gap-1.5 py-2.5 text-[10px] font-medium transition-colors duration-motion-short ${
                   isActive ? 'text-accent' : 'text-ink/40'
                 }`
               }

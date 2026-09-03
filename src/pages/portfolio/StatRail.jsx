@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { fmtCurrency, fmtPct } from '../../utils/portfolioStats'
-import Reveal from '../../components/Reveal'
+import ChangedValue from '../../components/ChangedValue'
 
 // Four figures on a ruled line rather than four boxes. The hero chart above is
 // unframed too, so a card here would draw a border around the quieter half of
@@ -14,11 +14,15 @@ function Cell({ label, children }) {
   )
 }
 
-function Value({ children, className = 'text-ink' }) {
+function Value({ value, children, className = 'text-ink' }) {
   return (
-    <p className={`mt-2 truncate font-display text-[21px] font-medium leading-none tracking-tight tabular sm:text-[23px] ${className}`}>
+    <ChangedValue
+      as="p"
+      value={value}
+      className={`mt-2 truncate rounded font-display text-[21px] font-medium leading-none tracking-tight tabular sm:text-[23px] ${className}`}
+    >
       {children}
-    </p>
+    </ChangedValue>
   )
 }
 
@@ -71,9 +75,9 @@ function CashCell({ totalCash, share, onSave }) {
   return (
     <Cell label="Cash">
       <div className="mt-2 flex items-baseline gap-1.5">
-        <p className="truncate font-display text-[21px] font-medium leading-none tracking-tight tabular text-ink sm:text-[23px]">
+        <ChangedValue as="p" value={totalCash} className="truncate rounded font-display text-[21px] font-medium leading-none tracking-tight tabular text-ink sm:text-[23px]">
           {fmtCurrency(totalCash)}
-        </p>
+        </ChangedValue>
         {/* Editing cash is a rare correction, so it gets an affordance the size
             of its importance instead of the dashed button that used to sit
             under the number and outweigh it. */}
@@ -101,10 +105,9 @@ export default function StatRail({ rows, stats, accounts, onCashOverride }) {
   const pnlCls = stats.totalPnl > 0 ? 'text-gain' : stats.totalPnl < 0 ? 'text-loss' : 'text-ink'
 
   return (
-    <Reveal>
-      <div className="my-7 grid grid-cols-2 gap-x-6 gap-y-7 border-y border-ink/[0.09] py-6 sm:grid-cols-4 sm:gap-x-0 sm:gap-y-0 sm:divide-x sm:divide-ink/[0.09]">
+    <div className="my-7 grid grid-cols-2 gap-x-6 gap-y-7 border-y border-ink/[0.09] py-6 sm:grid-cols-4 sm:gap-x-0 sm:gap-y-0 sm:divide-x sm:divide-ink/[0.09]">
         <Cell label="Today">
-          <Value className={dayCls}>
+          <Value value={stats.totalDayChange} className={dayCls}>
             {stats.totalDayChange >= 0 ? '+' : ''}{fmtCurrency(stats.totalDayChange)}
           </Value>
           <Sub>{fmtPct(stats.dayChangePct)}</Sub>
@@ -117,7 +120,7 @@ export default function StatRail({ rows, stats, accounts, onCashOverride }) {
             carries the meaning on its own and the caption is free to be just
             the number, the same shape as Today's. */}
         <Cell label="Total return">
-          <Value className={pnlCls}>
+          <Value value={stats.totalPnl} className={pnlCls}>
             {stats.totalPnl >= 0 ? '+' : ''}{fmtCurrency(stats.totalPnl)}
           </Value>
           <Sub>{fmtPct(stats.totalPnlPct)}</Sub>
@@ -129,10 +132,9 @@ export default function StatRail({ rows, stats, accounts, onCashOverride }) {
             the thing this whole page is about. Matches the vocabulary
             CompositionPanel and the Holdings tab already use. */}
         <Cell label="Holdings">
-          <Value>{rows.length}</Value>
+          <Value value={rows.length}>{rows.length}</Value>
           <Sub>across {accounts.length} account{accounts.length === 1 ? '' : 's'}</Sub>
         </Cell>
-      </div>
-    </Reveal>
+    </div>
   )
 }

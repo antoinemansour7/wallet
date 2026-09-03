@@ -3,17 +3,21 @@ import { useAuth } from '../../context/AuthContext'
 import { loadHistory, loadIntradayPoints } from '../../utils/portfolioHistory'
 import { getQuoteSymbolsForRow } from '../../utils/livePrices'
 import { fmtCurrency, parseNum } from '../../utils/portfolioStats'
-import { useCountUp } from '../../utils/useCountUp'
+import ChangedValue from '../../components/ChangedValue'
 import ChartPanel from './ChartPanel'
 
-// One element for both states. Scrubbing shows the exact value immediately —
-// animating toward the pointer would lag behind the cursor and read as jitter.
+// One element for both states. A refresh gets a quiet tint after the exact new
+// value is shown; scrubbing skips feedback so pointer movement never flickers.
 function ChartValue({ value, animate, className }) {
-  const animated = useCountUp(value)
   return (
-    <p className={`font-display font-medium tabular text-white ${className}`}>
-      {fmtCurrency(animate ? animated : value)}
-    </p>
+    <ChangedValue
+      as="p"
+      value={value}
+      enabled={animate}
+      className={`rounded font-display font-medium tabular text-white ${className}`}
+    >
+      {fmtCurrency(value)}
+    </ChangedValue>
   )
 }
 
@@ -145,7 +149,7 @@ function RangeSelector({ range, onChange, className = '' }) {
     <div className={`relative grid w-full max-w-[380px] grid-cols-7 rounded-full border border-white/[0.06] bg-white/[0.03] p-0.5 ${className}`}>
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute inset-y-0.5 rounded-full bg-white/[0.10] transition-transform duration-300 ease-ws"
+        className="pointer-events-none absolute inset-y-0.5 rounded-full bg-white/[0.10] transition-transform duration-motion-long ease-motion"
         style={{ width: `calc((100% - 4px) / ${RANGES.length})`, left: 2, transform: `translateX(${activeIndex * 100}%)` }}
       />
       {RANGES.map((r) => (
@@ -154,7 +158,7 @@ function RangeSelector({ range, onChange, className = '' }) {
           type="button"
           onClick={() => onChange(r.key)}
           aria-pressed={range === r.key}
-          className={`relative z-10 rounded-full py-1.5 text-[11px] font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 ${
+          className={`relative z-10 rounded-full py-1.5 text-[11px] font-semibold transition-colors duration-motion-short focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 ${
             range === r.key ? 'text-white' : 'text-white/35 hover:text-white/70'
           }`}
         >
@@ -397,11 +401,8 @@ export default function PerformanceChart({ stats, rows = [], hero = false }) {
                 stroke="rgba(255,255,255,0.12)" strokeWidth="1" strokeDasharray="2 5"
               />
 
-              <path key={`area-${range}`} className="fade-in-late" d={areaPath} fill={`url(#${gradientId})`} />
+              <path d={areaPath} fill={`url(#${gradientId})`} />
               <path
-                key={`line-${range}`}
-                className="draw-line"
-                pathLength="1"
                 d={linePath}
                 fill="none"
                 stroke={lineColor}

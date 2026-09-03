@@ -55,7 +55,7 @@ function Destination({ icon, label, detail, selected, onClick }) {
       role="radio"
       aria-checked={selected}
       onClick={onClick}
-      className={`flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:bg-ink/[0.05] ${
+      className={`flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-colors duration-motion-short focus-visible:outline-none focus-visible:bg-ink/[0.05] ${
         selected ? 'bg-ink/[0.04]' : 'hover:bg-ink/[0.025]'
       }`}
     >
@@ -64,7 +64,7 @@ function Destination({ icon, label, detail, selected, onClick }) {
         <span className="block truncate text-[15px] font-medium tracking-[-0.01em] text-ink">{label}</span>
         {detail && <span className="mt-0.5 block truncate text-[13px] text-ink/45">{detail}</span>}
       </span>
-      <IconCheck className={`shrink-0 text-accent transition-opacity duration-150 dark:text-ink ${selected ? 'opacity-100' : 'opacity-0'}`} />
+      <IconCheck className={`shrink-0 text-accent transition-opacity duration-motion-short dark:text-ink ${selected ? 'opacity-100' : 'opacity-0'}`} />
     </button>
   )
 }
@@ -76,7 +76,7 @@ function AccountChoice({ label, detail, checked, onToggle }) {
       role="checkbox"
       aria-checked={checked}
       onClick={onToggle}
-      className="flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-colors duration-150 hover:bg-ink/[0.025] focus-visible:outline-none focus-visible:bg-ink/[0.05]"
+      className="flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-colors duration-motion-short hover:bg-ink/[0.025] focus-visible:outline-none focus-visible:bg-ink/[0.05]"
     >
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[15px] font-medium tracking-[-0.01em] text-ink">{label}</span>
@@ -123,7 +123,7 @@ function Changes({ preview, open, onToggle }) {
         {open ? 'Hide holdings' : `Show ${lines.length} holding${lines.length === 1 ? '' : 's'}`}
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6"
           strokeLinecap="round" strokeLinejoin="round"
-          className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>
+          className={`transition-transform duration-motion-short ${open ? 'rotate-180' : ''}`}>
           <path d="M6 9l6 6 6-6" />
         </svg>
       </button>
@@ -166,7 +166,7 @@ function PrimaryButton({ onClick, disabled, children }) {
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="h-12 w-full rounded-[14px] bg-accent text-[15px] font-semibold tracking-[-0.01em] text-wall-surface transition-opacity duration-150 hover:opacity-90 disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30 focus-visible:ring-offset-2 focus-visible:ring-offset-wall-surface dark:bg-ink"
+      className="h-12 w-full rounded-[14px] bg-accent text-[15px] font-semibold tracking-[-0.01em] text-wall-surface transition-opacity duration-motion-short hover:opacity-90 disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30 focus-visible:ring-offset-2 focus-visible:ring-offset-wall-surface dark:bg-ink"
     >
       {children}
     </button>

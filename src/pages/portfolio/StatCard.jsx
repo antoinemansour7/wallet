@@ -47,7 +47,7 @@ export default function StatCard({ label, value, sub, pnl = 0, tone, badge, brea
   const classes      = cardToneClasses(resolvedTone)
 
   return (
-    <div className="relative h-full overflow-hidden rounded-card border border-white/[0.06] bg-wall-surface p-4 transition-all duration-ws ease-ws hover:-translate-y-0.5 hover:border-white/[0.12] hover:shadow-card-hover sm:p-5">
+    <div className="relative h-full overflow-hidden rounded-card border border-white/[0.06] bg-wall-surface p-4 transition-all duration-motion-long ease-motion hover:-translate-y-0.5 hover:border-white/[0.12] hover:shadow-card-hover sm:p-5">
       <div className={`absolute inset-x-0 top-0 h-0.5 ${classes.borderTop}`} />
       <div className="mb-3 flex items-start justify-between gap-3">
         <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-white/40">{label}</p>

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import CompanyLogo from '../components/CompanyLogo'
-import Reveal from '../components/Reveal'
 import { HistorySpot } from '../components/illustrations'
 
 function formatDate(dateStr) {
@@ -195,9 +194,8 @@ export default function History() {
 
             {/* Entries */}
             <div className="space-y-3">
-              {entries.filter((entry) => entry.picks.some((p) => p.conviction >= 6)).map((entry, entryIndex) => (
-                <Reveal key={entry.date} delay={Math.min(entryIndex, 4) * 70}>
-                <div className="rounded-xl border border-ink/[0.06] bg-wall-surface overflow-hidden">
+              {entries.filter((entry) => entry.picks.some((p) => p.conviction >= 6)).map((entry) => (
+                <div key={entry.date} className="overflow-hidden rounded-xl border border-ink/[0.06] bg-wall-surface">
                   {/* Day header */}
                   <div className="flex items-center justify-between border-b border-ink/[0.04] px-4 py-3 sm:px-5">
                     <div className="flex items-center gap-2">
@@ -220,7 +218,6 @@ export default function History() {
                     ))}
                   </div>
                 </div>
-                </Reveal>
               ))}
             </div>
           </>

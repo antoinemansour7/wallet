@@ -29,7 +29,7 @@ export default function TopPositionsChart({ rows, large = false }) {
                   <div className="mt-1 flex items-center gap-2.5">
                     <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/[0.05]">
                       <div
-                        className={`h-full rounded-full transition-all duration-700 ${isPositive ? 'bg-gain' : 'bg-loss'}`}
+                        className={`h-full rounded-full transition-all duration-motion-long ${isPositive ? 'bg-gain' : 'bg-loss'}`}
                         style={{ width: `${Math.min(100, Math.max(0, share))}%` }}
                       />
                     </div>

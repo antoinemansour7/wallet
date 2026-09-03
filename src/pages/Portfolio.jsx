@@ -4,7 +4,6 @@ import { enrichRowsWithLivePrices } from '../utils/livePrices'
 import { clearPortfolio, loadLocalPortfolio, loadSavedPortfolioWithTimeout, savePortfolio } from '../utils/portfolioStorage'
 import { recordIntradayPoint, saveDailySnapshot } from '../utils/portfolioHistory'
 import { useAuth } from '../context/AuthContext'
-import Reveal from '../components/Reveal'
 import ErrorBoundary, { PanelFallback } from '../components/ErrorBoundary'
 import { buildAccountPortfolio, cashEntryAmount, flattenAccountRows, getAccountEntries, hasAccountPortfolio } from '../utils/accountPortfolio'
 import { PLAID_ITEM_KEY, accountSources, aggregateRowsBySymbol, applyMerge, applyMergeByAccount, knownAccountsIn, plaidItemIdFor, previewMerge, removeAccount, removeSource, sourceIdFor } from '../utils/accountMerge'
@@ -558,11 +557,9 @@ export default function Portfolio() {
           {visibleView === 'overview' && stats && (
             <>
               <LiveBanner liveStatus={liveStatus} liveMessage={liveMessage} lastUpdatedAt={lastUpdatedAt} />
-              <Reveal>
-                <PerformanceChart hero stats={stats} rows={rows} />
-              </Reveal>
+              <PerformanceChart hero stats={stats} rows={rows} />
               <StatRail rows={rows} stats={stats} accounts={accountEntries} onCashOverride={handleCashOverride} />
-              <Reveal><CompositionPanel rows={rows} accounts={accountEntries} /></Reveal>
+              <CompositionPanel rows={rows} accounts={accountEntries} />
             </>
           )}
           {visibleView === 'overview' && !stats && <EmptyState onUploadClick={() => openAdd()} />}
@@ -571,14 +568,12 @@ export default function Portfolio() {
             <>
               <LiveBanner liveStatus={liveStatus} liveMessage={liveMessage} lastUpdatedAt={lastUpdatedAt} />
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
-                <Reveal>
-                  <ChartPanel title="Allocation" meta={`${accountEntries.length} account${accountEntries.length === 1 ? '' : 's'}`} className="h-full">
-                    <AllocationDonut rows={rows} stats={stats} />
-                  </ChartPanel>
-                </Reveal>
+                <ChartPanel title="Allocation" meta={`${accountEntries.length} account${accountEntries.length === 1 ? '' : 's'}`} className="h-full">
+                  <AllocationDonut rows={rows} stats={stats} />
+                </ChartPanel>
                 <div className="flex flex-col gap-4">
-                  <Reveal delay={80}><ValueVsBookChart stats={stats} /></Reveal>
-                  <Reveal delay={160}><PnlBreakdownChart rows={rows} /></Reveal>
+                  <ValueVsBookChart stats={stats} />
+                  <PnlBreakdownChart rows={rows} />
                 </div>
               </div>
             </>

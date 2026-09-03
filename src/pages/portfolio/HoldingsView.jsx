@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { fmtCurrency, fmtNumber, fmtPct, parseNum } from '../../utils/portfolioStats'
 import CompanyLogo from '../../components/CompanyLogo'
-import Reveal from '../../components/Reveal'
+import ChangedValue from '../../components/ChangedValue'
 import EmptyState from './EmptyState'
 import { sortPositionsByValue } from './helpers'
 import { lastPricedAt, isPriceStale, PRICED_AT_KEY } from '../../utils/livePrices'
@@ -102,7 +102,7 @@ function PositionRow({ row, expanded, onToggle, stale }) {
         type="button"
         onClick={onToggle}
         aria-expanded={expanded}
-        className={`flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:bg-ink/[0.05] sm:px-5 ${
+        className={`flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-colors duration-motion-short focus-visible:outline-none focus-visible:bg-ink/[0.05] sm:px-5 ${
           expanded ? '' : 'hover:bg-ink/[0.025]'
         }`}
       >
@@ -130,14 +130,18 @@ function PositionRow({ row, expanded, onToggle, stale }) {
 
         {/* One number per line. The percentage is what compares across rows;
             the dollar change is in the detail below. */}
-        <div className="shrink-0 text-right">
+        <ChangedValue
+          as="div"
+          value={`${mktVal}:${pnl}`}
+          className="-mx-1 shrink-0 rounded px-1 text-right"
+        >
           <p className="text-[14.5px] font-semibold tabular text-ink">{fmtCurrency(mktVal)}</p>
           {pnlPct && <p className={`mt-0.5 text-[12.5px] font-medium tabular ${toneOf(pnl)}`}>{pnlPct}</p>}
-        </div>
+        </ChangedValue>
       </button>
 
       {expanded && (
-        <div className="animate-fade-in grid grid-cols-2 gap-x-4 gap-y-3.5 px-4 pb-4 pl-[66px] sm:grid-cols-4 sm:px-5 sm:pl-[71px]">
+        <div className="motion-enter grid grid-cols-2 gap-x-4 gap-y-3.5 px-4 pb-4 pl-[66px] sm:grid-cols-4 sm:px-5 sm:pl-[71px]">
           <Detail label="Today">
             <span className={toneOf(dayAmt)}>
               {signedCurrency(dayAmt)}{dayPct ? ` (${dayPct})` : ''}
@@ -252,18 +256,17 @@ export default function HoldingsView({ rows, accounts, onUploadClick }) {
       </div>
 
       <div className="space-y-9">
-        {sortedAccounts.map((account, accountIndex) => {
+        {sortedAccounts.map((account) => {
           const acct = account.accountNumber
 
           return (
-            <Reveal key={acct} delay={accountIndex * 80}>
-              <section>
-                <AccountHeader
-                  account={account}
-                  staleCount={account.positions.filter((r) => isPriceStale(r, newestPricedAt)).length}
-                />
+            <section key={acct}>
+              <AccountHeader
+                account={account}
+                staleCount={account.positions.filter((r) => isPriceStale(r, newestPricedAt)).length}
+              />
 
-                <div className="divide-y divide-ink/[0.06] overflow-hidden rounded-2xl border border-ink/[0.08] bg-wall-surface">
+              <div className="divide-y divide-ink/[0.06] overflow-hidden rounded-2xl border border-ink/[0.08] bg-wall-surface">
                   {account.positions.length === 0 && (
                     <p className="px-5 py-4 text-[13.5px] text-ink/45">No holdings in this account.</p>
                   )}
@@ -287,9 +290,8 @@ export default function HoldingsView({ rows, accounts, onUploadClick }) {
                   })}
 
                   {account.cash !== 0 && <CashRow account={account} />}
-                </div>
-              </section>
-            </Reveal>
+              </div>
+            </section>
           )
         })}
       </div>

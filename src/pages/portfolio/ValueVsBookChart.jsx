@@ -11,7 +11,7 @@ function ValueBar({ label, value, max, tone = 'muted' }) {
         <span className="font-mono text-[13px] font-semibold tabular text-white">{fmtCurrency(value)}</span>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-ink/[0.09]">
-        <div className={`h-full rounded-full transition-all duration-700 ${fill}`} style={{ width: barWidth(value, max) }} />
+        <div className={`h-full rounded-full transition-all duration-motion-long ${fill}`} style={{ width: barWidth(value, max) }} />
       </div>
     </div>
   )

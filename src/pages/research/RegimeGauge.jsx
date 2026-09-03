@@ -80,14 +80,14 @@ export default function RegimeGauge({ regime, defaultOpen = false }) {
         <svg
           width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-          className={`mt-0.5 shrink-0 text-ink/30 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+          className={`mt-0.5 shrink-0 text-ink/30 transition-transform duration-motion-short ${open ? 'rotate-180' : ''}`}
         >
           <path d="M6 9l6 6 6-6" />
         </svg>
       </button>
 
       {open && (
-        <div className="mt-3.5 border-t border-ink/[0.06] pt-1.5">
+        <div className="motion-enter mt-3.5 border-t border-ink/[0.06] pt-1.5">
           {(regime.components ?? []).map((c) => (
             <ComponentRow key={c.key} label={c.label} score={c.score} detail={c.detail} metric={c.metric} />
           ))}

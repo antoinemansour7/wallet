@@ -51,7 +51,7 @@ export default function LiveBanner({ liveStatus, liveMessage, lastUpdatedAt }) {
         onClick={() => setDismissedKey(bannerKey)}
         aria-label="Dismiss"
         title="Dismiss"
-        className="-mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg opacity-50 transition-all duration-150 hover:bg-white/10 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+        className="-mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg opacity-50 transition-all duration-motion-short hover:bg-white/10 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
       >
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
           <line x1="18" y1="6" x2="6" y2="18" />

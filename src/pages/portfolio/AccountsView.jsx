@@ -13,7 +13,7 @@ function AddButton({ onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[13px] font-medium text-ink/50 transition-colors duration-150 hover:bg-ink/[0.04] hover:text-ink/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
+      className="flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[13px] font-medium text-ink/50 transition-colors duration-motion-short hover:bg-ink/[0.04] hover:text-ink/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
     >
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
         <path d="M12 5v14M5 12h14" />
@@ -44,7 +44,7 @@ function EmptyAccounts({ onAdd, onFile }) {
       onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false) }}
       onDrop={(e) => { e.preventDefault(); setDragging(false); take(e.dataTransfer?.files?.[0]) }}
-      className={`mx-auto max-w-[440px] rounded-[24px] border px-6 pb-9 pt-12 transition-colors duration-200 sm:px-8 ${
+      className={`mx-auto max-w-[440px] rounded-[24px] border px-6 pb-9 pt-12 transition-colors duration-motion-short sm:px-8 ${
         dragging ? 'border-ink/25 bg-ink/[0.04]' : 'border-transparent'
       }`}
     >
@@ -109,7 +109,7 @@ export default function AccountsView({ accounts = [], onAdd, onOpenAccount, onFi
               key={account.accountNumber}
               type="button"
               onClick={() => onOpenAccount?.(account)}
-              className="block w-full rounded-2xl border border-ink/[0.07] bg-wall-surface px-5 py-4 text-left transition-colors duration-150 hover:border-ink/[0.14] hover:bg-ink/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/25"
+              className="block w-full rounded-2xl border border-ink/[0.07] bg-wall-surface px-5 py-4 text-left transition-colors duration-motion-short hover:border-ink/[0.14] hover:bg-ink/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/25"
             >
               <div className="flex items-baseline justify-between gap-4">
                 <div className="min-w-0">

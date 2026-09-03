@@ -35,7 +35,7 @@ function Feed({ feed, onRemove, busy, dimmed, expanded }) {
   return (
     // While one import is being confirmed the others step back and stop
     // answering, so the question on screen has one answer rather than three.
-    <div className={`flex items-center gap-3.5 px-4 py-3.5 transition-opacity duration-200 ${
+    <div className={`flex items-center gap-3.5 px-4 py-3.5 transition-opacity duration-motion-short ${
       dimmed ? 'pointer-events-none opacity-35' : ''
     }`}>
       <Tile>{isConnected(feed.id) ? <IconLink /> : <IconFile />}</Tile>
@@ -55,7 +55,7 @@ function Feed({ feed, onRemove, busy, dimmed, expanded }) {
         disabled={busy || expanded}
         aria-label={`Remove ${label}`}
         tabIndex={dimmed ? -1 : undefined}
-        className="-mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink/40 transition-colors duration-150 hover:bg-loss/10 hover:text-loss disabled:opacity-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/25"
+        className="-mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink/40 transition-colors duration-motion-short hover:bg-loss/10 hover:text-loss disabled:opacity-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/25"
       >
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
           <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13M9 7V4h6v3" />
@@ -73,7 +73,7 @@ function ConfirmActions({ busy, onCancel, onConfirm, label = 'Remove' }) {
         type="button"
         onClick={onCancel}
         disabled={busy}
-        className="h-9 rounded-[10px] px-3.5 text-[13.5px] font-medium text-ink/55 transition-colors duration-150 hover:bg-ink/[0.05] hover:text-ink disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/25"
+        className="h-9 rounded-[10px] px-3.5 text-[13.5px] font-medium text-ink/55 transition-colors duration-motion-short hover:bg-ink/[0.05] hover:text-ink disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/25"
       >
         Cancel
       </button>
@@ -84,7 +84,7 @@ function ConfirmActions({ busy, onCancel, onConfirm, label = 'Remove' }) {
         // Tinted, not a saturated slab. Filled loss put the brightest thing in
         // the sheet on the button that destroys holdings, which is the wrong
         // thing to draw the eye — the arithmetic above it is.
-        className="h-9 rounded-[10px] border border-loss/30 bg-loss/[0.12] px-4 text-[13.5px] font-semibold text-loss transition-colors duration-150 hover:bg-loss/20 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-loss/40 focus-visible:ring-offset-2 focus-visible:ring-offset-wall-surface"
+        className="h-9 rounded-[10px] border border-loss/30 bg-loss/[0.12] px-4 text-[13.5px] font-semibold text-loss transition-colors duration-motion-short hover:bg-loss/20 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-loss/40 focus-visible:ring-offset-2 focus-visible:ring-offset-wall-surface"
       >
         {busy ? 'Removing…' : label}
       </button>
@@ -126,7 +126,7 @@ function NoImports({ account, busy, confirming, onStart, onCancel, onConfirm }) 
               type="button"
               onClick={onStart}
               disabled={busy}
-              className="-mr-1.5 h-9 rounded-[10px] px-3 text-[13.5px] font-medium text-ink/55 transition-colors duration-150 hover:bg-loss/10 hover:text-loss disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/25"
+              className="-mr-1.5 h-9 rounded-[10px] px-3 text-[13.5px] font-medium text-ink/55 transition-colors duration-motion-short hover:bg-loss/10 hover:text-loss disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/25"
             >
               Remove account
             </button>

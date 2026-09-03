@@ -49,7 +49,7 @@ export default function CompositionPanel({ rows, accounts }) {
                 onFocus={() => setActive(i)}
                 onBlur={() => setActive(null)}
                 style={{ flexGrow: Math.max(seg.share, 0.6), flexBasis: 0, backgroundColor: seg.color }}
-                className={`min-w-[4px] rounded-[4px] transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/40 ${
+                className={`min-w-[4px] rounded-[4px] transition-all duration-motion-short focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/40 ${
                   active === i ? 'h-5' : 'h-[13px]'
                 } ${active !== null && active !== i ? 'opacity-25' : 'opacity-100'}`}
                 aria-label={`${seg.symbol}, ${fmtCurrency(seg.value)}, ${seg.share.toFixed(1)}% of holdings`}
@@ -75,7 +75,7 @@ export default function CompositionPanel({ rows, accounts }) {
                   onMouseEnter={() => setActive(i)}
                   onFocus={() => setActive(i)}
                   onBlur={() => setActive(null)}
-                  className={`flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/25 ${
+                  className={`flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition duration-motion-short focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/25 ${
                     active === i ? 'bg-ink/[0.05]' : dimmed ? 'opacity-45' : 'hover:bg-ink/[0.03]'
                   }`}
                 >
@@ -120,7 +120,7 @@ export default function CompositionPanel({ rows, accounts }) {
                 <div key={item.account} className="min-w-0">
                   <div className="h-[3px] w-full overflow-hidden rounded-full bg-ink/[0.08]">
                     <div
-                      className="h-full rounded-full transition-all duration-700"
+                      className="h-full rounded-full transition-all duration-motion-long"
                       style={{ width: `${share}%`, backgroundColor: item.color }}
                     />
                   </div>

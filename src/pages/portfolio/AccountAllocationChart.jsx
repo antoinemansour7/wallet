@@ -16,7 +16,7 @@ export default function AccountAllocationChart({ accounts, large = false }) {
               <div
                 key={item.account}
                 style={{ width: `${pct(item.value, total)}%`, backgroundColor: item.color }}
-                className="h-full rounded-full transition-all duration-700"
+                className="h-full rounded-full transition-all duration-motion-long"
                 title={`Account ${item.account}: ${fmtCurrency(item.value)}`}
               />
             ))}

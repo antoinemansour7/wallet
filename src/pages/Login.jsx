@@ -60,13 +60,13 @@ export default function Login() {
       <nav className="relative z-10 mx-auto flex max-w-7xl items-center justify-between px-6 py-6 sm:px-10 lg:px-12">
         <Logo size={38} inverted />
         <div className="flex items-center gap-2 text-xs font-medium tracking-wide text-white/65 dark:text-white/45">
-          <span className="live-dot size-1.5 rounded-full bg-gain" />
+          <span className="size-1.5 rounded-full bg-gain" />
           Private beta
         </div>
       </nav>
 
       <div className="relative z-10 mx-auto grid min-h-[calc(100vh-92px)] max-w-7xl items-center gap-14 px-6 pb-14 pt-8 sm:px-10 lg:grid-cols-[minmax(0,1fr)_430px] lg:gap-20 lg:px-12 lg:pb-20 lg:pt-10">
-        <section className="animate-fade-in max-w-2xl" aria-labelledby="login-heading">
+        <section className="max-w-2xl" aria-labelledby="login-heading">
           <div className="mb-8 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.24em] text-[#8fd7ba] dark:text-accent">
             <span className="h-px w-8 bg-[#8fd7ba] dark:bg-accent" />
             Intelligent portfolio tracking
@@ -91,7 +91,7 @@ export default function Login() {
           </div>
         </section>
 
-        <section className="animate-fade-in rounded-[2rem] border border-[#dce7e0] bg-[#f3f6f2] p-6 text-ink shadow-2xl shadow-black/25 [animation-delay:150ms] [animation-fill-mode:backwards] dark:border-white/[0.12] dark:bg-wall-surface/90 dark:text-white dark:shadow-black/20 dark:backdrop-blur-xl sm:p-8" aria-labelledby="sign-in-title">
+        <section className="rounded-[2rem] border border-[#dce7e0] bg-[#f3f6f2] p-6 text-ink shadow-2xl shadow-black/25 dark:border-white/[0.12] dark:bg-wall-surface/90 dark:text-white dark:shadow-black/20 dark:backdrop-blur-xl sm:p-8" aria-labelledby="sign-in-title">
           <div className="mb-9 flex items-start justify-between gap-4">
             <div>
               <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-ink/65 dark:text-white/35">Welcome back</p>
@@ -100,7 +100,7 @@ export default function Login() {
             <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-accent/20 bg-accent/[0.08] text-accent dark:border-white/10 dark:bg-white/[0.05]" aria-hidden="true"><SparkIcon /></div>
           </div>
 
-          <button type="button" onClick={handleSignIn} disabled={isSigningIn} className="flex w-full items-center justify-center gap-3 rounded-xl bg-ink px-4 py-3.5 text-sm font-semibold text-white transition-all duration-300 hover:bg-ink/90 hover:shadow-[0_12px_32px_rgba(23,33,29,0.20)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:text-brand dark:hover:shadow-[0_12px_32px_rgba(255,255,255,0.12)] dark:focus-visible:ring-offset-0">
+          <button type="button" onClick={handleSignIn} disabled={isSigningIn} className="flex w-full items-center justify-center gap-3 rounded-xl bg-ink px-4 py-3.5 text-sm font-semibold text-white transition-all duration-motion-long hover:bg-ink/90 hover:shadow-[0_12px_32px_rgba(23,33,29,0.20)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:text-brand dark:hover:shadow-[0_12px_32px_rgba(255,255,255,0.12)] dark:focus-visible:ring-offset-0">
             <GoogleIcon />
             {isSigningIn ? 'Opening Google…' : 'Continue with Google'}
           </button>
@@ -120,7 +120,7 @@ export default function Login() {
 }
 
 function PerformanceChart() {
-  return <div className="relative h-24 w-full overflow-hidden"><svg className="h-full w-full" viewBox="0 0 600 96" preserveAspectRatio="none" role="img" aria-label="Rising portfolio performance chart"><defs><linearGradient id="chart-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#34d399" stopOpacity="0.18" /><stop offset="1" stopColor="#34d399" stopOpacity="0" /></linearGradient></defs><path d="M0 79 C45 76 50 65 88 68 S130 56 160 61 S204 48 240 54 S278 39 316 44 S360 31 396 36 S438 21 470 27 S520 8 600 12 V96 H0Z" fill="url(#chart-fill)" className="fade-in-late" /><path d="M0 79 C45 76 50 65 88 68 S130 56 160 61 S204 48 240 54 S278 39 316 44 S360 31 396 36 S438 21 470 27 S520 8 600 12" fill="none" pathLength="1" stroke="#34d399" strokeWidth="2" vectorEffect="non-scaling-stroke" className="draw-line" /></svg><span className="absolute right-0 top-8 z-10 rounded-md border border-gain/30 bg-[#203229] px-2 py-1 font-mono text-[10px] text-gain shadow-sm dark:border-gain/20 dark:bg-wall-surface">$84,291</span></div>
+  return <div className="relative h-24 w-full overflow-hidden"><svg className="h-full w-full" viewBox="0 0 600 96" preserveAspectRatio="none" role="img" aria-label="Rising portfolio performance chart"><defs><linearGradient id="chart-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#34d399" stopOpacity="0.18" /><stop offset="1" stopColor="#34d399" stopOpacity="0" /></linearGradient></defs><path d="M0 79 C45 76 50 65 88 68 S130 56 160 61 S204 48 240 54 S278 39 316 44 S360 31 396 36 S438 21 470 27 S520 8 600 12 V96 H0Z" fill="url(#chart-fill)" /><path d="M0 79 C45 76 50 65 88 68 S130 56 160 61 S204 48 240 54 S278 39 316 44 S360 31 396 36 S438 21 470 27 S520 8 600 12" fill="none" stroke="#34d399" strokeWidth="2" vectorEffect="non-scaling-stroke" /></svg><span className="absolute right-0 top-8 z-10 rounded-md border border-gain/30 bg-[#203229] px-2 py-1 font-mono text-[10px] text-gain shadow-sm dark:border-gain/20 dark:bg-wall-surface">$84,291</span></div>
 }
 
 function CheckIcon() { return <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M10 3L4.75 8.25L2 5.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg> }

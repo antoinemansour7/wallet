@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import CompanyLogo from '../../components/CompanyLogo'
+import ChangedValue from '../../components/ChangedValue'
 
 // ─── Labels ────────────────────────────────────────────────────────────────────
 
@@ -155,7 +156,7 @@ export default function PickCard({ pick, rank, defaultOpen = false, live, genera
 
   return (
     <div
-      className={`overflow-hidden rounded-2xl border bg-wall-surface transition-colors duration-200 ${
+      className={`overflow-hidden rounded-2xl border bg-wall-surface transition-colors duration-motion-short ${
         open ? 'border-ink/[0.12]' : 'border-ink/[0.06] hover:border-ink/[0.10]'
       }`}
     >
@@ -187,7 +188,11 @@ export default function PickCard({ pick, rank, defaultOpen = false, live, genera
 
         <div className="flex shrink-0 items-center gap-3.5 sm:gap-5">
           {priceLabel && (
-            <div className="text-right">
+            <ChangedValue
+              as="div"
+              value={`${entry}:${change}`}
+              className="-mx-1 rounded px-1 text-right"
+            >
               <p className="text-[17px] font-semibold tabular leading-none text-ink">{priceLabel}</p>
               {/* A flat day and a missing quote must not render identically —
                   showing 0.00% for "we do not know" is what made every card
@@ -201,13 +206,13 @@ export default function PickCard({ pick, rank, defaultOpen = false, live, genera
               ) : (
                 <p className="mt-1.5 text-[13px] font-medium leading-none text-ink/30">—</p>
               )}
-            </div>
+            </ChangedValue>
           )}
           <ScoreMeter score={conviction} />
           <svg
             width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-            className={`shrink-0 text-ink/30 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+            className={`shrink-0 text-ink/30 transition-transform duration-motion-short ${open ? 'rotate-180' : ''}`}
           >
             <path d="M6 9l6 6 6-6" />
           </svg>
@@ -215,7 +220,7 @@ export default function PickCard({ pick, rank, defaultOpen = false, live, genera
       </button>
 
       {open && (
-        <div className="space-y-5 border-t border-ink/[0.06] px-4 py-5 sm:px-5 sm:py-6">
+        <div className="motion-enter space-y-5 border-t border-ink/[0.06] px-4 py-5 sm:px-5 sm:py-6">
           <Section label="Why this one">
             <p className="text-[14.5px] leading-[1.8] text-ink/75">{reason}</p>
           </Section>
