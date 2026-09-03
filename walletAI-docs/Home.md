@@ -3,7 +3,7 @@
 A portfolio tracker for Canadian retail investors, with a nightly research engine
 attached. Two halves that share a codebase and very little else.
 
-Updated 2026-09-02.
+Updated 2026-09-03.
 
 ## What lives where
 
@@ -29,7 +29,13 @@ The centre of the app, and where the work has gone since August.
 | [[Architecture/Currency]] | The two currency fields, and the bug that came from conflating them |
 | [[Features/Portfolio]] | The screens and the decisions behind them |
 | [[Features/History and Performance]] | Tracking value over time |
-| [[Operations/Local Development]] | Preview mode, the Node floor, and why `api/plaid.js` does not run locally |
+| [[Operations/Local Development]] | Preview mode, local API boundaries and the test environment |
+
+## Identity and access
+
+| Note | |
+|---|---|
+| [[Architecture/Authentication and Identity]] | The provider decision, the one-person/one-uid invariant, and why the alternatives wait |
 
 ## The research side
 

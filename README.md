@@ -56,8 +56,7 @@ screeners, extracts candidate tickers, and generates reports.
 
 ## Running it
 
-Requires **Node 20.19 or newer**. See [Tests](#tests) for why the exact version
-matters.
+Requires **Node 20**.
 
 ```bash
 git clone https://github.com/antoinemansour7/wallet.git
@@ -276,20 +275,10 @@ which keeps the whole connect flow inside fixtures.
 npm run test:run
 ```
 
-**Node 20.19+ is required.** `vite.config.js` sets the test environment to jsdom
-globally, and jsdom 29 pulls a dependency that needs `require(esm)`, which landed
-in Node 20.19. On older 20.x every worker dies at startup with `ERR_REQUIRE_ESM`
-before a single test file loads.
-
-On an older Node you can still get most of the signal:
-
-```bash
-NODE_ENV=test npx vitest run src --environment=node
-```
-
-That runs everything that does not need a DOM. `ProtectedRoute.test.jsx`,
-`Login.test.jsx` and one `FileReader` case in `parseSpreadsheet.test.js` fail
-under it — because of the environment, not because of a defect.
+Node 20 is the project baseline. Tests use jsdom 26 so the full suite works
+across Node 20 patch releases. The npm scripts also force mock auth off, and
+Vite does not mirror `.env` secrets into the test process, so local credentials
+cannot silently turn unit tests into integration tests.
 
 ## Deploying
 
