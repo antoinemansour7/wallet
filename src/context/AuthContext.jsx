@@ -1,5 +1,11 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { onAuthStateChanged, signInWithPopup, signOut as firebaseSignOut } from 'firebase/auth'
+import {
+  onAuthStateChanged,
+  signInWithPopup,
+  signOut as firebaseSignOut,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+} from 'firebase/auth'
 import { auth, googleProvider } from '../firebase/config'
 
 const AuthContext = createContext(null)
@@ -62,6 +68,14 @@ export function AuthProvider({ children }) {
     MOCK_AUTH ? Promise.resolve(setUser(MOCK_USER)) : signInWithPopup(auth, googleProvider)
   )
 
+  const signUpWithEmail = (email, password) => (
+    MOCK_AUTH ? Promise.resolve(setUser(MOCK_USER)) : createUserWithEmailAndPassword(auth, email, password)
+  )
+
+  const signInWithEmail = (email, password) => (
+    MOCK_AUTH ? Promise.resolve(setUser(MOCK_USER)) : signInWithEmailAndPassword(auth, email, password)
+  )
+
   const signOut = () => (
     MOCK_AUTH ? Promise.resolve(setUser(null)) : firebaseSignOut(auth)
   )
@@ -75,7 +89,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, signInWithGoogle, signOut, isMockAuth: MOCK_AUTH }}>
+    <AuthContext.Provider value={{ user, signInWithGoogle, signUpWithEmail, signInWithEmail, signOut, isMockAuth: MOCK_AUTH }}>
       {children}
       {/* Always visible while mocked. A bypass you can forget is running is the
           one that ends up demoed to someone as if it were real. */}
