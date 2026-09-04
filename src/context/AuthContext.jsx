@@ -7,6 +7,7 @@ import {
   signInWithEmailAndPassword,
   linkWithCredential,
   EmailAuthProvider,
+  sendPasswordResetEmail,
 } from 'firebase/auth'
 import { auth, googleProvider } from '../firebase/config'
 
@@ -85,6 +86,16 @@ export function AuthProvider({ children }) {
     return linkWithCredential(auth.currentUser, credential)
   }
 
+  /**
+   * Firebase resolves this whether or not the address has an account — Email
+   * Enumeration Protection deliberately removes the "no such user" error, so
+   * there is nothing here to distinguish the two cases and nothing the caller
+   * can leak. The confirmation copy has to be neutral for the same reason.
+   */
+  const resetPassword = (email) => (
+    MOCK_AUTH ? Promise.resolve() : sendPasswordResetEmail(auth, email)
+  )
+
   const signOut = () => (
     MOCK_AUTH ? Promise.resolve(setUser(null)) : firebaseSignOut(auth)
   )
@@ -98,54 +109,13 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, signInWithGoogle, signUpWithEmail, signInWithEmail, linkPasswordToCurrentUser, signOut, isMockAuth: MOCK_AUTH }}>
+    <AuthContext.Provider value={{ user, signInWithGoogle, signUpWithEmail, signInWithEmail, linkPasswordToCurrentUser, resetPassword, signOut, isMockAuth: MOCK_AUTH }}>
       {children}
       {/* Always visible while mocked. A bypass you can forget is running is the
           one that ends up demoed to someone as if it were real. */}
       {MOCK_AUTH && <MockAuthBanner />}
     </AuthContext.Provider>
   )
-}
-
-const EXISTING_ACCOUNT_MESSAGE = 'An account with this email already exists. Try signing in instead.'
-const LINK_COLLISION_MESSAGE = 'This email is already linked to a different account.'
-
-export function getAuthErrorMessage(err, context = 'signin') {
-  switch (err?.code) {
-    case 'auth/email-already-in-use':
-      return context === 'link' ? LINK_COLLISION_MESSAGE : EXISTING_ACCOUNT_MESSAGE
-    case 'auth/account-exists-with-different-credential':
-      return EXISTING_ACCOUNT_MESSAGE
-    case 'auth/credential-already-in-use':
-      return LINK_COLLISION_MESSAGE
-    case 'auth/invalid-credential':
-    case 'auth/wrong-password':
-    case 'auth/user-not-found':
-      return 'Incorrect email or password.'
-    case 'auth/invalid-email':
-      return 'Enter a valid email address.'
-    case 'auth/weak-password':
-      return 'Choose a password with at least 6 characters.'
-    case 'auth/too-many-requests':
-      return 'Too many attempts. Wait a few minutes and try again.'
-    case 'auth/requires-recent-login':
-      return 'Please sign in again, then try adding a password.'
-    case 'auth/unauthorized-domain':
-      return 'This domain is not allowed in Firebase Auth. Add the Vercel domain to Firebase Authentication authorized domains.'
-    case 'auth/invalid-api-key':
-    case 'auth/api-key-not-valid':
-      return 'Firebase API key is missing or invalid in Vercel environment variables.'
-    case 'auth/configuration-not-found':
-    case 'auth/operation-not-allowed':
-      return 'This sign-in provider is not enabled for this Firebase project.'
-    case 'auth/popup-blocked':
-      return 'The Google sign-in popup was blocked by your browser.'
-    case 'auth/popup-closed-by-user':
-      return 'The Google sign-in popup was closed before sign-in finished.'
-    default:
-      if (err?.code?.startsWith('auth/')) return 'Could not complete the request. Please try again.'
-      return err?.message || 'Could not complete the request. Please try again.'
-  }
 }
 
 export function useAuth() {
