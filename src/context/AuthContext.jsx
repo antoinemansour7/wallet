@@ -5,6 +5,8 @@ import {
   signOut as firebaseSignOut,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  linkWithCredential,
+  EmailAuthProvider,
 } from 'firebase/auth'
 import { auth, googleProvider } from '../firebase/config'
 
@@ -76,6 +78,13 @@ export function AuthProvider({ children }) {
     MOCK_AUTH ? Promise.resolve(setUser(MOCK_USER)) : signInWithEmailAndPassword(auth, email, password)
   )
 
+  const linkPasswordToCurrentUser = (password) => {
+    if (MOCK_AUTH) return Promise.resolve(setUser(MOCK_USER))
+    if (!auth.currentUser) return Promise.reject(new Error('No signed-in user to link a password to.'))
+    const credential = EmailAuthProvider.credential(auth.currentUser.email, password)
+    return linkWithCredential(auth.currentUser, credential)
+  }
+
   const signOut = () => (
     MOCK_AUTH ? Promise.resolve(setUser(null)) : firebaseSignOut(auth)
   )
@@ -89,7 +98,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, signInWithGoogle, signUpWithEmail, signInWithEmail, signOut, isMockAuth: MOCK_AUTH }}>
+    <AuthContext.Provider value={{ user, signInWithGoogle, signUpWithEmail, signInWithEmail, linkPasswordToCurrentUser, signOut, isMockAuth: MOCK_AUTH }}>
       {children}
       {/* Always visible while mocked. A bypass you can forget is running is the
           one that ends up demoed to someone as if it were real. */}

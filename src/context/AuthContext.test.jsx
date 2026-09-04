@@ -22,7 +22,7 @@ vi.mock('firebase/auth', () => ({
   },
 }))
 
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth'
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, linkWithCredential, EmailAuthProvider } from 'firebase/auth'
 import { auth } from '../firebase/config'
 
 function wrapper({ children }) {
@@ -64,5 +64,38 @@ describe('AuthContext email/password', () => {
     await expect(result.current.signUpWithEmail('a@b.com', 'secret1')).rejects.toMatchObject({
       code: 'auth/email-already-in-use',
     })
+  })
+})
+
+describe('AuthContext linking', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    auth.currentUser = null
+  })
+
+  it('links a password credential to the signed-in user, built from their existing email', async () => {
+    auth.currentUser = { uid: 'existing-uid', email: 'a@b.com' }
+    linkWithCredential.mockResolvedValue({ user: { uid: 'existing-uid' } })
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    await act(async () => {
+      await result.current.linkPasswordToCurrentUser('secret1')
+    })
+
+    expect(EmailAuthProvider.credential).toHaveBeenCalledWith('a@b.com', 'secret1')
+    expect(linkWithCredential).toHaveBeenCalledWith(
+      auth.currentUser,
+      { email: 'a@b.com', password: 'secret1', providerId: 'password' },
+    )
+  })
+
+  it('refuses to link when nobody is signed in, without calling Firebase', async () => {
+    auth.currentUser = null
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    await expect(result.current.linkPasswordToCurrentUser('secret1')).rejects.toThrow(
+      'No signed-in user to link a password to.',
+    )
+    expect(linkWithCredential).not.toHaveBeenCalled()
   })
 })
