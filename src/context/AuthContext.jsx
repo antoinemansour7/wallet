@@ -130,7 +130,20 @@ export function getAuthErrorMessage(err, context = 'signin') {
       return 'Too many attempts. Wait a few minutes and try again.'
     case 'auth/requires-recent-login':
       return 'Please sign in again, then try adding a password.'
+    case 'auth/unauthorized-domain':
+      return 'This domain is not allowed in Firebase Auth. Add the Vercel domain to Firebase Authentication authorized domains.'
+    case 'auth/invalid-api-key':
+    case 'auth/api-key-not-valid':
+      return 'Firebase API key is missing or invalid in Vercel environment variables.'
+    case 'auth/configuration-not-found':
+    case 'auth/operation-not-allowed':
+      return 'This sign-in provider is not enabled for this Firebase project.'
+    case 'auth/popup-blocked':
+      return 'The Google sign-in popup was blocked by your browser.'
+    case 'auth/popup-closed-by-user':
+      return 'The Google sign-in popup was closed before sign-in finished.'
     default:
+      if (err?.code?.startsWith('auth/')) return 'Could not complete the request. Please try again.'
       return err?.message || 'Could not complete the request. Please try again.'
   }
 }

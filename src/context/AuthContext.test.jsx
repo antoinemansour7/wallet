@@ -98,6 +98,16 @@ describe('AuthContext linking', () => {
     )
     expect(linkWithCredential).not.toHaveBeenCalled()
   })
+
+  it('linkPasswordToCurrentUser propagates a rejection instead of swallowing it', async () => {
+    auth.currentUser = { uid: 'existing-uid', email: 'a@b.com' }
+    linkWithCredential.mockRejectedValue({ code: 'auth/credential-already-in-use' })
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    await expect(result.current.linkPasswordToCurrentUser('secret1')).rejects.toMatchObject({
+      code: 'auth/credential-already-in-use',
+    })
+  })
 })
 
 describe('getAuthErrorMessage', () => {
@@ -139,11 +149,41 @@ describe('getAuthErrorMessage', () => {
     )
   })
 
-  it('falls back to the raw Firebase message for an unrecognized code', () => {
-    expect(getAuthErrorMessage({ code: 'auth/something-new', message: 'raw message' })).toBe('raw message')
+  it('falls back to the raw message for a non-Firebase error', () => {
+    expect(getAuthErrorMessage({ code: 'something-else', message: 'raw message' })).toBe('raw message')
   })
 
   it('falls back to a generic sentence when there is no message at all', () => {
     expect(getAuthErrorMessage({})).toBe('Could not complete the request. Please try again.')
+  })
+
+  it('does not leak the raw Firebase message for an unmapped auth/* code, e.g. user-disabled', () => {
+    expect(
+      getAuthErrorMessage({ code: 'auth/user-disabled', message: 'The user account has been disabled by an administrator.' }),
+    ).toBe('Could not complete the request. Please try again.')
+  })
+
+  it('covers the domain, API key, provider configuration, and popup errors carried over from Login.jsx', () => {
+    expect(getAuthErrorMessage({ code: 'auth/unauthorized-domain' })).toBe(
+      'This domain is not allowed in Firebase Auth. Add the Vercel domain to Firebase Authentication authorized domains.',
+    )
+    expect(getAuthErrorMessage({ code: 'auth/invalid-api-key' })).toBe(
+      'Firebase API key is missing or invalid in Vercel environment variables.',
+    )
+    expect(getAuthErrorMessage({ code: 'auth/api-key-not-valid' })).toBe(
+      'Firebase API key is missing or invalid in Vercel environment variables.',
+    )
+    expect(getAuthErrorMessage({ code: 'auth/configuration-not-found' })).toBe(
+      'This sign-in provider is not enabled for this Firebase project.',
+    )
+    expect(getAuthErrorMessage({ code: 'auth/operation-not-allowed' })).toBe(
+      'This sign-in provider is not enabled for this Firebase project.',
+    )
+    expect(getAuthErrorMessage({ code: 'auth/popup-blocked' })).toBe(
+      'The Google sign-in popup was blocked by your browser.',
+    )
+    expect(getAuthErrorMessage({ code: 'auth/popup-closed-by-user' })).toBe(
+      'The Google sign-in popup was closed before sign-in finished.',
+    )
   })
 })
