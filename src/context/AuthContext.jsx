@@ -7,6 +7,7 @@ import {
   signInWithEmailAndPassword,
   linkWithCredential,
   EmailAuthProvider,
+  sendPasswordResetEmail,
 } from 'firebase/auth'
 import { auth, googleProvider } from '../firebase/config'
 
@@ -85,6 +86,16 @@ export function AuthProvider({ children }) {
     return linkWithCredential(auth.currentUser, credential)
   }
 
+  /**
+   * Firebase resolves this whether or not the address has an account — Email
+   * Enumeration Protection deliberately removes the "no such user" error, so
+   * there is nothing here to distinguish the two cases and nothing the caller
+   * can leak. The confirmation copy has to be neutral for the same reason.
+   */
+  const resetPassword = (email) => (
+    MOCK_AUTH ? Promise.resolve() : sendPasswordResetEmail(auth, email)
+  )
+
   const signOut = () => (
     MOCK_AUTH ? Promise.resolve(setUser(null)) : firebaseSignOut(auth)
   )
@@ -98,7 +109,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, signInWithGoogle, signUpWithEmail, signInWithEmail, linkPasswordToCurrentUser, signOut, isMockAuth: MOCK_AUTH }}>
+    <AuthContext.Provider value={{ user, signInWithGoogle, signUpWithEmail, signInWithEmail, linkPasswordToCurrentUser, resetPassword, signOut, isMockAuth: MOCK_AUTH }}>
       {children}
       {/* Always visible while mocked. A bypass you can forget is running is the
           one that ends up demoed to someone as if it were real. */}
