@@ -107,6 +107,34 @@ export function AuthProvider({ children }) {
   )
 }
 
+const EXISTING_ACCOUNT_MESSAGE = 'An account with this email already exists. Try signing in instead.'
+const LINK_COLLISION_MESSAGE = 'This email is already linked to a different account.'
+
+export function getAuthErrorMessage(err, context = 'signin') {
+  switch (err?.code) {
+    case 'auth/email-already-in-use':
+      return context === 'link' ? LINK_COLLISION_MESSAGE : EXISTING_ACCOUNT_MESSAGE
+    case 'auth/account-exists-with-different-credential':
+      return EXISTING_ACCOUNT_MESSAGE
+    case 'auth/credential-already-in-use':
+      return LINK_COLLISION_MESSAGE
+    case 'auth/invalid-credential':
+    case 'auth/wrong-password':
+    case 'auth/user-not-found':
+      return 'Incorrect email or password.'
+    case 'auth/invalid-email':
+      return 'Enter a valid email address.'
+    case 'auth/weak-password':
+      return 'Choose a password with at least 6 characters.'
+    case 'auth/too-many-requests':
+      return 'Too many attempts. Wait a few minutes and try again.'
+    case 'auth/requires-recent-login':
+      return 'Please sign in again, then try adding a password.'
+    default:
+      return err?.message || 'Could not complete the request. Please try again.'
+  }
+}
+
 export function useAuth() {
   const ctx = useContext(AuthContext)
   if (!ctx) throw new Error('useAuth must be used within AuthProvider')
