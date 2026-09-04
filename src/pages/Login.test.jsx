@@ -3,16 +3,12 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Login from './Login'
 
-vi.mock('../context/AuthContext', async (importOriginal) => {
-  const actual = await importOriginal()
-  return {
-    // getAuthErrorMessage is the real implementation on purpose: the point of
-    // these tests is that a raw Firebase code never reaches the screen, and a
-    // mocked mapper would assert nothing about that.
-    getAuthErrorMessage: actual.getAuthErrorMessage,
-    useAuth: vi.fn(),
-  }
-})
+// Only useAuth is mocked. getAuthErrorMessage stays real — the point of these
+// tests is that a raw Firebase code never reaches the screen, and a mocked
+// mapper would assert nothing about that. It lives in its own module precisely
+// so importing it here does not drag in firebase/config, which calls getAuth()
+// at load time and throws wherever the keys are absent.
+vi.mock('../context/AuthContext', () => ({ useAuth: vi.fn() }))
 
 vi.mock('react-router-dom', async (importOriginal) => {
   const actual = await importOriginal()
