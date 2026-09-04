@@ -159,12 +159,9 @@ export default function Login() {
         </section>
 
         <section className="order-1 rounded-[2rem] border border-[#dce7e0] bg-[#f3f6f2] p-6 text-ink shadow-2xl shadow-black/25 dark:border-white/[0.12] dark:bg-wall-surface/90 dark:text-white dark:shadow-black/20 dark:backdrop-blur-xl sm:p-8 lg:order-2" aria-labelledby="sign-in-title">
-          <div className="mb-7 flex items-start justify-between gap-4">
-            <div>
-              <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-ink/65 dark:text-white/35">{copy.eyebrow}</p>
-              <h2 id="sign-in-title" className="font-display text-3xl font-semibold tracking-[-0.04em] text-ink dark:text-white">{copy.heading}</h2>
-            </div>
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-accent/20 bg-accent/[0.08] text-accent dark:border-white/10 dark:bg-white/[0.05]" aria-hidden="true"><SparkIcon /></div>
+          <div className="mb-7">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-ink/65 dark:text-white/35">{copy.eyebrow}</p>
+            <h2 id="sign-in-title" className="font-display text-[2rem] font-semibold leading-[1.1] tracking-[-0.04em] text-ink dark:text-white">{copy.heading}</h2>
           </div>
 
           <button
@@ -306,7 +303,6 @@ function PerformanceChart() {
 
 function CheckIcon() { return <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M10 3L4.75 8.25L2 5.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg> }
 function LockIcon() { return <svg className="mt-0.5 size-4 shrink-0 text-ink/55 dark:text-white/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> }
-function SparkIcon() { return <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z" /><path d="m19 16 .7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7L19 16Z" /></svg> }
 function EyeIcon() { return <svg className="size-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg> }
 function EyeOffIcon() { return <svg className="size-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M10.6 6.2A9.6 9.6 0 0 1 12 6c6.4 0 10 7 10 7a17 17 0 0 1-2.9 3.8M6.2 6.7A17 17 0 0 0 2 13s3.6 7 10 7a9.3 9.3 0 0 0 4.3-1" /><path d="m3 3 18 18" /><path d="M9.9 10.1a3 3 0 0 0 4.1 4.2" /></svg> }
 function GoogleIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" /><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" /><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" /><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" /></svg> }
