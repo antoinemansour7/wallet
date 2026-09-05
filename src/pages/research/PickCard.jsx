@@ -9,6 +9,7 @@ import ChangedValue from '../../components/ChangedValue'
 const SETUP_LABELS = {
   squeeze: 'Coiled tight', breakout: 'Breaking out', volume: 'Unusual volume',
   catalyst: 'Event coming', momentum: 'Trending up',
+  fundamentals: 'Financial results', filing_changes: 'Business disclosure', insider: 'Insider activity',
 }
 
 const TREND_LABELS = {

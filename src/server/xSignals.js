@@ -1,3 +1,4 @@
+import { currentSecurityMaster } from './research/securityMaster.js'
 import { Redis } from '@upstash/redis'
 import * as twitterApiIo from './xProviders/twitterApiIo.js'
 
@@ -212,59 +213,6 @@ const USER_ID_CACHE_KEY = 'research:x:user_ids'
 const USER_ID_CACHE_TTL = 7 * 24 * 60 * 60 // 7 days — account IDs never change
 const TIMELINE_CACHE_TTL = 4 * 60 * 60 // 4 hours — refresh more frequently for fresher signals
 
-const TICKER_STOPWORDS = new Set([
-  // NOTE: real tickers must never appear in this list. 'AMD' was here, which
-  // silently made one of the pipeline's core semiconductor names unextractable
-  // from any signal text.
-  'A', 'AI', 'ALL', 'AM', 'API', 'ARE', 'AS', 'AT', 'ATH', 'BE', 'BEAT', 'BLS', 'BULL', 'BEAR', 'BUY', 'BY',
-  'CALL', 'CASH', 'CEO', 'CFO', 'CNBC', 'COME', 'CPI', 'CTA', 'CUT',
-  'DATA', 'DAY', 'DD', 'DEAL', 'DM', 'DOE', 'DOJ', 'DREAM', 'DROP', 'DUMP',
-  'EDIT', 'EPS', 'ETF', 'ETFS', 'EU', 'EV',
-  'FACE', 'FACT', 'FALL', 'FAST', 'FDA', 'FED', 'FLAT', 'FLOW', 'FOR', 'FREE', 'FROM', 'FULL', 'FUND',
-  'GAIN', 'GDP', 'GM', 'GPT', 'GROSS', 'GROW',
-  'HALF', 'HANG', 'HAS', 'HELP', 'HERE', 'HHS', 'HIGH', 'HOLD', 'HOME', 'HOPE', 'HUGE',
-  'IDEA', 'IN', 'INTO', 'IPO', 'IRS', 'IS', 'IT',
-  'JUMP', 'JUST',
-  'KEEP',
-  'LAST', 'LATE', 'LEAD', 'LIKE', 'LIST', 'LIVE', 'LLM', 'LONG', 'LOOK', 'LOSE', 'LOSS', 'LOW',
-  'MAKE', 'MANY', 'MASS', 'MBA', 'MEAN', 'MISS', 'MNA', 'MODE', 'MORE', 'MOST', 'MOVE', 'MUCH', 'MUST',
-  'NEAR', 'NEED', 'NEWS', 'NEXT', 'NOTE', 'NOW', 'NYSE',
-  'OF', 'ON', 'ONLY', 'OPEN', 'OR', 'OVER',
-  'PAID', 'PART', 'PAST', 'PAUSE', 'PDUFA', 'PICK', 'PLAN', 'PLAY', 'POST', 'PULL', 'PUMP', 'PUSH', 'PUTS',
-  'QQQ',
-  'RATE', 'READY', 'REAL', 'RISK', 'ROAD', 'ROLL', 'RULE',
-  'SAFE', 'SALE', 'SAME', 'SAVE', 'SEC', 'SEED', 'SEEN', 'SELL', 'SEMI', 'SEND', 'SENT', 'SHOW', 'SHUT', 'SIDE', 'SIVE', 'SIZE', 'SLOW', 'SOME', 'SOON', 'SORT', 'SPY', 'STAY', 'STEP', 'STOP', 'SURE',
-  'TAKE', 'TALK', 'TERM', 'TESLA', 'TEST', 'THAT', 'THE', 'THEM', 'THEN', 'THIS', 'TIME', 'TO', 'TOLD', 'TOOK', 'TOPS', 'TRUE', 'TRUMP', 'TSX', 'TURN',
-  'UK', 'USA', 'USD', 'US', 'USED',
-  'VERY', 'VIEW', 'VIX',
-  'WAIT', 'WAKE', 'WANT', 'WARN', 'WASH', 'WAYS', 'WEEK', 'WENT', 'WHAT', 'WHEN', 'WHO', 'WIDE', 'WILL', 'WITH', 'WORK', 'WRAP', 'WSB',
-  'X',
-  'YEAR', 'YOY',
-  'ZERO',
-  // Corporate suffixes and financial shorthand. Yahoo headlines and Exa results
-  // are full of these, and every one of them was being scored as a ticker:
-  // "Barclays PLC" produced $PLC, "Nike Inc LLC ... PE ratio" produced LLC + PE.
-  // Deliberately conservative — anything that is also a live ticker stays out,
-  // so AG (First Majestic), PB (Prosperity), SNAP, MOAT and NAV are NOT listed.
-  'LLC', 'PLC', 'INC', 'CORP', 'LTD', 'GROUP', 'HOLD', 'CHIPS',
-  'PE', 'EV', 'ROE', 'ROI', 'ROIC', 'EBIT', 'EBITDA', 'FCF', 'YTD', 'QOQ', 'TTM', 'CAGR', 'DCF', 'MOIC', 'AUM',
-])
-
-// Deliberately NOT a discovery exclusion, and deliberately not the size
-// blacklist that was removed from exaDiscoveryAgent.js. These names can still
-// be extracted from any signal, still reach the board, and still be picked on
-// their evidence.
-//
-// This list governs one thing: which tickers get to spend one of the ~10
-// adaptive query slots on a dedicated follow-up search. A search for "SPY" or
-// "NVDA" plus catalyst words returns index commentary and macro chatter rather
-// than a specific dated event, because these are the most-discussed symbols on
-// the platform. That is a query-budget judgment about what a search will
-// return, not a preference about what kind of company deserves to be picked.
-const SEED_TICKER_EXCLUSIONS = new Set([
-  'AAPL', 'AMZN', 'GOOG', 'GOOGL', 'IGV', 'IWM', 'META', 'MSFT', 'NVDA', 'QQQ', 'SPY', 'TSLA',
-])
-
 const CATALYST_REGEX = /(earnings|guidance|beat|miss|partnership|contract|launch|approval|fda|pdufa|trial|phase [123]|short squeeze|short interest|options sweep|unusual volume|acquisition|merger|buyout|breakout)/i
 
 function unique(items) {
@@ -291,28 +239,10 @@ function normalizeTicker(symbol) {
   return String(symbol || '').toUpperCase().replace(/[^A-Z.]/g, '')
 }
 
-export function extractTickersFromText(text) {
-  if (!text) return []
-
-  const found = []
-  const seen = new Set()
-  const raw = String(text)
-
-  for (const match of raw.matchAll(/\$([A-Z]{1,5})\b/g)) {
-    const ticker = normalizeTicker(match[1])
-    if (!ticker || TICKER_STOPWORDS.has(ticker) || seen.has(ticker)) continue
-    seen.add(ticker)
-    found.push(ticker)
-  }
-
-  for (const match of raw.matchAll(/\b([A-Z]{2,5})\b/g)) {
-    const ticker = normalizeTicker(match[1])
-    if (!ticker || TICKER_STOPWORDS.has(ticker) || seen.has(ticker)) continue
-    seen.add(ticker)
-    found.push(ticker)
-  }
-
-  return found.slice(0, 6)
+// Only explicit cashtags, exchange-qualified symbols or unambiguous issuer
+// names resolve. Without a master we fail closed; uppercase prose is not identity.
+export function extractTickersFromText(text, master = currentSecurityMaster()) {
+  return master ? master.text(text).map((security) => security.ticker) : []
 }
 
 export function extractThemesFromText(text) {
@@ -367,7 +297,6 @@ export function deriveAdaptiveSeed({ articles = [], baseSignals = [] } = {}) {
     .map(([theme]) => theme)
 
   const topTickers = [...tickerScores.entries()]
-    .filter(([ticker]) => !SEED_TICKER_EXCLUSIONS.has(ticker))
     .filter(([, score]) => score >= 2.2)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 4)
@@ -550,11 +479,11 @@ export function scoreSignal(signal) {
 }
 
 function toSignal(record, meta = {}) {
-  const entityCashtags = (record.entities?.cashtags || []).map((item) => normalizeTicker(item.tag))
+  const entityCashtags = (record.entities?.cashtags || []).flatMap((item) => extractTickersFromText(`$${normalizeTicker(item.tag)}`))
   const tickers = unique([
     ...entityCashtags,
     ...extractTickersFromText(record.text),
-    ...(meta.ticker ? [normalizeTicker(meta.ticker)] : []),
+    ...(meta.ticker ? extractTickersFromText(`$${normalizeTicker(meta.ticker)}`) : []),
   ])
   const themes = unique([
     ...extractThemesFromText(record.text),

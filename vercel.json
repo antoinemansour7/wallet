@@ -1,15 +1,39 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
-    { "path": "/api/refresh-prices",    "schedule": "0 14 * * *" },
-    { "path": "/api/nightly-research",  "schedule": "0 13 * * 1-5"  },
-    { "path": "/api/nightly-research?mode=premarket", "schedule": "15 12 * * 1-5" },
-    { "path": "/api/track-performance", "schedule": "30 14 * * *" }
+    {
+      "path": "/api/refresh-prices",
+      "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/nightly-research",
+      "schedule": "0 13 * * 1-5"
+    },
+    {
+      "path": "/api/nightly-research?mode=premarket",
+      "schedule": "15 12 * * 1-5"
+    },
+    {
+      "path": "/api/track-performance",
+      "schedule": "30 14 * * *"
+    },
+    {
+      "path": "/api/research-foundation",
+      "schedule": "*/15 0-12 * * 1-6"
+    }
   ],
   "functions": {
-    "api/nightly-research.js": { "maxDuration": 300 }
+    "api/nightly-research.js": {
+      "maxDuration": 300
+    },
+    "api/research-foundation.js": {
+      "maxDuration": 300
+    }
   },
   "rewrites": [
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
   ]
 }

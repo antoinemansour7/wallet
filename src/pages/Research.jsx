@@ -59,6 +59,7 @@ export default function Research() {
   const [research, setResearch] = useState(null)
   const [loadingResearch, setLoadingResearch] = useState(true)
   const [showBelow, setShowBelow] = useState(false)
+  const [horizon, setHorizon] = useState(5)
   const [livePrices, setLivePrices] = useState({})
   const [sizing, setSizing] = useState(null)
   const [sizingLoading, setSizingLoading] = useState(false)
@@ -162,22 +163,22 @@ export default function Research() {
 
   // Priced on arrival, then every five minutes, matching the portfolio.
   useEffect(() => {
-    const all = research?.picks ?? []
+    const all = research?.picksByHorizon?.[horizon] ?? (horizon === 5 ? research?.picks ?? [] : [])
     if (all.length === 0) return undefined
 
     loadLivePrices(all)
     const id = window.setInterval(() => loadLivePrices(all), 5 * 60 * 1000)
     return () => window.clearInterval(id)
-  }, [research])
+  }, [research, horizon])
 
   const { picks, below } = useMemo(() => {
     // The server order includes technicals, verified events, risk and premarket checks.
-    const all = research?.picks ?? []
+    const all = research?.picksByHorizon?.[horizon] ?? (horizon === 5 ? research?.picks ?? [] : [])
     return {
       picks: all.filter((p) => p.conviction >= CONVICTION_THRESHOLD),
       below: all.filter((p) => p.conviction < CONVICTION_THRESHOLD),
     }
-  }, [research])
+  }, [research, horizon])
 
   const signalCount = research?.signalCount ?? research?.tweetCount ?? 0
   const timeLabel = formatTime(research?.generatedAt)
@@ -200,9 +201,19 @@ export default function Research() {
           </div>
           <p className="mt-2 text-[15px] leading-relaxed text-ink/50">
             {hasAnything
-              ? `${picks.length + below.length} idea${picks.length + below.length === 1 ? '' : 's'}, picked overnight from ${signalCount.toLocaleString()} posts, articles and stock screens`
-              : 'Ideas picked overnight from posts, articles and stock screens'}
+              ? horizon !== 5 ? `Primary-disclosure ideas reviewed over ${horizon} trading sessions` : `${picks.length + below.length} idea${picks.length + below.length === 1 ? '' : 's'}, picked overnight from ${signalCount.toLocaleString()} posts, articles and stock screens`
+              : 'Research across market attention and primary disclosures'}
           </p>
+          <div className="mt-5 flex flex-wrap gap-2" role="group" aria-label="Investment horizon">
+            {[[5, '5 sessions · Follow-through'], [20, '20 sessions · Repricing'], [60, '60 sessions · Business change']].map(([value, label]) => (
+              <button key={value} type="button" aria-pressed={horizon === value}
+                onClick={() => { setHorizon(value); setShowBelow(false); setSizing(null) }}
+                className={`rounded-full border px-3.5 py-2 text-xs font-medium transition-colors ${horizon === value ? 'border-ink/20 bg-ink text-wall-bg' : 'border-ink/10 text-ink/55 hover:border-ink/25 hover:text-ink'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {horizon !== 5 && <p className="mt-3 text-xs leading-relaxed text-ink/45">Experimental research. Ranked within this horizon; returns are evaluated after {horizon} trading sessions.</p>}
         </header>
 
         {/* Two columns above lg: the picks carry the page, the rail holds the
@@ -236,7 +247,7 @@ export default function Research() {
                   clickable, and it balances the context rail beside it. */}
               {picks.map((pick, i) => (
                 <PickCard
-                  key={pick.ticker}
+                  key={`${horizon}:${pick.candidateId || pick.ticker}`}
                   pick={pick}
                   rank={i + 1}
                   defaultOpen={i === 0}
@@ -277,7 +288,7 @@ export default function Research() {
                   <div className="motion-enter mt-2.5 space-y-2.5 opacity-70">
                     {below.map((pick, i) => (
                       <PickCard
-                        key={pick.ticker}
+                        key={`${horizon}:${pick.candidateId || pick.ticker}`}
                         pick={pick}
                         rank={picks.length + i + 1}
                         live={livePrices[pick.ticker]}

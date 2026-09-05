@@ -1,3 +1,8 @@
+import { loadFoundation } from '../src/server/research/foundation.js'
+import { withSecurityMaster } from '../src/server/research/securityMaster.js'
+import { HISTORY_RETENTION_SECONDS, HISTORY_LIMIT } from '../src/server/research/policy.js'
+import { digest } from '../src/server/research/archive.js'
+
 import { Redis } from '@upstash/redis'
 import { collectXSignals } from '../src/server/xSignals.js'
 import {
@@ -15,11 +20,9 @@ import { getMarketRegime, regimeSizeMultiplier } from '../src/server/marketRegim
 
 const RESEARCH_KEY = 'research:latest'
 const RESEARCH_TTL = 48 * 60 * 60 // 48 hours
-// Must outlive the longest performance checkpoint (day 10) plus the stats
-// window — performance records keep 30 days, so history must too.
-const HISTORY_TTL = 30 * 24 * 60 * 60 // 30 days
+const HISTORY_TTL = HISTORY_RETENTION_SECONDS
 const HISTORY_INDEX_KEY = 'research:history-index'
-const HISTORY_MAX_ENTRIES = 30
+const HISTORY_MAX_ENTRIES = HISTORY_LIMIT
 
 function isAuthorized(req) {
   if (!process.env.CRON_SECRET) return false
@@ -69,12 +72,12 @@ async function runPremarketCheck(res) {
     return { ...pick, premarketGapPct: gapPct, gappedAway, brokenOvernight, premarketScore: Number(score.toFixed(2)) }
   }).sort((a, b) => b.premarketScore - a.premarketScore)
 
-  const updated = { ...payload, picks: rescored, premarketCheckedAt: new Date().toISOString() }
+  const updated = { ...payload, picks: rescored, picksByHorizon: { ...payload.picksByHorizon, 5: rescored }, premarketCheckedAt: new Date().toISOString() }
   await redis.set(RESEARCH_KEY, updated, { ex: RESEARCH_TTL })
 
   const dateKey = new Date().toISOString().slice(0, 10)
   const history = await redis.get(`research:history:${dateKey}`)
-  if (history) await redis.set(`research:history:${dateKey}`, { ...history, picks: rescored, premarketCheckedAt: updated.premarketCheckedAt }, { ex: HISTORY_TTL })
+  if (history) await redis.set(`research:history:${dateKey}`, { ...history, picks: rescored, picksByHorizon: { ...history.picksByHorizon, 5: rescored }, premarketCheckedAt: updated.premarketCheckedAt }, { ex: HISTORY_TTL })
 
   console.log('[nightly-research] premarket re-rank:', rescored.map((p) => `${p.ticker}${p.gappedAway ? '(gapped)' : ''}${p.brokenOvernight ? '(broken)' : ''}`).join(','))
   return res.status(200).json({
@@ -107,6 +110,13 @@ export default async function handler(req, res) {
     }
   }
 
+  let foundation
+  try { foundation = await loadFoundation({ redis: getRedis() }) }
+  catch (error) { return res.status(503).json({ error: `Research foundation unavailable: ${error.message}` }) }
+  return withSecurityMaster(foundation.master, () => runDiscovery(req, res, startedAt, recordRun, foundation))
+}
+
+async function runDiscovery(req, res, startedAt, recordRun, foundation) {
   const errors = []
 
   // Step 1: collect adaptive X signals (primary discovery layer)
@@ -175,12 +185,6 @@ export default async function handler(req, res) {
     errors.push({ step: 'day-trade', error: err.message })
   }
 
-  // Each discovery channel gets a chance even when X and RSS are unavailable.
-  if (signals.length === 0 && articles.length === 0) {
-    await recordRun('nightly-research', startedAt, { errors })
-    return res.status(503).json({ error: 'No content available from any source', errors })
-  }
-
   // Market regime — rates the tape, never an individual pick. Recorded on
   // every pick so this becomes calibratable once the history spans more than
   // the single month it currently covers; it cannot be backfilled.
@@ -199,6 +203,7 @@ export default async function handler(req, res) {
   // Step 3: extract tickers via Claude
   let tickers = []
   let shadowBoard = []
+  let primaryReview = null
   try {
     // A run where a discovery feed failed produces low mention counts for every
     // ticker. Recorded as though it were real, the next run would read a
@@ -209,6 +214,8 @@ export default async function handler(req, res) {
     if (!discoveryHealthy) console.warn('[nightly-research] discovery degraded — coverage history will not record this run')
 
     tickers = await extractTickers(signals, articles, {
+      foundation,
+      onPrimaryReview: (result) => { primaryReview = result },
       onBoard: (board) => { shadowBoard = board.slice(0, 15) },
       regime,
       discoveryHealthy,
@@ -278,6 +285,9 @@ export default async function handler(req, res) {
   const payload = {
     generatedAt: new Date().toISOString(),
     picks: stampedPicks,
+    picksByHorizon: { 5: stampedPicks, 20: primaryReview?.picksByHorizon[20] || [], 60: primaryReview?.picksByHorizon[60] || [] },
+    admissionId: primaryReview?.admission.id || null,
+    reviewId: primaryReview?.id || null,
     regime,
     articles,
     signalCount: signals.length,
@@ -287,6 +297,14 @@ export default async function handler(req, res) {
     errors,
   }
 
+  // Freeze publication separately from the mutable latest/date projections.
+  // Final analysis/report completion also constrains the earliest live fill.
+  for (const pick of Object.values(payload.picksByHorizon).flat()) {
+    pick.earliestActionAt = new Date(Math.max(Date.parse(pick.earliestActionAt), Date.parse(payload.generatedAt) + 60000)).toISOString()
+  }
+  const publicationId = digest(payload)
+  await foundation.archive.put('publication', publicationId, { ...payload, id: publicationId, availableAt: payload.generatedAt }, 'publications', payload.generatedAt)
+  payload.publicationId = publicationId
   const redis = getRedis()
   if (redis) {
     await redis.set(RESEARCH_KEY, payload, { ex: RESEARCH_TTL })
@@ -295,6 +313,7 @@ export default async function handler(req, res) {
     const dateKey = new Date().toISOString().slice(0, 10)
     const historyKey = `research:history:${dateKey}`
     await redis.set(historyKey, payload, { ex: HISTORY_TTL })
+    await redis.lrem(HISTORY_INDEX_KEY, 0, dateKey)
     await redis.lpush(HISTORY_INDEX_KEY, dateKey)
     await redis.ltrim(HISTORY_INDEX_KEY, 0, HISTORY_MAX_ENTRIES - 1)
 

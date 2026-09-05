@@ -1,3 +1,4 @@
+import { HISTORY_LIMIT } from '../src/server/research/policy.js'
 import { Redis } from '@upstash/redis'
 import { withRunLog } from '../src/server/runLog.js'
 
@@ -23,7 +24,7 @@ async function realHandler(req, res) {
   }
 
   try {
-    const dates = await redis.lrange(HISTORY_INDEX_KEY, 0, 29)
+    const dates = await redis.lrange(HISTORY_INDEX_KEY, 0, HISTORY_LIMIT - 1)
     if (!dates || dates.length === 0) {
       return res.status(200).json({ entries: [] })
     }
@@ -34,11 +35,12 @@ async function realHandler(req, res) {
     const entries = []
     for (const date of uniqueDates) {
       const data = await redis.get(`research:history:${date}`)
-      if (data && data.picks && data.picks.length > 0) {
+      if (data && (data.picks?.length || Object.values(data.picksByHorizon || {}).some((picks) => picks.length))) {
         entries.push({
           date,
           generatedAt: data.generatedAt,
           signalCount: data.signalCount || 0,
+          picksByHorizon: Object.fromEntries(Object.entries(data.picksByHorizon || { 5: data.picks || [] }).map(([horizon, picks]) => [horizon, picks.map((p) => ({ ticker: p.ticker, candidateId: p.candidateId, securityId: p.securityId, horizon: p.horizon || 5, strategyFamily: p.strategyFamily || 'attention', conviction: p.conviction, reason: p.reason, price: p.price }))])) ,
           picks: data.picks.map((p) => ({
             ticker: p.ticker,
             conviction: p.conviction,

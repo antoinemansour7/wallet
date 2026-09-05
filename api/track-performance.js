@@ -1,6 +1,11 @@
+import { evaluationHistory } from '../src/server/research/history.js'
+import { HISTORY_LIMIT } from '../src/server/research/policy.js'
+import { allResearchPicks } from '../src/server/research/review.js'
+import { loadFoundation } from '../src/server/research/foundation.js'
+
 import { Redis } from '@upstash/redis'
 import { storePickPerformance, invalidateStatsCache } from '../src/server/agents/signalHistoryTools.js'
-import { sessionCheckpoints } from '../src/server/researchPerformance.js'
+import { sessionCheckpoints, LEGACY_EVALUATION_VERSION } from '../src/server/researchPerformance.js'
 
 /**
  * Map days-held to a tracking checkpoint. Tolerant windows instead of exact
@@ -44,7 +49,7 @@ export function firstSessionAfter(candles, pickDate) {
 
 async function fetchRecentDailyCandles(ticker) {
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=3mo`
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=2y`
     const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) })
     if (!res.ok) return []
     const data = await res.json()
@@ -80,8 +85,12 @@ export default async function handler(req, res) {
   const startedAt = Date.now()
   const errors = []
   let tracked = 0
+  let master = null
+  try { master = (await loadFoundation({ redis, refresh: false })).master }
+  catch (error) { errors.push({ stage: 'identity', error: error.message }) }
 
-  const historyIndex = [...new Set(await redis.lrange('research:history-index', 0, 29) || [])]
+  const histories = await evaluationHistory(redis, startedAt)
+  const historyIndex = [...new Set(histories.map((h) => h.date))]
   // One request per symbol per run, reused across dates and shadow records.
   const candlesByTicker = new Map()
   const candlesFor = (ticker) => {
@@ -96,11 +105,21 @@ export default async function handler(req, res) {
     for (const pick of picks) {
       if (!pick.ticker) continue
       try {
+        // Never fetch a reused ticker as though it were the original security.
+        // Renames/delistings need an identity-aware historical price adapter;
+        // record the gap explicitly until that adapter is available.
+        if (pick.securityId) {
+          const matches = master?.resolve({ ticker: pick.ticker }) || []
+          if (matches.length !== 1 || matches[0].securityId !== pick.securityId) throw new Error('Historical price identity unavailable for renamed, delisted or reused ticker')
+        }
         const candles = await candlesFor(pick.ticker)
         const sameCurrencyBenchmark = candles[0]?.currency === 'USD' ? benchmark : []
-        for (const checkpoint of sessionCheckpoints(candles, generatedAt, startedAt, sameCurrencyBenchmark)) {
+        for (const checkpoint of sessionCheckpoints(candles, generatedAt, startedAt, sameCurrencyBenchmark, undefined, { ...pick, evaluationVersion: pick.evaluationVersion || LEGACY_EVALUATION_VERSION })) {
           await storePickPerformance(dateKey, pick.ticker, checkpoint.entryPrice, checkpoint.exitPrice, checkpoint.horizon, {
             ...checkpoint, shadow, day1Open: checkpoint.entryPrice,
+            candidateId: pick.candidateId, securityId: pick.securityId, issuerId: pick.issuerId,
+            strategyFamily: pick.strategyFamily, declaredHorizon: pick.horizon, horizonPolicyVersion: pick.horizonPolicyVersion,
+            earliestActionAt: pick.earliestActionAt,
             modelVersion: pick.modelVersion || 'legacy',
           })
           tracked++
@@ -111,11 +130,13 @@ export default async function handler(req, res) {
     }
   }
 
-  for (const dateKey of historyIndex) {
-    const history = await redis.get(`research:history:${dateKey}`)
-    if (history?.picks) await trackPicks(dateKey, history.picks, history.generatedAt)
+  for (const history of histories) {
+    if (history?.picks) await trackPicks(history.date, allResearchPicks(history), history.generatedAt)
+  }
+  const shadowDates = [...new Set(await redis.lrange('research:shadow-index', 0, HISTORY_LIMIT - 1) || [])]
+  for (const dateKey of shadowDates) {
     const shadowEntry = await redis.get(`research:shadow:${dateKey}`)
-    if (shadowEntry?.picks) await trackPicks(dateKey, shadowEntry.picks, shadowEntry.generatedAt || history?.generatedAt, { shadow: true })
+    if (shadowEntry?.picks) await trackPicks(dateKey, shadowEntry.picks, shadowEntry.generatedAt, { shadow: true })
   }
 
   console.log(`[track-performance] tracked ${tracked} pick-price updates`)
