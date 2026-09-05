@@ -63,30 +63,43 @@ Pooling is "identical securities across *every* non-registered account at any in
 
 Pooling joins on `securityKey`. Where the fallback rung is in play the join is a guess, and the provenance rules in §5 apply to it too.
 
-## 5. A stated opening position is a distinct record, not a synthetic buy
+## 5. We do not chase history older than Plaid gives us
 
-The 24-month ceiling means a position bought in 2019 has an opening cost base no API will supply. The user states it once. The question is where that stated number lives.
+**Revised 2026-09-04.** The original plan asked the user to type in a cost base for anything bought before the 24-month window. That is now out of scope.
 
-The tempting shortcut is to synthesise an opening `BUY` and let it flow through the same pipeline. **Rejected.** The moment a stated number is shaped like a trade, nothing downstream can tell it apart from a real one — and the issue requires exactly that distinction to survive all the way to the screen: "be explicit in the UI about which figures rest on a stated opening balance and which are fully derived."
+The reason it is affordable to drop: four of the five features in #16 only need recent activity. Dividends received (#17), the FX rate actually paid (#18), fees (#21) and what was sold lately (#20) all sit comfortably inside two years. Only cost base on a long-held position needs history reaching back to purchase, and asking someone to reconstruct a 2019 purchase from memory produces a number that is confidently wrong — which, on a tax figure, is worse than no number.
 
-**Decision.** Opening positions are their own record type:
+**Decision.** Record where each account's history begins, and refuse to compute what it cannot support.
+
+```
+users/{uid}/accounts/{accountId}
+  { historyStartsAt: '2024-09-04', ... }
+```
+
+A position whose holdings predate `historyStartsAt` is **incomplete**, and every figure derived from it says so instead of showing a number:
+
+```
+provenance: 'derived'    — every input was a real transaction
+          | 'incomplete' — the security was already held when history began
+```
+
+So a stock bought last year gets a real cost base and a real gain. One bought in 2019 gets "we can't calculate this — your history starts September 2024", which is true, checkable, and cannot mislead anyone into filing it.
+
+This removes the opening-position entry UI, the data-entry burden, and a whole class of wrong-number bug. If a user later wants the figure for an old holding badly enough to enter it by hand, that is a small additive feature on top of this shape — the record below already accommodates it — and not something to build before anyone has asked.
+
+<details>
+<summary>Deferred: the stated-opening record, if it is ever wanted</summary>
+
+Opening positions would be their own record type, never a synthesised `BUY` — the moment a stated number is shaped like a trade, nothing downstream can tell it apart from a real one:</details>
 
 ```
 users/{uid}/openingPositions/{accountId}:{securityKey}
   { quantity, costBasisMinor, currency, asOf, basis: 'stated', statedAt }
 ```
 
-and every figure computed from the ledger carries provenance that propagates:
+with `provenance: 'stated'` and `'mixed'` joining the two above. Not built.
 
-```
-provenance: 'derived'  — every input was a real transaction
-          | 'stated'   — rests on a stated opening position
-          | 'mixed'    — a stated opening carried forward by real transactions
-```
-
-`mixed` is the common case and the one worth naming: it is not fully trustworthy and not merely a guess, and collapsing it into either neighbour would be a lie in one direction or the other.
-
-This makes the labelling requirement mechanical rather than remembered. A screen cannot render an ACB without also receiving how it was arrived at, because the two travel in the same object.
+Either way the principle holds: the labelling requirement is mechanical rather than remembered, because a screen cannot render a cost base without also receiving how it was arrived at — the two travel in the same object.
 
 ## 6. The FX rate is stored on the transaction, not looked up later
 
@@ -151,4 +164,4 @@ The pure core has no dependency on the in-flight account refactor and lands in n
 Then, once `api/plaid.js` and `accountMerge.js` are settled:
 
 5. `/investments/transactions/get` import, paginated and idempotent
-6. Opening-position capture UI, and the provenance labelling on screen
+6. `historyStartsAt` per account, and the incomplete-history labelling on screen
