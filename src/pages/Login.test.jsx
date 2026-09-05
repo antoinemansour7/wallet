@@ -84,14 +84,14 @@ describe('Login page', () => {
     await waitFor(() => expect(signInWithGoogle).toHaveBeenCalled())
   })
 
-  describe('sign-in state', () => {
+  describe('log-in state', () => {
     it('submits the typed credentials', async () => {
       const { signInWithEmail } = mockAuth()
       renderLogin()
 
       fireEvent.change(emailField(), { target: { value: 'a@b.com' } })
       fireEvent.change(passwordField(), { target: { value: 'secret1' } })
-      fireEvent.click(screen.getByRole('button', { name: /^sign in$/i }))
+      fireEvent.click(screen.getByRole('button', { name: /^log in$/i }))
 
       await waitFor(() => expect(signInWithEmail).toHaveBeenCalledWith('a@b.com', 'secret1'))
     })
@@ -108,7 +108,7 @@ describe('Login page', () => {
 
       fireEvent.change(emailField(), { target: { value: 'a@b.com' } })
       fireEvent.change(passwordField(), { target: { value: 'wrong' } })
-      fireEvent.click(screen.getByRole('button', { name: /^sign in$/i }))
+      fireEvent.click(screen.getByRole('button', { name: /^log in$/i }))
 
       const alert = await screen.findByRole('alert')
       expect(alert).toHaveTextContent('Incorrect email or password.')
@@ -117,7 +117,7 @@ describe('Login page', () => {
   })
 
   describe('sign-up state', () => {
-    const switchToSignUp = () => fireEvent.click(screen.getByRole('button', { name: /create an account/i }))
+    const switchToSignUp = () => fireEvent.click(screen.getByRole('button', { name: /^sign up$/i }))
 
     it('swaps the card in place without navigating', () => {
       renderLogin()
@@ -127,7 +127,7 @@ describe('Login page', () => {
       expect(screen.getByRole('button', { name: /^create account$/i })).toHaveAttribute('type', 'submit')
       // "Sign in" still exists, but only as the way back — it must no longer be
       // the thing that submits the form.
-      expect(screen.getByRole('button', { name: /^sign in$/i })).toHaveAttribute('type', 'button')
+      expect(screen.getByRole('button', { name: /^log in$/i })).toHaveAttribute('type', 'button')
     })
 
     it('submits through signUpWithEmail', async () => {
