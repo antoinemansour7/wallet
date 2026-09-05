@@ -4,10 +4,11 @@
 // ────────────────────────────────────────────────────────────────────────────────
 
 import { Redis } from '@upstash/redis'
+import { computeLearningStats, EVALUATION_VERSION, RESEARCH_MODEL_VERSION } from '../researchPerformance.js'
 
 const PERFORMANCE_KEY = 'research:performance'
 const PERFORMANCE_TTL = 30 * 24 * 60 * 60 // 30 days
-const STATS_CACHE_KEY = 'research:performance:stats'
+const STATS_CACHE_KEY = `research:performance:stats:${RESEARCH_MODEL_VERSION}`
 const STATS_CACHE_TTL = 6 * 60 * 60 // 6 hours
 
 function getRedis() {
@@ -77,6 +78,7 @@ export async function getRecentPickedTickers(days = 3) {
 export async function storePickPerformance(pickDate, ticker, entryPrice, currentPrice, daysHeld, extras = {}) {
   const redis = getRedis()
   if (!redis) return
+  if (!Number.isFinite(entryPrice) || entryPrice <= 0 || !Number.isFinite(currentPrice) || currentPrice <= 0) return
 
   const returnPct = entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0
   const win = returnPct >= 3 // +3% threshold for a "win"
@@ -87,10 +89,11 @@ export async function storePickPerformance(pickDate, ticker, entryPrice, current
 
   // Idempotent per checkpoint: a tolerant tracking window may map several
   // calendar days to the same slot — the first recorded price wins.
-  if (existing[`return_day${daysHeld}`] != null) return existing
+  if (existing[`return_day${daysHeld}`] != null && (!extras.evaluationVersion || existing.evaluationVersion === extras.evaluationVersion)) return existing
 
   const updated = {
-    ...existing,
+    // Never mix old calendar-day checkpoints into the session-based record.
+    ...(extras.evaluationVersion && existing.evaluationVersion !== extras.evaluationVersion ? {} : existing),
     ticker,
     pickDate,
     entryPrice,
@@ -98,6 +101,19 @@ export async function storePickPerformance(pickDate, ticker, entryPrice, current
     [`return_day${daysHeld}`]: Number(returnPct.toFixed(2)),
     [`win_day${daysHeld}`]: win,
     lastChecked: new Date().toISOString(),
+  }
+
+  if (extras.evaluationVersion) {
+    Object.assign(updated, {
+      evaluationVersion: extras.evaluationVersion,
+      modelVersion: extras.modelVersion,
+      costBps: extras.costBps,
+      entryDate: extras.entryDate,
+      [`exit_date_day${daysHeld}`]: extras.exitDate,
+      [`net_return_day${daysHeld}`]: extras.netReturn,
+      [`benchmark_return_day${daysHeld}`]: extras.benchmarkReturn,
+      [`excess_return_day${daysHeld}`]: extras.excessReturn,
+    })
   }
 
   // Day-1 honesty metrics: what was achievable buying at the next open
@@ -126,7 +142,7 @@ export async function getAllPerformanceRecords() {
   if (!historyIndex || historyIndex.length === 0) return []
 
   const records = []
-  for (const dateKey of historyIndex) {
+  for (const dateKey of new Set(historyIndex)) {
     const history = await redis.get(`research:history:${dateKey}`)
     if (!history?.picks) continue
 
@@ -149,7 +165,7 @@ export async function getAllPerformanceRecords() {
   // Shadow picks (top-of-board candidates never shown to the user) feed the
   // setup/source learning loop with ~3x more outcomes per night.
   const shadowIndex = await redis.lrange('research:shadow-index', 0, 29)
-  for (const dateKey of shadowIndex || []) {
+  for (const dateKey of new Set(shadowIndex || [])) {
     const shadowEntry = await redis.get(`research:shadow:${dateKey}`)
     if (!shadowEntry?.picks) continue
     for (const pick of shadowEntry.picks) {
@@ -210,12 +226,12 @@ export function computeWinRateStats(records, now = Date.now()) {
     // Falls back to legacy close-to-close day 1, then day 3.
     const ocReturn = record.return_day1_oc
     const returnVal = ocReturn ?? record.return_day1 ?? record.return_day3
-    if (returnVal == null) continue
+    if (!Number.isFinite(returnVal)) continue
 
     // Day-1 open→close wins at +1.5%; legacy multi-day records keep +3%
     const win = ocReturn != null ? returnVal >= 1.5 : returnVal >= 3
 
-    if (Number.isFinite(record.mfe_day1)) { mfeSum += record.mfe_day1; mfeCount++ }
+    if (!record.shadow && Number.isFinite(record.mfe_day1)) { mfeSum += record.mfe_day1; mfeCount++ }
 
     const isShadow = Boolean(record.shadow)
     if (!isShadow) {
@@ -254,7 +270,7 @@ export function computeWinRateStats(records, now = Date.now()) {
 
     // By signal source (which X accounts / screeners / discovery feeds
     // actually produce winners — feeds back into pick ranking)
-    for (const source of record.sources || []) {
+    for (const source of new Set(record.sources || [])) {
       if (!bySource[source]) bySource[source] = { wins: 0, total: 0, totalReturn: 0, weightedWins: 0, weightedTotal: 0 }
       bySource[source].total++
       bySource[source].totalReturn += returnVal
@@ -275,6 +291,7 @@ export function computeWinRateStats(records, now = Date.now()) {
   const wpct = (wWins, wTotal) => wTotal > 0 ? Number(((wWins / wTotal) * 100).toFixed(1)) : 0
 
   const result = {
+    learning: computeLearningStats(records, now),
     totalPicks: trackedCount,
     overallWinRate: pct(totalWins, trackedCount),
     avgReturn: avg(totalReturns, trackedCount),
@@ -346,7 +363,7 @@ export async function getWinRateStats() {
       const cached = await redis.get(STATS_CACHE_KEY)
       if (cached) {
         const stats = typeof cached === 'string' ? JSON.parse(cached) : cached
-        if (stats.totalPicks > 0) return stats
+        if (stats.totalPicks > 0 && stats.learning?.evaluationVersion === EVALUATION_VERSION) return stats
       }
     } catch { /* cache miss */ }
   }
@@ -367,67 +384,20 @@ export async function getWinRateStats() {
  * This is how the feedback loop closes — past performance informs future picks.
  */
 export function formatStatsForPrompt(stats) {
-  if (!stats || stats.totalPicks === 0) return ''
-
+  const learning = stats?.learning
+  if (!learning?.total) return '## Historical evaluation\nNo comparable completed five-session results for this model yet. Do not infer a proven edge from legacy win rates or a small sample.'
   const lines = [
-    `## Historical Performance (${stats.totalPicks} tracked picks; win = +1.5% captured by the day-1 open→close checkpoint)`,
-    `Overall win rate: ${stats.overallWinRate}% | Avg day-1 open→close return: ${stats.avgReturn > 0 ? '+' : ''}${stats.avgReturn}% | Max drawdown: ${stats.maxDrawdown}%`,
-    `(Day-1 is an EARLY read on a 3–5 day hold, not the finish line — a pick that is flat on day 1 can still work by day 3–5. Use it to judge follow-through, not to demand instant payoff.)`,
+    `## Historical evaluation (${learning.total} picks across ${learning.distinctDates} dates)`,
+    `Hypothetical first-open entry, fifth-session close; ${learning.costBps} bps estimated round-trip costs. USD price returns compared with SPY over the same dates.`,
+    `Average net return: ${learning.avgNetReturn.toFixed(2)}%; average excess return: ${learning.avgExcessReturn.toFixed(2)}%. Worst individual return: ${learning.worstReturn.toFixed(2)}% (not portfolio drawdown).`,
+    'These observations are not probabilities of profit. Same-day outcomes are correlated. Shadow candidates and legacy/model-mismatched results do not train this ranking.',
   ]
-
-  if (stats.avgIntradayPeak != null) {
-    lines.push(`Avg intraday peak (open→high day 1): +${stats.avgIntradayPeak}% — a first-day read on how much the move tends to carry, not a one-session ceiling.`)
-  }
-
-  if (stats.recentTotal >= 2) {
-    lines.push(`Recent (7 days): ${stats.recentWinRate}% win rate (${stats.recentTotal} picks) ← weight this heavily`)
-  }
-
-  lines.push('', 'Win rate by setup type (weighted = recency-adjusted):')
-
-  const sortedSetups = Object.entries(stats.bySetup)
-    .filter(([, data]) => data.total >= 2)
-    .sort((a, b) => b[1].weightedWinRate - a[1].weightedWinRate)
-
-  for (const [setup, data] of sortedSetups) {
-    lines.push(`  ${setup}: ${data.weightedWinRate}% weighted (${data.winRate}% raw, ${data.total} picks, avg ${data.avgReturn > 0 ? '+' : ''}${data.avgReturn}%)`)
-  }
-
-  if (stats.byCatalyst.verified.total >= 2 || stats.byCatalyst.unverified.total >= 2) {
-    lines.push('')
-    lines.push('Catalyst verification impact:')
-    if (stats.byCatalyst.verified.total >= 2) lines.push(`  Verified catalyst: ${stats.byCatalyst.verified.winRate}% win rate`)
-    if (stats.byCatalyst.unverified.total >= 2) lines.push(`  No verified catalyst: ${stats.byCatalyst.unverified.winRate}% win rate`)
-  }
-
-  if (stats.byConviction.high.total >= 2) {
-    lines.push('')
-    lines.push(`High conviction (8+): ${stats.byConviction.high.weightedWinRate}% weighted (${stats.byConviction.high.winRate}% raw)`)
-    lines.push(`Medium conviction (6-7): ${stats.byConviction.medium.weightedWinRate}% weighted (${stats.byConviction.medium.winRate}% raw)`)
-  }
-
-  if (stats.byRisk.highRisk.total >= 2) {
-    lines.push('')
-    lines.push(`High risk picks (contrarian risk ≥7): ${stats.byRisk.highRisk.winRate}% win rate`)
-    lines.push(`Low risk picks (contrarian risk <7): ${stats.byRisk.lowRisk.winRate}% win rate`)
-  }
-
-  const sourceEntries = Object.entries(stats.bySource || {})
-    .sort((a, b) => b[1].weightedWinRate - a[1].weightedWinRate)
-  if (sourceEntries.length >= 2) {
-    lines.push('')
-    lines.push('Signal source track record (weighted win rate, n≥3):')
-    for (const [source, data] of sourceEntries.slice(0, 5)) {
-      lines.push(`  ${source}: ${data.weightedWinRate}% (${data.total} picks, avg ${data.avgReturn > 0 ? '+' : ''}${data.avgReturn}%)`)
-    }
-    const losers = sourceEntries.filter(([, data]) => data.weightedWinRate <= 30)
-    if (losers.length > 0) {
-      lines.push(`  UNDERPERFORMING sources — discount their signals: ${losers.map(([s]) => s).join(', ')}`)
+  for (const [label, groups] of [['Setup', learning.bySetup], ['Source', learning.bySource]]) {
+    for (const [name, group] of Object.entries(groups || {})) {
+      if (group.total < 20 || group.distinctDates < 10) continue
+      lines.push(`${label} ${name}: ${group.total} picks / ${group.distinctDates} dates, mean net ${group.avgNetReturn.toFixed(2)}%, excess ${group.avgExcessReturn.toFixed(2)}%.`)
     }
   }
-
-  lines.push('')
-  lines.push('INSTRUCTIONS: Favor setups with high weighted win rates. If recent performance diverges from overall, trust the recent data. Avoid setups with <30% win rate unless catalyst confidence is very high. IMPORTANT: Prioritize fresh tickers you have NOT picked in the last 2–3 days. Repetition kills alpha — the market already priced in yesterday\'s thesis. Only re-pick a ticker if the catalyst is materially different or stronger today.')
-
+  lines.push('Do not optimize for win rate alone: average gains, losses, costs and benchmark performance all matter. Keep an eligible recent pick when its evidence remains stronger than alternatives.')
   return lines.join('\n')
 }

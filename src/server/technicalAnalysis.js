@@ -31,8 +31,9 @@ async function fetchDailyCandles(ticker, days = 120) {
     const h = quotes.high?.[i]
     const l = quotes.low?.[i]
     const v = quotes.volume?.[i]
-    if (c != null && h != null) {
-      candles.push({ c, h, l: l ?? c, v: v || 0 })
+    const completed = timestamps[i] * 1000 + 6.5 * 3600000 <= Date.now()
+    if (completed && [c, h, l].every((value) => Number.isFinite(value) && value > 0) && h >= l && h >= c && l <= c) {
+      candles.push({ c, h, l, v: Number.isFinite(v) && v >= 0 ? v : null })
     }
   }
 
@@ -71,6 +72,7 @@ function computeRSI(closes, period = 14) {
     avgLoss = (avgLoss * (period - 1) + loss) / period
   }
 
+  if (avgGain === 0 && avgLoss === 0) return 50
   if (avgLoss === 0) return 100
   const rs = avgGain / avgLoss
   return 100 - 100 / (1 + rs)
@@ -115,7 +117,7 @@ function computeMACD(closes) {
 }
 
 function deriveTrend(price, sma20, sma50, rsi) {
-  if (!sma20 || !rsi) return 'unknown'
+  if (!Number.isFinite(sma20) || !Number.isFinite(rsi)) return 'unknown'
 
   const aboveSMA20 = price > sma20
 
@@ -181,10 +183,10 @@ async function analyzeTicker(ticker) {
 
   // Volume trend: avg last 5 days vs avg last 20 days
   const volumes = candles.map((c) => c.v)
-  const avgVol5 = volumes.length >= 5
+  const avgVol5 = volumes.length >= 5 && volumes.slice(-5).every(Number.isFinite)
     ? volumes.slice(-5).reduce((s, v) => s + v, 0) / 5
     : null
-  const avgVol20 = volumes.length >= 20
+  const avgVol20 = volumes.length >= 20 && volumes.slice(-20).every(Number.isFinite)
     ? volumes.slice(-20).reduce((s, v) => s + v, 0) / 20
     : null
   const relativeVolume = avgVol5 && avgVol20 ? Number((avgVol5 / avgVol20).toFixed(2)) : null
@@ -213,9 +215,9 @@ async function analyzeTicker(ticker) {
     price: Number(price.toFixed(2)),
     sma20: sma20 ? Number(sma20.toFixed(2)) : null,
     sma50: sma50 ? Number(sma50.toFixed(2)) : null,
-    rsi: rsi ? Number(rsi.toFixed(1)) : null,
+    rsi: rsi != null ? Number(rsi.toFixed(1)) : null,
     macd,
-    pctFrom52wHigh: pctFrom52wHigh ? Number(pctFrom52wHigh.toFixed(1)) : null,
+    pctFrom52wHigh: pctFrom52wHigh != null ? Number(pctFrom52wHigh.toFixed(1)) : null,
     relativeVolume,
     trend,
   }

@@ -54,7 +54,7 @@ describe('computeWinRateStats', () => {
 })
 
 describe('formatStatsForPrompt', () => {
-  it('includes source track record when enough sources exist', () => {
+  it('does not promote legacy one-day or close-to-close outcomes as validated feedback', () => {
     const records = [
       makeRecord({ ticker: 'A', return_day3: 6, sources: ['@winner'] }),
       makeRecord({ ticker: 'B', return_day3: 8, sources: ['@winner'] }),
@@ -66,10 +66,8 @@ describe('formatStatsForPrompt', () => {
 
     const text = formatStatsForPrompt(computeWinRateStats(records, NOW))
 
-    expect(text).toContain('Signal source track record')
-    expect(text).toContain('@winner')
-    expect(text).toContain('UNDERPERFORMING sources')
-    expect(text).toContain('@loser')
+    expect(text).toContain('No comparable completed five-session results')
+    expect(text).not.toContain('trust the recent data')
   })
 })
 

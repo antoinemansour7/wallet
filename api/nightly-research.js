@@ -49,8 +49,8 @@ async function runPremarketCheck(res) {
 
   const rescored = payload.picks.map((pick) => {
     const quote = quoteMap.get(pick.ticker)
-    const live = Number(quote?.price)
-    const gapPct = Number.isFinite(live) && pick.price > 0
+    const live = quote?.price != null && quote?.price !== '' && quote?.cacheStatus !== 'stale' ? Number(quote.price) : NaN
+    const gapPct = Number.isFinite(live) && live > 0 && pick.price > 0
       ? Number((((live - pick.price) / pick.price) * 100).toFixed(2))
       : null
 
@@ -135,11 +135,6 @@ export default async function handler(req, res) {
     errors.push({ step: 'yahoo', error: err.message })
   }
 
-  // Abort if no content
-  if (signals.length === 0 && articles.length === 0) {
-    return res.status(503).json({ error: 'No content available from any source', errors })
-  }
-
   // Step 2.5: technical screener (pre-breakout/squeeze detection)
   try {
     const candidates = await fetchBreakoutCandidates()
@@ -174,6 +169,12 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error('[nightly-research] day-trade signals failed:', err.message)
     errors.push({ step: 'day-trade', error: err.message })
+  }
+
+  // Each discovery channel gets a chance even when X and RSS are unavailable.
+  if (signals.length === 0 && articles.length === 0) {
+    await recordRun('nightly-research', startedAt, { errors })
+    return res.status(503).json({ error: 'No content available from any source', errors })
   }
 
   // Market regime — rates the tape, never an individual pick. Recorded on
@@ -298,7 +299,7 @@ export default async function handler(req, res) {
         archetypeScore: item.archetypeScore,
       }))
     if (shadowPicks.length > 0) {
-      await redis.set(`research:shadow:${dateKey}`, { date: dateKey, picks: shadowPicks }, { ex: HISTORY_TTL })
+      await redis.set(`research:shadow:${dateKey}`, { date: dateKey, generatedAt: payload.generatedAt, picks: shadowPicks }, { ex: HISTORY_TTL })
       await redis.lpush('research:shadow-index', dateKey)
       await redis.ltrim('research:shadow-index', 0, HISTORY_MAX_ENTRIES - 1)
       console.log(`[nightly-research] shadow-tracking ${shadowPicks.length} board candidates`)
