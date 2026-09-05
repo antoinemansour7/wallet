@@ -10,6 +10,9 @@ import { getFirestore } from 'firebase-admin/firestore'
 import { getAuth } from 'firebase-admin/auth'
 import { withRunLog } from '../src/server/runLog.js'
 import { writeAccessToken, readAccessToken, deleteAccessToken } from '../src/server/plaidTokens.js'
+import { syncInvestmentTransactions } from '../src/server/plaidTransactions.js'
+import { getRatesForDates } from '../src/server/historicalFx.js'
+import { historicalFxCache } from '../src/server/historicalFxCache.js'
 
 /**
  * Plaid retired the `development` environment; the SDK now ships only
@@ -484,6 +487,84 @@ async function handleHoldings(req, res) {
   return res.status(200).json({ rows: allRows, cashEntries: allCashEntries, connectedAccounts, errors })
 }
 
+// ─── Sync transactions ──────────────────────────────────────────────────────
+
+/**
+ * Pulls investment transactions for one Plaid item and writes them into the
+ * ledger. Isolated the same way fetchHoldingsForItem is: this does one
+ * connection's work so it can run concurrently with every other connection's,
+ * and a failure here reports as an error entry rather than losing every
+ * other connection's import with it (#55).
+ */
+async function syncTransactionsForItem({ client, db, uid, doc, resolveFxRates }) {
+  const { enabledAccountIds } = doc.data()
+
+  const accessToken = await readAccessToken({ db, uid, itemId: doc.id, legacyData: doc.data() })
+  if (!accessToken) throw new Error(`No access token for Plaid item ${doc.id}`)
+
+  return syncInvestmentTransactions({
+    client,
+    accessToken,
+    db,
+    uid,
+    enabledAccountIds,
+    accountTypeFor: mapAccountType,
+    resolveFxRates,
+  })
+}
+
+async function handleSyncTransactions(req, res) {
+  const { userId, itemId } = req.body
+  if (!userId) return res.status(400).json({ error: 'userId is required' })
+
+  const db = getDb()
+  const plaidDocs = await db.collection('users').doc(userId).collection('plaid').get()
+
+  if (plaidDocs.empty) {
+    return res.status(200).json({ written: 0, fetched: 0, skipped: 0, errors: [] })
+  }
+
+  const docs = itemId ? plaidDocs.docs.filter((d) => d.id === itemId) : plaidDocs.docs
+  if (itemId && docs.length === 0) {
+    return res.status(404).json({ error: 'Plaid connection not found' })
+  }
+
+  const client = getPlaidClient()
+  // One resolver shared across every connection in this call. getRatesForDates
+  // already batches every date it is given into a single Bank of Canada
+  // request per connection; sharing the resolver additionally means a date
+  // that recurs across two connections' transactions (a dividend on the same
+  // day, in two accounts) is only asked for once per Redis round trip, not
+  // once per connection.
+  const resolveFxRates = (dates) => getRatesForDates(dates, { cache: historicalFxCache() })
+
+  const settled = await Promise.allSettled(
+    docs.map((doc) => syncTransactionsForItem({ client, db, uid: userId, doc, resolveFxRates })),
+  )
+
+  let written = 0
+  let fetched = 0
+  let skipped = 0
+  const errors = []
+
+  settled.forEach((result, i) => {
+    const doc = docs[i]
+    if (result.status === 'fulfilled') {
+      written += result.value.written
+      fetched += result.value.fetched
+      skipped += result.value.skipped
+      return
+    }
+
+    const err = result.reason
+    const message = err.response?.data?.error_message || err.message
+    console.error(`[plaid] transaction sync failed for item ${doc.id}:`, err.response?.data || err.message)
+    errors.push({ itemId: doc.id, institution: doc.data().institution || 'Connected', message })
+  })
+
+  return res.status(200).json({ written, fetched, skipped, errors })
+}
+
 // ─── Disconnect ───────────────────────────────────────────────────────────────
 
 /** Same shape sourceIdFor builds on the client, so the two agree. */
@@ -570,6 +651,7 @@ const ACTIONS = {
   'exchange-token': handleExchangeToken,
   'select-accounts': handleSelectAccounts,
   'holdings': handleHoldings,
+  'sync-transactions': handleSyncTransactions,
   'disconnect': handleDisconnect,
 }
 
