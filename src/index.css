@@ -26,6 +26,14 @@
     --color-card: 255 255 255;
     --color-accent: 33 107 80;
     --color-accent-2: 216 230 221;
+    /* Brand green as roles, not one hex, so it resolves per theme (deep in
+       light, pale on dark) and stays one family across login, accounts, and the
+       nav thread. Kept distinct from --color-gain so brand chrome never reads
+       as a P&L colour. */
+    --color-brand-accent: 44 74 53;
+    --color-brand-on: 248 251 243;
+    --color-brand-soft: 234 241 227;
+    --color-brand-ground: 32 60 45;
     --color-border: 223 230 225;
     --color-border-subtle: 233 238 234;
     --color-text-primary: 23 33 29;
@@ -44,7 +52,6 @@
     /* App chrome shares the paper ground; white stays reserved for content surfaces. */
     --glass-bg: rgba(245, 247, 244, 0.92);
     --glass-saturation: 1.1;
-    --login-bg: #101914;
     --text-gradient: linear-gradient(120deg, #fafafa 0%, #a1a1aa 100%);
     --glow-orb: radial-gradient(circle at 50% 50%, rgba(33,107,80,0.07), rgba(33,107,80,0.02) 60%, transparent 75%);
     --scroll-thumb: #aab7b0;
@@ -57,47 +64,50 @@
     --motion-duration-short: 150ms;
     --motion-duration-long: 300ms;
 
-    /* Categorical chart series — identity, not magnitude, so these are
-       distinct hues rather than a ramp. Stepped separately for each surface;
-       the dark column is the same six hues restepped, not a flip. Validated
-       for colour-vision separation and contrast against both surfaces. */
-    --series-1: #2a78d6;
-    --series-2: #eb6834;
-    --series-3: #1baf7a;
-    --series-4: #eda100;
-    --series-5: #e87ba4;
-    --series-6: #008300;
+    /* Account identity palette (the only consumer of --series-*): categorical,
+       so distinct hues, but muted and warm — earthy tones anchored by the brand
+       green — so it sits with the stone allocation bar and paper ground instead
+       of the old bright blue/orange. Stepped per surface, validated for
+       colour-vision separation. */
+    --series-1: #3f7d6b;
+    --series-2: #bd863f;
+    --series-3: #5b7c9e;
+    --series-4: #9a6a86;
+    --series-5: #a86a54;
+    --series-6: #85904f;
 
-    /* Allocation tape — a sequential ink ramp, because the thing it encodes is
-       magnitude (largest holding first), not identity. Green and red stay
-       reserved for gain and loss, so nothing on this page reads as a P&L
-       colour unless it is one. */
-    --tape-1: #17211d;
-    --tape-2: #2c3d35;
-    --tape-3: #42564c;
-    --tape-4: #5a6f64;
-    --tape-5: #75897d;
-    --tape-6: #93a89a;
-    --tape-7: #b3c6bb;
-    --tape-rest: #d3e0d8;
+    /* Allocation tape — a warm stone ramp, largest-first, so it still encodes
+       magnitude. Warm (taupe, not cold grey) so it sits with the paper ground
+       and reads as designed rather than a placeholder. No green or red, so the
+       bar never mimics a P&L colour. */
+    --tape-1: #33302b;
+    --tape-2: #4d4842;
+    --tape-3: #67615a;
+    --tape-4: #837c73;
+    --tape-5: #a09990;
+    --tape-6: #bdb6ac;
+    --tape-7: #d6cfc4;
+    --tape-rest: #e4ded4;
   }
 
   html.dark {
     color-scheme: dark;
-    --series-1: #3987e5;
-    --series-2: #d95926;
-    --series-3: #199e70;
-    --series-4: #c98500;
-    --series-5: #d55181;
-    --series-6: #008300;
-    --tape-1: #f5f5f6;
-    --tape-2: #dadce1;
-    --tape-3: #bec1c8;
-    --tape-4: #a2a6af;
-    --tape-5: #878b96;
-    --tape-6: #6d717d;
-    --tape-7: #565a66;
-    --tape-rest: #464a55;
+    --series-1: #56b096;
+    --series-2: #dca758;
+    --series-3: #7ba0d0;
+    --series-4: #c391b0;
+    --series-5: #d18f72;
+    --series-6: #aab86a;
+    /* Same warm stone ramp, flipped lighter-on-dark so the largest slice reads
+       first against the near-black card and nothing sinks into the void. */
+    --tape-1: #efe9df;
+    --tape-2: #d7d0c4;
+    --tape-3: #bcb5a8;
+    --tape-4: #a09a8d;
+    --tape-5: #857f74;
+    --tape-6: #6b665c;
+    --tape-7: #524e46;
+    --tape-rest: #3a372f;
     --color-ink: 255 255 255;
     --color-brand: 10 10 12;
     --color-brand-light: 250 250 250;
@@ -105,6 +115,14 @@
     --color-card: 20 20 23;
     --color-accent: 255 255 255;
     --color-accent-2: 212 212 216;
+    /* Dark mode is intentionally minimalist: brand green is a light-mode
+       identity, so on dark the brand roles resolve to neutral (white accent,
+       lifted near-black surfaces). Gain/loss keep their colour — that's data,
+       not chrome. */
+    --color-brand-accent: 255 255 255;
+    --color-brand-on: 20 20 23;
+    --color-brand-soft: 38 38 43;
+    --color-brand-ground: 22 23 26;
     --color-border: 38 38 43;
     --color-border-subtle: 28 28 33;
     --color-text-primary: 255 255 255;
@@ -122,7 +140,6 @@
     --body-text: #ffffff;
     --glass-bg: rgba(10, 10, 12, 0.72);
     --glass-saturation: 1.4;
-    --login-bg: #080b10;
     --glow-orb: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.06), rgba(255,255,255,0.02) 60%, transparent 75%);
     --scroll-thumb: #26262b;
     --scroll-thumb-hover: #696e79;
@@ -245,41 +262,6 @@
 .motion-select {
   transform-origin: left;
   animation: motion-select var(--motion-duration-short) var(--motion-ease) both;
-}
-
-.login-shell {
-  background:
-    radial-gradient(circle at 72% 18%, rgba(52, 211, 153, 0.08), transparent 32%),
-    var(--login-bg);
-  color: #f7faf8;
-}
-.login-grid {
-  background-image: linear-gradient(rgba(255,255,255,0.055) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.055) 1px, transparent 1px);
-  background-size: 72px 72px;
-  mask-image: linear-gradient(to bottom, black, transparent 78%);
-}
-.login-orbit {
-  border: 1px solid rgba(143, 215, 186, 0.2);
-  border-radius: 9999px;
-  transform: rotate(-22deg);
-}
-.login-orbit-one { width: 720px; height: 280px; left: -120px; top: 47%; }
-.login-orbit-two { width: 520px; height: 200px; left: -20px; top: 52%; opacity: .6; }
-
-html.dark .login-grid {
-  background-image: linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
-}
-html.dark .login-shell {
-  background: var(--login-bg);
-  color: #fff;
-}
-html.dark .login-orbit {
-  border-color: rgba(114,230,193,0.12);
-}
-
-@media (max-width: 1023px) {
-  .login-orbit-one { left: -260px; top: 44%; }
-  .login-orbit-two { left: -180px; top: 49%; }
 }
 
 @layer utilities {

@@ -28,5 +28,6 @@ export async function callPlaid(body) {
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30000),
   })
 }

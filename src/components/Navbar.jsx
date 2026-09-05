@@ -185,7 +185,7 @@ export default function Navbar() {
                 className={({ isActive }) =>
                   `relative rounded-lg px-3.5 py-2 text-[13.5px] font-medium transition-colors duration-motion-short focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30 ${
                     isActive
-                      ? 'bg-accent/[0.12] text-ink dark:bg-white/[0.08] dark:text-white'
+                      ? 'bg-brand-accent/[0.10] text-ink dark:bg-brand-accent/[0.16] dark:text-white'
                       : 'text-ink/50 hover:bg-ink/[0.04] hover:text-ink/90'
                   }`
                 }
@@ -193,7 +193,7 @@ export default function Navbar() {
                 {({ isActive }) => (
                   <>
                     {label}
-                    {isActive && <span aria-hidden="true" className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-accent dark:hidden" />}
+                    {isActive && <span aria-hidden="true" className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-brand-accent" />}
                   </>
                 )}
               </NavLink>

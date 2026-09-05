@@ -25,6 +25,11 @@ export default {
         card:            themeColor('--color-card'),
         accent:          themeColor('--color-accent'),
         'accent-2':      themeColor('--color-accent-2'),
+        // Brand green thread — one family, resolves per theme (see index.css).
+        'brand-accent':  themeColor('--color-brand-accent'),
+        'brand-on':      themeColor('--color-brand-on'),
+        'brand-soft':    themeColor('--color-brand-soft'),
+        'brand-ground':  themeColor('--color-brand-ground'),
 
         // Borders
         border:          themeColor('--color-border'),

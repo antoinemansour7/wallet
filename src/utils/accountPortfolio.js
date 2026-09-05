@@ -19,6 +19,7 @@ function clonePosition(row) {
 
 function normalizeStoredAccount(accountNumber, account = {}) {
   return {
+    ...(Array.isArray(account.sources) ? { sources: account.sources.filter((source) => source?.id).map((source) => ({ ...source })) } : {}),
     accountNumber,
     currency: normalizeCurrency(account.currency),
     positions: Array.isArray(account.positions) ? account.positions.map(clonePosition) : [],
@@ -113,6 +114,7 @@ export function buildAccountPortfolio({
     const hasExplicitCash = Object.prototype.hasOwnProperty.call(explicitCashByAccount, accountNumber)
 
     const resolved = {
+      ...(prevAccount.sources ? { sources: prevAccount.sources } : {}),
       accountNumber,
       currency: fromRows?.currency || prevAccount.currency,
       positions,

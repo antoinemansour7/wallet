@@ -1,112 +1,89 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePlaidLink } from 'react-plaid-link'
 import { IS_PREVIEW, PREVIEW_PLAID } from '../preview/mockMode'
 import { callPlaid } from '../utils/plaidClient'
+import AccountIcon from '../pages/portfolio/AccountIcons'
 
-export default function PlaidLinkButton({ userId, onAccounts, onConnecting, onError }) {
+export default function PlaidLinkButton(props) {
+  const [instance, setInstance] = useState(0)
+  return IS_PREVIEW ? <PreviewPlaidLinkButton {...props} /> : <LivePlaidLinkButton key={instance} {...props} onRetry={() => setInstance((value) => value + 1)} />
+}
+
+function PreviewPlaidLinkButton({ userId, onAccounts, onConnecting }) {
+  const [loading, setLoading] = useState(false)
+  const connect = async () => {
+    setLoading(true)
+    onConnecting?.()
+    await new Promise((resolve) => setTimeout(resolve, 650))
+    onAccounts?.({ itemId: PREVIEW_PLAID.itemId, accounts: PREVIEW_PLAID.accounts, enabledAccountIds: PREVIEW_PLAID.accounts.filter((account) => account.type === 'investment').map((account) => account.id), institutionName: PREVIEW_PLAID.institutionName })
+  }
+  return <button type="button" className="ac-button ac-primary ac-plaid-button" disabled={loading || !userId} onClick={connect}><AccountIcon name="lock" size={16} />{loading ? 'Connecting…' : 'Continue with Plaid'}<AccountIcon name="arrow" size={17} /></button>
+}
+
+function LivePlaidLinkButton({ userId, onAccounts, onConnecting, onError, onLinkOpenChange, onRetry }) {
   const [linkToken, setLinkToken] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [tokenError, setTokenError] = useState('')
+  const [attempt, setAttempt] = useState(0)
+  const mounted = useRef(false)
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
 
-  // Fetch link token on mount
   useEffect(() => {
-    if (IS_PREVIEW) return undefined
-    if (!userId) return
+    if (!userId) return undefined
     let cancelled = false
-
+    setLinkToken(null)
+    setTokenError('')
+    const timer = setTimeout(() => {
+      if (!cancelled) setTokenError('The connection is taking longer than expected. Please try again.')
+    }, 15000)
     callPlaid({ action: 'link-token', userId })
-      .then((r) => r.json())
-      .then((data) => {
-        if (!cancelled && data.link_token) setLinkToken(data.link_token)
+      .then(async (response) => {
+        const data = await response.json()
+        if (!response.ok || !data.link_token) throw new Error('Could not create a connection')
+        if (!cancelled) { setLinkToken(data.link_token); setTokenError('') }
       })
-      .catch((err) => console.error('[PlaidLink] failed to get link token:', err))
+      .catch(() => {
+        if (!cancelled) setTokenError('We couldn’t start Plaid. Try again, or import a statement instead.')
+      })
+      .finally(() => clearTimeout(timer))
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [userId, attempt])
 
-    return () => { cancelled = true }
-  }, [userId])
-
-  // Stops at the exchange. Holdings are only fetched once the user has said
-  // which accounts they actually want — an institution that forces a chequing
-  // account into the connection should not force it into the portfolio.
   const handleSuccess = useCallback(async (publicToken, metadata) => {
+    onLinkOpenChange?.(false)
     setLoading(true)
     onConnecting?.()
     try {
-      const exchangeRes = await callPlaid({
-        action: 'exchange-token',
-        publicToken,
-        userId,
-        institutionName: metadata.institution?.name || null,
-      })
-      const exchangeData = await exchangeRes.json()
-      if (!exchangeRes.ok) throw new Error(exchangeData.error || 'Exchange failed')
-
-      onAccounts?.({
-        itemId: exchangeData.itemId,
-        accounts: exchangeData.accounts || [],
-        enabledAccountIds: exchangeData.enabledAccountIds || [],
-        institutionName: metadata.institution?.name || null,
-      })
-    } catch (err) {
-      console.error('[PlaidLink] error:', err)
-      onError?.(err)
+      const response = await callPlaid({ action: 'exchange-token', publicToken, userId, institutionName: metadata.institution?.name || null })
+      const data = await response.json()
+      if (!response.ok || !data.itemId) throw new Error('We couldn’t finish connecting your brokerage. Please try again.')
+      onAccounts?.({ itemId: data.itemId, accounts: data.accounts || [], enabledAccountIds: data.enabledAccountIds || [], institutionName: metadata.institution?.name || 'Your brokerage' })
+    } catch (error) {
+      onError?.(error)
     } finally {
-      setLoading(false)
+      if (mounted.current) setLoading(false)
     }
-  }, [userId, onAccounts, onConnecting, onError])
+  }, [userId, onAccounts, onConnecting, onError, onLinkOpenChange])
 
-  const { open, ready } = usePlaidLink({
-    token: linkToken,
-    onSuccess: handleSuccess,
-  })
-
-  // Preview stands in for the whole Link round trip. Without it the connect
-  // path is the one flow you cannot look at without real bank credentials,
-  // which makes it the one flow that never gets designed.
-  const openPreview = useCallback(async () => {
-    setLoading(true)
-    onConnecting?.()
-    await new Promise((r) => setTimeout(r, 700))
+  const handleExit = useCallback((error) => {
+    onLinkOpenChange?.(false)
     setLoading(false)
-    onAccounts?.({
-      itemId: PREVIEW_PLAID.itemId,
-      accounts: PREVIEW_PLAID.accounts,
-      enabledAccountIds: PREVIEW_PLAID.accounts.filter((a) => a.type === 'investment').map((a) => a.id),
-      institutionName: PREVIEW_PLAID.institutionName,
-    })
-  }, [onAccounts, onConnecting])
+    // Tokens are single-use. A fresh attempt also recovers from expired Link sessions.
+    setAttempt((value) => value + 1)
+    if (error) onError?.(new Error('The connection wasn’t completed. Try again, or choose another brokerage.'))
+  }, [onError, onLinkOpenChange])
 
-  const disabled = IS_PREVIEW ? loading : (!ready || !linkToken || loading)
+  const { open, ready, error: sdkError } = usePlaidLink({ token: linkToken, onSuccess: handleSuccess, onExit: handleExit })
 
-  return (
-    <button
-      type="button"
-      onClick={() => (IS_PREVIEW ? openPreview() : open())}
-      disabled={disabled}
-      className={`flex w-full items-center gap-3.5 px-4 py-4 text-left transition-colors duration-motion-short focus-visible:outline-none focus-visible:bg-ink/[0.04] ${
-        disabled ? 'cursor-not-allowed opacity-45' : 'hover:bg-ink/[0.03]'
-      }`}
-    >
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] bg-ink/[0.06] text-ink/55">
-        {loading ? (
-          <span className="h-4 w-4 animate-spin rounded-full border-[1.5px] border-ink/50 border-t-transparent" />
-        ) : (
-          <svg className="h-[17px] w-[17px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-          </svg>
-        )}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-[15px] font-medium tracking-[-0.01em] text-ink">
-          {loading ? 'Connecting…' : 'Connect your brokerage'}
-        </span>
-        <span className="mt-0.5 block text-[13px] text-ink/45">
-          Wealthsimple, Questrade, and more
-        </span>
-      </span>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
-        strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-ink/25">
-        <path d="M9 18l6-6-6-6" />
-      </svg>
-    </button>
-  )
+  useEffect(() => {
+    if (!linkToken || ready || sdkError) return undefined
+    const timer = setTimeout(() => setTokenError('Plaid is taking longer than expected. Please try again.'), 15000)
+    return () => clearTimeout(timer)
+  }, [linkToken, ready, sdkError])
+
+  const connect = () => { onLinkOpenChange?.(true); open() }
+
+  if (tokenError || sdkError) return <div className="ac-plaid-retry"><p className="ac-inline-error" role="alert">{tokenError || 'Plaid couldn’t load. Check your connection and try again.'}</p><button type="button" className="ac-button ac-primary ac-plaid-button" onClick={onRetry}>Try again <AccountIcon name="arrow" size={17} /></button></div>
+  const preparing = !ready || !linkToken
+  return <button type="button" className="ac-button ac-primary ac-plaid-button" disabled={loading || preparing || !userId} onClick={connect}>{loading || preparing ? <span className="ac-spinner" aria-hidden="true" /> : <AccountIcon name="lock" size={16} />}{loading ? 'Connecting…' : preparing ? 'Preparing secure connection…' : 'Continue with Plaid'}{!loading && !preparing && <AccountIcon name="arrow" size={17} />}</button>
 }

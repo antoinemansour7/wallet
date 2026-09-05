@@ -110,6 +110,14 @@ describe('underlyingFromName', () => {
     expect(underlyingFromName('BETAPRO NASDAQ 100 2X DAILY BULL', 'HQU.TO')).toBeNull()
   })
 
+  // Abbreviated single-stock ETF names, where the multiplier is glued to
+  // letters (2XL, LEV2X) and "long" is spelled LNG.
+  it('reads abbreviated single-stock ETF names', () => {
+    expect(underlyingFromName('INV TRD 2XL IREN ETF SER', 'IREX')).toBe('IREN')
+    expect(underlyingFromName('THEMES LEV2X LNG NBIS ETF', 'NBIG')).toBe('NBIS')
+    expect(underlyingFromName('INV TRADR 2X LNG AAOI ETF', 'AAOX')).toBe('AAOI')
+  })
+
   it('ignores anything that is not a leveraged product', () => {
     expect(underlyingFromName('BROADCOM INC CDR C$HDG', 'AVGO')).toBeNull()
     expect(underlyingFromName('NVIDIA CORP', 'NVDA')).toBeNull()

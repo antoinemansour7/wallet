@@ -162,7 +162,7 @@ export function previewMerge({ accounts = {}, accountNumber, sourceId, rows = []
  * Apply the merge. Only the target account's slice for this source changes;
  * every other account and every other source is copied through as-is.
  */
-export function applyMerge({ accounts = {}, accountNumber, sourceId, rows = [], cash = null, currency = '' }) {
+export function applyMerge({ accounts = {}, accountNumber, sourceId, rows = [], cash = null, currency = '', sourceMetadata = null }) {
   const existing = normalizeStoredAccounts(accounts)
   const target = existing[accountNumber]
   const current = target?.positions ?? []
@@ -178,6 +178,10 @@ export function applyMerge({ accounts = {}, accountNumber, sourceId, rows = [], 
   const merged = {
     ...existing,
     [accountNumber]: {
+      ...(target?.sources || sourceMetadata ? { sources: [
+        ...(target?.sources || []).filter((source) => source.id !== sourceId),
+        ...(sourceMetadata ? [{ ...sourceMetadata, id: sourceId }] : (target?.sources || []).filter((source) => source.id === sourceId)),
+      ] } : {}),
       accountNumber,
       currency: currency || target?.currency || String(rows[0]?.['ACCOUNT CURRENCY'] ?? '').toUpperCase(),
       positions: [...otherSources, ...incoming],
@@ -227,12 +231,15 @@ export function knownAccountsIn(rows = []) {
  * Every other account and every other source is copied through untouched, the
  * same guarantee applyMerge gives.
  */
-export function applyMergeByAccount({ accounts = {}, sourceId, rows = [], cashByAccount = {} }) {
+export function applyMergeByAccount({ accounts = {}, sourceId, rows = [], cashByAccount = {}, sourceMetadataByAccount = {}, currencyByAccount = {} }) {
   const byAccount = new Map()
   for (const row of rows) {
     const number = String(row['ACCOUNT NUMBER'] ?? '').trim() || 'Unknown'
     if (!byAccount.has(number)) byAccount.set(number, [])
     byAccount.get(number).push(row)
+  }
+  for (const accountNumber of Object.keys(cashByAccount)) {
+    if (!byAccount.has(accountNumber)) byAccount.set(accountNumber, [])
   }
 
   let merged = normalizeStoredAccounts(accounts)
@@ -245,7 +252,8 @@ export function applyMergeByAccount({ accounts = {}, sourceId, rows = [], cashBy
       cash: Object.prototype.hasOwnProperty.call(cashByAccount, accountNumber)
         ? cashByAccount[accountNumber]
         : null,
-      currency: String(accountRows[0]?.['ACCOUNT CURRENCY'] ?? '').toUpperCase(),
+      currency: String(accountRows[0]?.['ACCOUNT CURRENCY'] || currencyByAccount[accountNumber] || '').toUpperCase(),
+      sourceMetadata: sourceMetadataByAccount[accountNumber] || null,
     })
   }
   return merged
@@ -266,14 +274,15 @@ export function removeSource({ accounts = {}, accountNumber, sourceId }) {
   if (!target) return existing
 
   const kept = (target.positions ?? []).filter((p) => positionSource(p) !== sourceId)
+  const keptSources = (target.sources || []).filter((source) => source.id !== sourceId)
   const next = { ...existing }
 
-  if (kept.length === 0) {
+  if (kept.length === 0 && keptSources.length === 0) {
     delete next[accountNumber]
     return next
   }
 
-  next[accountNumber] = { ...target, positions: kept }
+  next[accountNumber] = { ...target, positions: kept, ...(target.sources ? { sources: keptSources } : {}) }
   return next
 }
 
@@ -292,7 +301,7 @@ export function plaidItemIdFor(account, sourceId) {
   const match = (account?.positions ?? []).find(
     (position) => positionSource(position) === sourceId && position[PLAID_ITEM_KEY],
   )
-  return match?.[PLAID_ITEM_KEY] ?? null
+  return match?.[PLAID_ITEM_KEY] ?? account?.sources?.find((source) => source.id === sourceId)?.plaidItemId ?? null
 }
 
 /**
@@ -321,6 +330,7 @@ export function allSources(accounts = {}) {
 /** Feeds already loaded into an account, for showing what it is made of. */
 export function accountSources(account) {
   const counts = new Map()
+  for (const source of account?.sources || []) counts.set(source.id, 0)
   for (const position of account?.positions ?? []) {
     const id = positionSource(position)
     counts.set(id, (counts.get(id) ?? 0) + 1)

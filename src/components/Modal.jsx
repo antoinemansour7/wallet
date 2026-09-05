@@ -12,9 +12,11 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input, select, textarea, [ta
 // is backgrounded while the sheet closes).
 const MODAL_EXIT_MS = 300
 
-export default function Modal({ open, onClose, labelledBy, children, className = '' }) {
+export default function Modal({ open, onClose, labelledBy, children, className = '', dismissible = true, suspendFocus = false }) {
   const panelRef = useRef(null)
   const restoreTo = useRef(null)
+  const controls = useRef({ onClose, dismissible, suspendFocus })
+  controls.current = { onClose, dismissible, suspendFocus }
   const [present, setPresent] = useState(open)
 
   // Closing is still a state the dialog can render. Keeping it in the portal
@@ -44,13 +46,15 @@ export default function Modal({ open, onClose, labelledBy, children, className =
     panelRef.current?.focus?.()
 
     const onKeyDown = (event) => {
-      if (event.key === 'Escape') { onClose?.(); return }
+      if (controls.current.suspendFocus) return
+      if (event.key === 'Escape') { if (controls.current.dismissible) controls.current.onClose?.(); return }
       if (event.key !== 'Tab') return
 
       const items = [...(panelRef.current?.querySelectorAll(FOCUSABLE) ?? [])]
-      if (items.length === 0) return
+        .filter((item) => !item.matches(':disabled, [type="hidden"], [tabindex="-1"]'))
+      if (items.length === 0) { event.preventDefault(); return }
       const edge = event.shiftKey ? items[0] : items[items.length - 1]
-      if (document.activeElement === edge) {
+      if (document.activeElement === edge || (event.shiftKey && document.activeElement === panelRef.current)) {
         event.preventDefault()
         ;(event.shiftKey ? items[items.length - 1] : items[0]).focus()
       }
@@ -62,7 +66,7 @@ export default function Modal({ open, onClose, labelledBy, children, className =
       document.body.style.overflow = overflow
       restoreTo.current?.focus?.()
     }
-  }, [open, onClose, present])
+  }, [open, present])
 
   if (!present) return null
 
@@ -77,13 +81,13 @@ export default function Modal({ open, onClose, labelledBy, children, className =
       <div
         className="modal-backdrop absolute inset-0 bg-black/70 backdrop-blur-sm"
         data-state={state}
-        onClick={open ? onClose : undefined}
+        onClick={open && dismissible && !suspendFocus ? onClose : undefined}
         aria-hidden="true"
       />
       <div
         ref={panelRef}
         role="dialog"
-        aria-modal="true"
+        aria-modal={suspendFocus ? undefined : 'true'}
         aria-labelledby={labelledBy}
         tabIndex={-1}
         data-state={state}

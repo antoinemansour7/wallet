@@ -114,9 +114,9 @@ export function getPnlBuckets(rows) {
   return buckets
 }
 
-// Ranked by size, so the ramp is sequential rather than categorical — a
-// rainbow here would claim the slices are unrelated identities when what the
-// bar actually shows is one book cut from largest to smallest.
+// Ranked by size, so position reads largest-first, and the tokens step through
+// a warm stone ramp (dark to light) rather than a rainbow — it stays one book
+// cut from largest to smallest, not a set of unrelated identities.
 const TAPE_COLORS = [
   'var(--tape-1)', 'var(--tape-2)', 'var(--tape-3)', 'var(--tape-4)',
   'var(--tape-5)', 'var(--tape-6)', 'var(--tape-7)',

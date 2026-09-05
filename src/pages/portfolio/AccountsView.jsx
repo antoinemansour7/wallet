@@ -2,151 +2,71 @@ import { useRef, useState } from 'react'
 import CompanyLogo from '../../components/CompanyLogo'
 import { fmtCurrency } from '../../utils/portfolioStats'
 import { accountSources, sourceLabel } from '../../utils/accountMerge'
-import { Group, Option, IconStatement, IconBrokerage } from './listGroup'
+import { accountTitle, brokerageConnections, currencyTotals } from './accountPresentation'
+import AccountIcon from './AccountIcons'
+import './Accounts.css'
 
-// The page is the list of what you have; adding is a task that opens over it.
-// Previously this page *was* the add form, which meant the thing you look at
-// most often was a pair of upload boxes.
-
-function AddButton({ onClick }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[13px] font-medium text-ink/50 transition-colors duration-motion-short hover:bg-ink/[0.04] hover:text-ink/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
-    >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-        <path d="M12 5v14M5 12h14" />
-      </svg>
-      Add account
-    </button>
-  )
-}
-
-/**
- * An empty screen is an invitation to act, so this one is the chooser rather
- * than a sign pointing at one: the two routes in are the two routes in, not a
- * button that opens a sheet asking the same question again.
- *
- * It is also a drop target across its whole surface. Dropping a statement was
- * always supported and was buried two clicks deep inside the add sheet, which
- * is the one place you cannot drop a file onto until you have already decided
- * to import one.
- */
-function EmptyAccounts({ onAdd, onFile }) {
+export default function AccountsView({ accounts = [], onAdd, onOpenAccount, onFile, notice, onDismissNotice }) {
+  const [filter, setFilter] = useState('all')
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef(null)
-
-  const take = (file) => { if (file) onFile?.(file) }
-
-  return (
-    <div
-      onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
-      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false) }}
-      onDrop={(e) => { e.preventDefault(); setDragging(false); take(e.dataTransfer?.files?.[0]) }}
-      className={`mx-auto max-w-[440px] rounded-[24px] border px-6 pb-9 pt-12 transition-colors duration-motion-short sm:px-8 ${
-        dragging ? 'border-ink/25 bg-ink/[0.04]' : 'border-transparent'
-      }`}
-    >
-      <input
-        ref={inputRef}
-        type="file"
-        accept=".csv,.xlsx,.xls,.pdf"
-        className="hidden"
-        onChange={(e) => { take(e.target.files?.[0]); e.target.value = '' }}
-      />
-
-      <h2 className="font-display text-[27px] font-medium leading-[1.12] tracking-[-0.03em] text-ink">
-        Add your first account
-      </h2>
-      <p className="mt-2.5 max-w-[36ch] text-[14px] leading-relaxed text-ink/45">
-        Holdings, cash and returns are all built from what you import.
-      </p>
-
-      <Group className="mt-7">
-        <Option
-          icon={<IconStatement />}
-          title="Import a statement"
-          hint="CSV, XLSX or PDF"
-          onClick={() => inputRef.current?.click()}
-        />
-        <Option
-          icon={<IconBrokerage />}
-          title="Connect a brokerage"
-          hint="Sign in securely"
-          onClick={() => onAdd?.('connect')}
-        />
-      </Group>
-
-      <p className="mt-4 text-[12.5px] text-ink/35">
-        {dragging ? 'Drop it to start reading.' : 'Or drop a statement anywhere on this panel.'}
-      </p>
-    </div>
-  )
-}
-
-export default function AccountsView({ accounts = [], onAdd, onOpenAccount, onFile }) {
-  if (accounts.length === 0) {
-    return <EmptyAccounts onAdd={onAdd} onFile={onFile} />
-  }
+  const connections = brokerageConnections(accounts)
+  const connectedCount = accounts.filter((account) => accountSources(account).some((feed) => feed.id.startsWith('plaid:'))).length
+  const visibleAccounts = accounts.filter((account) => filter === 'all' || accountSources(account).some((feed) => feed.id.startsWith('plaid:')))
+  const totals = currencyTotals(accounts)
 
   return (
-    <div className="mx-auto max-w-2xl">
-      <div className="mb-5 flex items-center justify-between">
-        <h2 className="text-[15px] font-semibold text-ink">Accounts</h2>
-        <AddButton onClick={() => onAdd?.()} />
+    <section className="accounts-ui accounts-page" aria-labelledby="accounts-title">
+      <header className="accounts-heading">
+        <div><p className="accounts-eyebrow">YOUR PORTFOLIO</p><h1 id="accounts-title">Your accounts</h1><p>Everything you own. All in one place.</p></div>
+        <button className="ac-button ac-primary" onClick={() => onAdd?.()}><AccountIcon name="plus" size={17} /> Add account</button>
+      </header>
+      {notice && <div className="ac-notice" role="status"><AccountIcon name="check" size={18} /><span>{notice}</span><button className="ac-icon-button" aria-label="Dismiss notification" onClick={onDismissNotice}><AccountIcon name="close" size={16} /></button></div>}
+
+      {accounts.length > 0 && (
+        <div className="accounts-summary">
+          <div className="accounts-summary-main"><span>Total account value</span><div className="accounts-total-values">{totals.map(({ currency, value }) => <p key={currency}>{fmtCurrency(value)} <span>{currency || 'Currency not specified'}</span></p>)}</div><span>Investments and cash across {accounts.length} account{accounts.length === 1 ? '' : 's'}</span></div>
+          <div className="accounts-summary-stat"><AccountIcon name="wallet" /><strong>{accounts.length}</strong><span>Accounts</span></div>
+          <div className="accounts-summary-stat"><AccountIcon name="link" /><strong>{connections.length}</strong><span>Brokerage connection{connections.length === 1 ? '' : 's'}</span></div>
+          <div className="accounts-summary-art" aria-hidden="true"><i /><i /><i /><i /></div>
+        </div>
+      )}
+
+      <div className="accounts-layout">
+        <div>
+          {accounts.length > 0 ? <>
+            <div className="accounts-toolbar"><div className="accounts-filters" role="group" aria-label="Filter accounts"><button aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>All accounts <span>{accounts.length}</span></button><button aria-pressed={filter === 'linked'} onClick={() => setFilter('linked')}>Via Plaid <span>{connectedCount}</span></button></div><span className="accounts-toolbar-hint">Select an account to manage</span></div>
+            <div className="accounts-grid">
+              {visibleAccounts.map((account) => {
+                const feeds = accountSources(account)
+                const linked = feeds.some((feed) => feed.id.startsWith('plaid:'))
+                const positions = account.positions || []
+                const top = [...positions].sort((a, b) => Number(b['MARKET VALUE'] || 0) - Number(a['MARKET VALUE'] || 0)).slice(0, 4)
+                return <button className="account-card" key={account.accountNumber} onClick={() => onOpenAccount?.(account)} aria-label={`Manage account ${account.accountNumber}`}>
+                  <div className="account-card-top"><span className={`ac-tile ${linked ? 'ac-tile-green' : ''}`}><AccountIcon name={linked ? 'bank' : positions.length ? 'file' : 'wallet'} /></span><span className={`ac-badge ${linked ? 'ac-badge-connected' : ''}`}>{linked ? <><span /> Via Plaid</> : positions.length ? 'Statement' : 'Cash'}</span><AccountIcon name="chevron" size={15} /></div>
+                  <h2>{accountTitle(account)}</h2><p className="account-identifier">Account {account.accountNumber}</p>
+                  <div className="account-card-balances">{currencyTotals([account]).map(({ currency, value }) => <p key={currency} className="account-card-value">{fmtCurrency(value)} <span>{currency}</span></p>)}</div>
+                  <p className="account-card-sources">{feeds.map((feed) => sourceLabel(feed.id)).join(' · ') || 'Cash balance'}</p>
+                  <div className="account-card-footer"><div className="account-logos">{top.map((position, index) => <CompanyLogo key={`${position.SYMBOL}-${index}`} symbol={position.SYMBOL} description={position.DESCRIPTION} size={23} />)}</div><span>{positions.length} holding{positions.length === 1 ? '' : 's'}</span><span className="account-cash-label">{fmtCurrency(account.cash || 0)} cash</span></div>
+                </button>
+              })}
+              <button className="account-add-card" onClick={() => onAdd?.()}><span className="ac-tile"><AccountIcon name="plus" /></span><strong>{filter === 'linked' && !visibleAccounts.length ? 'Connect your first brokerage' : 'Bring another account in'}</strong><span>Connect a brokerage or upload a statement</span><span className="ac-text-link">Add account <AccountIcon name="arrow" size={16} /></span></button>
+            </div>
+          </> : <div className="accounts-empty"><div className="accounts-empty-art" aria-hidden="true"><span className="ac-tile"><AccountIcon name="bank" size={30} /></span><span className="ac-tile"><AccountIcon name="wallet" size={30} /></span></div><p className="accounts-eyebrow">LET’S GET STARTED</p><h2>A home for your investments.</h2><p>Bring your accounts together to see your holdings, cash, and performance.</p><button className="ac-button ac-primary" onClick={() => onAdd?.('connect')}><AccountIcon name="link" size={18} /> Connect a brokerage</button><button className="ac-button ac-secondary" onClick={() => inputRef.current?.click()}><AccountIcon name="upload" size={18} /> Import a statement</button><span className="ac-security"><AccountIcon name="lock" size={14} /> Your money stays with your brokerage.</span></div>}
+        </div>
+
+        <aside className="accounts-sidebar">
+          <section className="ac-side-card"><div className="ac-side-heading"><h2>Brokerage connections</h2><AccountIcon name="link" size={17} /></div>
+            {connections.length ? <div className="ac-connections">{connections.map((connection) => <button key={connection.key} onClick={() => onOpenAccount?.(connection.accounts[0])}><span className="ac-bank-initial">{connection.label[0]}</span><span><strong>{connection.label}</strong><small>{connection.accounts.length} account{connection.accounts.length === 1 ? '' : 's'} via Plaid</small></span><AccountIcon name="chevron" size={14} /></button>)}</div> : <p>Connect your brokerage to bring in the accounts you choose.</p>}
+            <button className="ac-text-link" onClick={() => onAdd?.('connect')}><AccountIcon name="plus" size={15} /> Connect a brokerage</button>
+          </section>
+          <section className={`ac-side-card ac-import-card ${dragging ? 'is-dragging' : ''}`} onDragOver={(event) => { event.preventDefault(); setDragging(true) }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setDragging(false) }} onDrop={(event) => { event.preventDefault(); setDragging(false); if (event.dataTransfer.files[0]) onFile?.(event.dataTransfer.files[0]) }}>
+            <span className="ac-tile"><AccountIcon name="file" /></span><h2>Prefer a statement?</h2><p>Upload a file from your brokerage. We’ll show you what’s in it before you add it.</p><button className="ac-button ac-secondary" onClick={() => inputRef.current?.click()}><AccountIcon name="upload" size={16} /> Import a statement</button><small>{dragging ? 'Drop your statement here' : 'CSV, XLSX, or PDF · Drag and drop here'}</small>
+          </section>
+          <p className="ac-sidebar-note"><AccountIcon name="shield" size={19} /><span>You’re in control.<br />Choose what to add. Remove it whenever you need.</span></p>
+        </aside>
       </div>
-
-      <div className="space-y-2.5">
-        {accounts.map((account) => {
-          const feeds = accountSources(account)
-          const top = [...account.positions]
-            .sort((a, b) => Number(b['MARKET VALUE'] ?? 0) - Number(a['MARKET VALUE'] ?? 0))
-            .slice(0, 5)
-
-          return (
-            <button
-              key={account.accountNumber}
-              type="button"
-              onClick={() => onOpenAccount?.(account)}
-              className="block w-full rounded-2xl border border-ink/[0.07] bg-wall-surface px-5 py-4 text-left transition-colors duration-motion-short hover:border-ink/[0.14] hover:bg-ink/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/25"
-            >
-              <div className="flex items-baseline justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="truncate text-[14.5px] font-semibold text-ink">{account.accountNumber}</p>
-                  <p className="mt-0.5 truncate text-[12px] text-ink/35">
-                    {feeds.map((f) => sourceLabel(f.id)).join(' · ') || 'no statements yet'}
-                  </p>
-                </div>
-                <span className="flex shrink-0 items-center gap-2">
-                  <span className="text-[15px] font-semibold tabular text-ink">
-                    {fmtCurrency(account.stats?.totalMarketValue ?? 0)}
-                  </span>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
-                    strokeLinecap="round" strokeLinejoin="round" className="text-ink/25">
-                    <path d="M9 18l6-6-6-6" />
-                  </svg>
-                </span>
-              </div>
-
-              {/* A glance at what is inside, so the row is worth looking at. */}
-              <div className="mt-3.5 flex items-center gap-2">
-                <div className="flex -space-x-2">
-                  {top.map((p) => (
-                    <span key={p.SYMBOL} className="ring-2 ring-wall-surface rounded-full">
-                      <CompanyLogo symbol={p.SYMBOL} description={p.DESCRIPTION} size={22} />
-                    </span>
-                  ))}
-                </div>
-                <span className="text-[12px] text-ink/35">
-                  {account.positions.length} holding{account.positions.length === 1 ? '' : 's'}
-                  {account.cash !== 0 && ` · ${fmtCurrency(account.cash)} cash`}
-                </span>
-              </div>
-            </button>
-          )
-        })}
-      </div>
-    </div>
+      <input ref={inputRef} type="file" accept=".csv,.xlsx,.xls,.pdf" className="sr-only" tabIndex={-1} aria-label="Import account statement" onChange={(event) => { if (event.target.files?.[0]) onFile?.(event.target.files[0]); event.target.value = '' }} />
+    </section>
   )
 }
