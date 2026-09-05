@@ -9,6 +9,7 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
 import { getAuth } from 'firebase-admin/auth'
 import { withRunLog } from '../src/server/runLog.js'
+import { writeAccessToken, readAccessToken, deleteAccessToken } from '../src/server/plaidTokens.js'
 
 /**
  * Plaid retired the `development` environment; the SDK now ships only
@@ -144,8 +145,15 @@ async function handleExchangeToken(req, res) {
   const defaultEnabled = (investmentAccounts.length ? investmentAccounts : accounts).map((a) => a.id)
 
   const db = getDb()
+
+  // The credential goes to a top-level collection, not into the user's own
+  // subtree beside the connection metadata. A Firestore rule as ordinary as
+  // `match /users/{uid}/{document=**}` would otherwise hand a signed-in
+  // browser its own live Plaid token — which is exactly what this project was
+  // running until the rules were rewritten.
+  await writeAccessToken({ db, uid: userId, itemId, accessToken })
+
   await db.collection('users').doc(userId).collection('plaid').doc(itemId).set({
-    accessToken,
     itemId,
     accounts,
     enabledAccountIds: defaultEnabled,
@@ -289,7 +297,20 @@ function convert(amount, from, to, usdCadRate) {
  * every other connection's.
  */
 async function fetchHoldingsForItem(client, doc, usdCadRate) {
-  const { accessToken, accounts: storedAccounts, institution, enabledAccountIds } = doc.data()
+  const { accounts: storedAccounts, institution, enabledAccountIds, ...legacyData } = doc.data()
+
+  // The token now lives outside the user's subtree. Connections made before
+  // that split still carry it here, so the read falls back and migrates them
+  // in passing — no batch migration, and either location answers while it is
+  // half done.
+  const uid = doc.ref.parent.parent?.id
+  const accessToken = await readAccessToken({
+    db: doc.ref.firestore,
+    uid,
+    itemId: doc.id,
+    legacyData,
+  })
+  if (!accessToken) throw new Error(`No access token for Plaid item ${doc.id}`)
   // Absent means an older connection made before the picker existed; treat
   // that as "everything", which is what it was already doing.
   const isEnabled = (accountId) => !enabledAccountIds || enabledAccountIds.includes(accountId)
@@ -485,6 +506,10 @@ async function handleDisconnect(req, res) {
 
   let docRef = itemId ? collection.doc(itemId) : null
   let docSnap = docRef ? await docRef.get() : null
+  // The token collection is keyed by item id, so the id has to be tracked
+  // through the institution fallback below rather than read back off the
+  // snapshot afterwards.
+  let resolvedItemId = itemId || null
 
   // Connections imported before rows carried Plaid's item id have only the
   // institution name to go on, and the client used to send that slug *as* the
@@ -498,6 +523,7 @@ async function handleDisconnect(req, res) {
     if (match) {
       docRef = match.ref
       docSnap = match
+      resolvedItemId = match.id
     }
   }
 
@@ -505,7 +531,17 @@ async function handleDisconnect(req, res) {
     return res.status(404).json({ error: 'Plaid connection not found' })
   }
 
-  const { accessToken } = docSnap.data()
+  // Migration is off here: this token is about to be revoked and deleted, so
+  // copying it to the safe collection first would only create something to
+  // clean up.
+  const accessToken = await readAccessToken({
+    db,
+    uid: userId,
+    itemId: resolvedItemId,
+    legacyData: docSnap.data(),
+    migrate: false,
+  })
+
   if (accessToken) {
     try {
       const client = getPlaidClient()
@@ -519,6 +555,10 @@ async function handleDisconnect(req, res) {
     }
   }
 
+  // Deleted after the revoke attempt, and unconditionally: a token whose item
+  // is gone is dead weight, and one left behind outlives the connection it
+  // belonged to.
+  await deleteAccessToken({ db, itemId: resolvedItemId })
   await docRef.delete()
   return res.status(200).json({ success: true })
 }

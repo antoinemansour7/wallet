@@ -1,10 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-const mocks = vi.hoisted(() => ({ remove: vi.fn(), deleteDoc: vi.fn(), get: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  remove: vi.fn(), deleteDoc: vi.fn(), get: vi.fn(), setDoc: vi.fn(),
+  // Access tokens moved to a top-level collection, out of users/{uid}/…, so
+  // that a permissive rule on the user's own subtree cannot reach a live Plaid
+  // credential. The double has to model both locations, and keep their deletes
+  // apart: the assertions below count the connection being removed, not the
+  // token that goes with it.
+  tokenGet: vi.fn(), tokenDelete: vi.fn(), tokenSet: vi.fn(),
+}))
 vi.mock('../server/runLog.js', () => ({ withRunLog: (_name, handler) => handler }))
 vi.mock('../server/marketQuotes.js', () => ({ fetchMarketQuotes: vi.fn() }))
 vi.mock('firebase-admin/app', () => ({ getApps: () => [{}], initializeApp: vi.fn(), cert: vi.fn() }))
 vi.mock('firebase-admin/auth', () => ({ getAuth: () => ({ verifyIdToken: async () => ({ uid: 'test-user' }) }) }))
-vi.mock('firebase-admin/firestore', () => ({ getFirestore: () => ({ collection: () => ({ doc: () => ({ collection: () => ({ doc: () => ({ get: mocks.get, delete: mocks.deleteDoc }) }) }) }) }) }))
+vi.mock('firebase-admin/firestore', () => ({
+  getFirestore: () => ({
+    collection: (name) => ({
+      doc: () => (name === 'plaidTokens'
+        ? { get: mocks.tokenGet, delete: mocks.tokenDelete, set: mocks.tokenSet }
+        : { collection: () => ({ doc: () => ({ get: mocks.get, delete: mocks.deleteDoc, set: mocks.setDoc }) }) }),
+    }),
+  }),
+}))
 vi.mock('plaid', () => ({ Configuration: class {}, PlaidApi: class { itemRemove = mocks.remove }, PlaidEnvironments: { sandbox: 'https://sandbox.plaid.com' }, Products: {}, CountryCode: {} }))
 import handler from '../../api/plaid.js'
 const response = () => ({ code: null, body: null, status(code) { this.code = code; return this }, json(body) { this.body = body; return this } })
@@ -17,6 +33,10 @@ describe('Plaid disconnection', () => {
     vi.stubEnv('PLAID_CLIENT_ID', 'test-client')
     vi.stubEnv('PLAID_SECRET', 'test-secret')
     mocks.get.mockResolvedValue({ exists: true, data: () => ({ accessToken: 'sandbox-test-token' }) })
+    // Absent from the new collection, so these exercise a connection made
+    // before the split and read through the legacy fallback.
+    mocks.tokenGet.mockResolvedValue({ exists: false, data: () => undefined })
+    mocks.tokenDelete.mockResolvedValue()
     mocks.remove.mockResolvedValue({})
     mocks.deleteDoc.mockResolvedValue()
   })
