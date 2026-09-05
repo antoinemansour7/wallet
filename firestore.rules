@@ -78,6 +78,15 @@ service cloud.firestore {
         allow read, write: if isOwner(uid);
       }
 
+      // Crash reports from ErrorBoundary.jsx. Created by the browser, which is
+      // the only thing that knows a render failed. Create-only: a client that
+      // can rewrite its own error log can quietly erase the evidence of a bug
+      // that is still happening.
+      match /errors/{errorId} {
+        allow read, create: if isOwner(uid);
+        allow update, delete: if false;
+      }
+
       // The user document itself carries no fields today. Left readable by
       // its owner so a future profile does not need a rules change, and
       // writable so nothing breaks if the app starts recording preferences.
