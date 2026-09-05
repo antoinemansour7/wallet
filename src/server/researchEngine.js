@@ -184,7 +184,7 @@ export function prepareResearchSignals(signals) {
       seen.add(key)
       return true
     })
-    return tickers.length ? [{ ...signal, tickers, independentSource: publisher }] : []
+    return tickers.length ? [{ ...signal, tickers, independentSource: publisher, documentKey: document }] : []
   })
 }
 
@@ -228,6 +228,7 @@ function buildSignalBoard(signals, articles) {
           publisherCounts: new Map(),
           themes: new Set(),
           snippets: [],
+          documentKeys: new Set(),
           squeezeSignals: 0,
           volumeSignals: 0,
           breakoutSignals: 0,
@@ -253,6 +254,7 @@ function buildSignalBoard(signals, articles) {
       item.publisherCounts.set(publisher, count + 1)
       if (publisher !== 'unknown' && signal.sourceRole !== 'context') item.independentSources.add(publisher)
       item.signalCount += 1
+      if (signal.documentKey) item.documentKeys.add(signal.documentKey)
       item.maxScore = Math.max(item.maxScore, Number(signal.score || 0))
       ;(signal.sourceLabels || []).forEach((source) => item.sources.add(source))
       ;(signal.themes || []).forEach((theme) => item.themes.add(theme))
@@ -302,6 +304,7 @@ function buildSignalBoard(signals, articles) {
           publisherCounts: new Map(),
           themes: new Set(),
           snippets: [],
+          documentKeys: new Set(),
           squeezeSignals: 0,
           volumeSignals: 0,
           breakoutSignals: 0,
@@ -318,6 +321,7 @@ function buildSignalBoard(signals, articles) {
 
       const item = board.get(ticker)
       item.articleCount += 1
+      item.documentKeys.add(article.link || `title:${article.title}`)
       if (article.title && item.snippets.length < 4) item.snippets.push(article.title)
       if (CATALYST_REGEX.test(`${article.title} ${article.description}`)) item.catalystSignals += 0.5
       if (FAILURE_REGEX.test(`${article.title} ${article.description}`)) item.negativeSignals += 0.5
@@ -332,6 +336,7 @@ function buildSignalBoard(signals, articles) {
       independentSources: [...item.independentSources],
       publisherCounts: undefined,
       themes: [...item.themes],
+      documentKeys: [...item.documentKeys],
     }))
     .sort((a, b) => baseBoardSortScore(b) - baseBoardSortScore(a))
 }
@@ -393,7 +398,10 @@ function normalizeBoardItem(item) {
     // reading the clamped value made that ratio uncomputable above 4 mentions —
     // a jump from 3 to 9 measured as 3→4 and reported as "steady". Kept
     // unclamped and used only by the acceleration comparison, never as a score.
-    coverageCount: raw(item.signalCount) + raw(item.articleCount),
+    // Set upstream to the count of documents first seen today. The fallback
+    // matters for callers that rank a board without the coverage store — the
+    // ratio is then computed on trailing totals, which is why the store exists.
+    coverageCount: Number.isFinite(item.coverageCount) ? Math.max(0, item.coverageCount) : raw(item.signalCount) + raw(item.articleCount),
     signalCount: num(item.signalCount),
     articleCount: num(item.articleCount),
     maxScore: Number.isFinite(item.maxScore) ? Math.max(0, Math.min(item.maxScore, 10)) : 0,
@@ -547,10 +555,20 @@ async function getRankedSignalBoard(signals, articles, { discoveryHealthy = true
   // talking about each name, not which names survived scoring.
   let coverageHistory = new Map()
   try {
-    const { loadCoverageHistory, recordCoverageSnapshot } = await import('./researchCoverageStore.js')
-    coverageHistory = await loadCoverageHistory()
+    const store = await import('./researchCoverageStore.js')
+    const [history, seenDocuments] = await Promise.all([store.loadCoverageHistory(), store.loadSeenDocuments()])
+    coverageHistory = history
     if (coverageHistory.size > 0) console.log(`[researchEngine] coverage history for ${coverageHistory.size} tickers`)
-    await recordCoverageSnapshot(baseBoard, { healthy: discoveryHealthy })
+
+    // Each run looks back further than the gap to the previous run — 30h of X
+    // posts and 48h of articles against a 24h cron — so consecutive runs re-see
+    // many of the same documents. Today's number counts only what is new, or
+    // the comparison would difference two overlapping trailing windows and call
+    // the result a daily change.
+    const { counts } = store.coverageSnapshotFrom(baseBoard, { seenDocuments })
+    for (const item of baseBoard) item.coverageCount = counts[item.ticker] ?? 0
+
+    await store.recordCoverageSnapshot(baseBoard, { healthy: discoveryHealthy, seenDocuments })
   } catch (err) {
     // A missing history leaves every ticker "new", which scores nothing. The
     // run must not fail because yesterday's coverage is unavailable.

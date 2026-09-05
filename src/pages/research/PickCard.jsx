@@ -149,11 +149,14 @@ export default function PickCard({ pick, rank, defaultOpen = false, live, genera
   const coverageNote = (() => {
     if (!Number.isFinite(coverageToday) || !Number.isFinite(coveragePriorAverage)) return null
     const before = Math.round(coveragePriorAverage)
+    // "New" is load-bearing: a post already counted on an earlier day is not
+    // counted again, so these are genuinely per-day figures rather than two
+    // overlapping trailing windows being differenced.
     if (coverageAcceleration === 'accelerating') {
-      return `Mentions jumped to ${coverageToday} today, against about ${before} a day recently.`
+      return `New mentions jumped to ${coverageToday} today, against about ${before} a day recently.`
     }
     if (coverageAcceleration === 'decelerating') {
-      return `Mentions fell to ${coverageToday} today, against about ${before} a day recently.`
+      return `New mentions fell to ${coverageToday} today, against about ${before} a day recently.`
     }
     return null
   })()
