@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
     { "path": "/api/refresh-prices",    "schedule": "0 14 * * *" },
-    { "path": "/api/nightly-research",  "schedule": "0 3 * * 0-5"  },
+    { "path": "/api/nightly-research",  "schedule": "0 13 * * 1-5"  },
     { "path": "/api/nightly-research?mode=premarket", "schedule": "15 12 * * 1-5" },
     { "path": "/api/track-performance", "schedule": "30 14 * * *" }
   ],
