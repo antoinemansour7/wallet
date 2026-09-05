@@ -1,0 +1,103 @@
+rules_version = '2';
+
+// WallAI Firestore rules.
+//
+// These live here rather than only in the Firebase console so the access model
+// is reviewable, diffable, and deployed on purpose. Before this file existed
+// the only record of who could read what was whatever someone last saved in a
+// browser tab.
+//
+// Two principles run through everything below.
+//
+// **A user reaches their own data and nothing else.** Every rule is anchored to
+// `request.auth.uid == uid`, so there is no path that depends on a query
+// filter being written correctly at the call site.
+//
+// **The client reads what the server writes; it does not write it.** Plaid data
+// and imported transactions are written by `api/plaid.js` through the Admin
+// SDK, which bypasses these rules entirely. Denying those writes here costs
+// nothing and removes a whole category of tampering: a browser cannot invent a
+// dividend, backdate a trade, or rewrite a cost base.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    match /users/{uid} {
+
+      // ── Plaid connections ─────────────────────────────────────────────
+      //
+      // Written by the server, and never readable by the client under any
+      // circumstance. These documents hold `accessToken` — a live Plaid
+      // credential for that item. A rule permitting a user to read their own
+      // data would hand them their own access token, which is not information
+      // the browser has any use for and is a credential that outlives the
+      // session it leaks into.
+      //
+      // Nothing in src/ reads this path. If something ever needs to, it wants
+      // a server endpoint returning the safe fields, not this rule relaxed.
+      match /plaid/{itemId} {
+        allow read, write: if false;
+      }
+
+      // ── Transaction ledger ────────────────────────────────────────────
+      //
+      // Imported server-side from Plaid. The client reads to display and
+      // never writes: a ledger the browser can edit is a cost base the
+      // browser can edit, and these figures are the ones that end up on a tax
+      // return.
+      match /transactions/{transactionId} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
+
+      // Per-account metadata, including `historyStartsAt` — the date before
+      // which no transactions exist, which is what makes a cost base resolve
+      // to "incomplete" instead of to a wrong number. Client-writable would
+      // mean a browser could move that line and turn an incomplete figure
+      // into a confident one.
+      match /accounts/{accountId} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
+
+      // ── Portfolio, written from the browser ───────────────────────────
+      //
+      // The existing model: holdings and daily snapshots are produced client
+      // side, so they are client-writable. Recorded here as they already
+      // behave rather than tightened in passing — changing how the app writes
+      // its portfolio is a separate change from writing the rules down.
+      match /portfolio/{document} {
+        allow read, write: if isOwner(uid);
+      }
+
+      match /portfolio-history/{date} {
+        allow read, write: if isOwner(uid);
+      }
+
+      // Crash reports from ErrorBoundary.jsx. Created by the browser, which is
+      // the only thing that knows a render failed. Create-only: a client that
+      // can rewrite its own error log can quietly erase the evidence of a bug
+      // that is still happening.
+      match /errors/{errorId} {
+        allow read, create: if isOwner(uid);
+        allow update, delete: if false;
+      }
+
+      // The user document itself carries no fields today. Left readable by
+      // its owner so a future profile does not need a rules change, and
+      // writable so nothing breaks if the app starts recording preferences.
+      allow read, write: if isOwner(uid);
+    }
+
+    // Anything not named above is denied. New collections are opened
+    // deliberately, in this file, rather than inheriting access from a
+    // wildcard nobody remembers writing.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
