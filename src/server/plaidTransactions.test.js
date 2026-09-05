@@ -7,6 +7,7 @@ import {
   buildLedgerRecords,
   historyStartsAtFor,
   writeLedgerRecords,
+  resolveFxForTransactions,
   syncInvestmentTransactions,
 } from './plaidTransactions'
 
@@ -236,6 +237,31 @@ describe('writeLedgerRecords', () => {
   })
 })
 
+describe('resolveFxForTransactions', () => {
+  it('resolves every trade date in one batched call, not one per transaction', async () => {
+    const resolveFxRates = vi.fn(async (dates) => new Map(dates.map((d) => [d, { rate: 1.35, source: 'boc', asOf: d }])))
+    const transactions = [txn({ date: '2026-03-12' }), txn({ date: '2026-03-13' }), txn({ date: '2026-03-12' })]
+
+    const fxFor = await resolveFxForTransactions(transactions, resolveFxRates)
+
+    expect(resolveFxRates).toHaveBeenCalledOnce()
+    expect(resolveFxRates).toHaveBeenCalledWith(['2026-03-12', '2026-03-13'])
+    expect(fxFor({ date: '2026-03-12' })).toEqual({ rate: 1.35, source: 'boc', asOf: '2026-03-12' })
+  })
+
+  it('passes through a null for a date the resolver could not cover', async () => {
+    const resolveFxRates = async () => new Map([['2026-03-12', null]])
+    const fxFor = await resolveFxForTransactions([txn({ date: '2026-03-12' })], resolveFxRates)
+    expect(fxFor({ date: '2026-03-12' })).toBeNull()
+  })
+
+  it('does not call the resolver at all for an empty batch', async () => {
+    const resolveFxRates = vi.fn(async () => new Map())
+    await resolveFxForTransactions([], resolveFxRates)
+    expect(resolveFxRates).not.toHaveBeenCalled()
+  })
+})
+
 describe('syncInvestmentTransactions', () => {
   it('fetches, transforms and writes, reporting what it did', async () => {
     const { client } = fakeClient([
@@ -260,5 +286,39 @@ describe('syncInvestmentTransactions', () => {
     expect(result).toMatchObject({ written: 1, fetched: 2, skipped: 1, startDate: '2024-09-05', endDate: '2026-09-05' })
     expect(committed).toContain('transactions/plaid:tx1')
     expect(committed).toContain('accounts/acct1')
+  })
+
+  it('does not resolve FX rates unless resolveFxRates is explicitly given', async () => {
+    // The default has to stay side-effect-free: a caller that does not pass
+    // resolveFxRates gets fxRate: null, not a network call it never asked for.
+    const { client } = fakeClient([{ investment_transactions: [txn()], securities: [security()], accounts: [{ account_id: 'acct1' }], total_investment_transactions: 1 }])
+    const written = []
+    const db = {
+      collection: () => ({ doc: () => ({ collection: () => ({ doc: () => ({ path: 'x', set: undefined }) }) }) }),
+      batch: () => ({ set: (ref, data) => written.push(data), commit: async () => {} }),
+    }
+
+    await syncInvestmentTransactions({ client, accessToken: 't', db, uid: 'u1', accountTypeFor, now: new Date('2026-09-05T00:00:00Z') })
+
+    const transactionRecord = written.find((d) => d?.id === 'plaid:tx1')
+    expect(transactionRecord.fxRate).toBeNull()
+  })
+
+  it('resolves FX rates in one batch when resolveFxRates is given', async () => {
+    const { client } = fakeClient([{ investment_transactions: [txn()], securities: [security()], accounts: [{ account_id: 'acct1' }], total_investment_transactions: 1 }])
+    const written = []
+    const db = {
+      collection: () => ({ doc: () => ({ collection: () => ({ doc: () => ({ path: 'x' }) }) }) }),
+      batch: () => ({ set: (ref, data) => written.push(data), commit: async () => {} }),
+    }
+    const resolveFxRates = vi.fn(async (dates) => new Map(dates.map((d) => [d, { rate: 1.3542, source: 'boc', asOf: d }])))
+
+    await syncInvestmentTransactions({
+      client, accessToken: 't', db, uid: 'u1', accountTypeFor, resolveFxRates, now: new Date('2026-09-05T00:00:00Z'),
+    })
+
+    expect(resolveFxRates).toHaveBeenCalledOnce()
+    const transactionRecord = written.find((d) => d?.id === 'plaid:tx1')
+    expect(transactionRecord.fxRate).toBe(1.3542)
   })
 })
