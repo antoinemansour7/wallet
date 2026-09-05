@@ -16,6 +16,27 @@ describe('resolveSecurityKey', () => {
     })
   })
 
+  it('falls to a FIGI — a real global identifier, just not an ISIN — before the symbol', () => {
+    // Statement imports have neither ISIN nor CUSIP. A FIGI looked up from the
+    // ticker (#88) is still a real, globally unique identifier, so it outranks
+    // the symbol fallback even though it isn't the identifier Plaid supplies.
+    expect(resolveSecurityKey({ figi: 'BBG00PPX3Y33', symbol: 'XEQT', exchange: 'CT', currency: 'CAD' })).toEqual({
+      key: 'figi:BBG00PPX3Y33',
+      basis: KEY_BASIS.FIGI,
+    })
+  })
+
+  it('never mistakes a FIGI for an ISIN despite both being 12 alphanumeric characters', () => {
+    // The two identifier families collide on length and character set. They
+    // must never collide on meaning: a security carrying only a `figi` field
+    // is FIGI-keyed, never silently promoted to isin-keyed just because the
+    // string happens to validate against the ISIN length check too.
+    const result = resolveSecurityKey({ figi: 'BBG00PPX3Y33', symbol: 'XEQT' })
+    expect(result.basis).toBe(KEY_BASIS.FIGI)
+    expect(result.basis).not.toBe(KEY_BASIS.ISIN)
+    expect(result.key).toBe('figi:BBG00PPX3Y33')
+  })
+
   it('falls to symbol plus exchange and currency when there is no identifier at all', () => {
     expect(resolveSecurityKey({ symbol: 'VTI', exchange: 'NYSE', currency: 'USD' })).toEqual({
       key: 'sym:VTI:NYSE:USD',
@@ -70,6 +91,11 @@ describe('resolveSecurityKey', () => {
 
     it('rejects a CUSIP that is not 9 characters', () => {
       const result = resolveSecurityKey({ cusip: '9229', symbol: 'VTI', exchange: 'NYSE', currency: 'USD' })
+      expect(result.basis).toBe(KEY_BASIS.SYMBOL)
+    })
+
+    it('rejects a FIGI that is not 12 characters', () => {
+      const result = resolveSecurityKey({ figi: 'BBG00PPX3', symbol: 'XEQT', exchange: 'CT', currency: 'CAD' })
       expect(result.basis).toBe(KEY_BASIS.SYMBOL)
     })
 

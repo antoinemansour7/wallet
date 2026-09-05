@@ -99,7 +99,17 @@ function looksLikeFund(row) {
   return FUND_WORDS.test(String(row?.DESCRIPTION ?? ''))
 }
 
-export function classifyHolding(row) {
+/**
+ * `fundExposureHint` is the integration point for #88's real composition
+ * data — `{ holdsForeignEquities }` from `classifyFundComposition` in
+ * securitiesReference.js, resolved by the caller from a fund's actual
+ * current holdings and handed in here. Optional and sync: this function
+ * never reaches across the network itself. Every test in this file except
+ * the ones for this parameter calls classifyHolding with one argument, and
+ * still exercises the hardcoded-list fallback below — deliberately, so the
+ * rule engine's logic stays provable without network access.
+ */
+export function classifyHolding(row, { fundExposureHint } = {}) {
   const symbol = symbolOf(row)
   if (!symbol) return { listing: LISTING.UNKNOWN, treatment: TREATMENT.UNKNOWN }
 
@@ -114,6 +124,16 @@ export function classifyHolding(row) {
   const canadianListed = hasCanadianSuffix(symbol) || currency === 'CAD'
 
   if (canadianListed) {
+    // Real data about this fund's current holdings outranks a hardcoded
+    // snapshot from whenever the list below was last edited.
+    if (fundExposureHint) {
+      return {
+        listing: LISTING.CA,
+        treatment: fundExposureHint.holdsForeignEquities ? TREATMENT.IN_FUND : TREATMENT.NONE,
+        wrapper: 'FUND',
+      }
+    }
+
     if (CA_LISTED_FOREIGN_FUNDS.has(base)) return { listing: LISTING.CA, treatment: TREATMENT.IN_FUND, wrapper: 'FUND' }
     if (CA_LISTED_DOMESTIC_FUNDS.has(base)) return { listing: LISTING.CA, treatment: TREATMENT.NONE, wrapper: 'FUND' }
 
@@ -140,9 +160,9 @@ function normalizeAccountType(accountType) {
   return String(accountType ?? '').trim().toUpperCase() || 'NON_REGISTERED'
 }
 
-export function projectWithholding({ row, accountType, assumptions = {} } = {}) {
+export function projectWithholding({ row, accountType, assumptions = {}, fundExposureHint } = {}) {
   const merged = { ...DEFAULT_ASSUMPTIONS, ...assumptions }
-  const classification = classifyHolding(row)
+  const classification = classifyHolding(row, { fundExposureHint })
 
   // Nothing to say is a valid and common answer.
   if (classification.treatment === TREATMENT.NONE) return null
@@ -184,9 +204,9 @@ export function projectWithholding({ row, accountType, assumptions = {} } = {}) 
   }
 }
 
-export function compareAccountTypes({ row, currentAccountType, availableAccountTypes = [], assumptions = {} } = {}) {
+export function compareAccountTypes({ row, currentAccountType, availableAccountTypes = [], assumptions = {}, fundExposureHint } = {}) {
   const current = normalizeAccountType(currentAccountType)
-  const projection = projectWithholding({ row, accountType: current, assumptions })
+  const projection = projectWithholding({ row, accountType: current, assumptions, fundExposureHint })
   if (!projection) return null
 
   // An unavoidable cost has nothing to compare. Showing a table of identical
@@ -196,7 +216,7 @@ export function compareAccountTypes({ row, currentAccountType, availableAccountT
   const types = [...new Set(availableAccountTypes.map(normalizeAccountType))]
   const options = types
     .map((accountType) => {
-      const option = projectWithholding({ row, accountType, assumptions })
+      const option = projectWithholding({ row, accountType, assumptions, fundExposureHint })
       return option && { accountType, annualWithheldMinor: option.annualWithheldMinor, exempt: option.exempt, recoverable: option.recoverable }
     })
     .filter(Boolean)
