@@ -138,8 +138,28 @@ export default function PickCard({ pick, rank, defaultOpen = false, live, genera
     ticker, conviction, reason, setupType, sources = [], themes = [],
     signalCount, technicals, bearCase, riskScore, quoteVerified,
     catalystVerified, catalystDetail, catalystTimeline, catalystPricedIn,
-    price, stopLoss, target,
+    price, stopLoss, target, technicalAgreement, disagreementNote,
+    coverageAcceleration, coverageToday, coveragePriorAverage,
   } = pick
+
+  // Say what changed in counts a reader can check, not "coverage accelerating".
+  // Only worth a line when it actually moved: a steady or brand-new ticker has
+  // nothing to report, and "new" in particular means there is no history to
+  // compare against rather than that attention jumped.
+  const coverageNote = (() => {
+    if (!Number.isFinite(coverageToday) || !Number.isFinite(coveragePriorAverage)) return null
+    const before = Math.round(coveragePriorAverage)
+    // "New" is load-bearing: a post already counted on an earlier day is not
+    // counted again, so these are genuinely per-day figures rather than two
+    // overlapping trailing windows being differenced.
+    if (coverageAcceleration === 'accelerating') {
+      return `New mentions jumped to ${coverageToday} today, against about ${before} a day recently.`
+    }
+    if (coverageAcceleration === 'decelerating') {
+      return `New mentions fell to ${coverageToday} today, against about ${before} a day recently.`
+    }
+    return null
+  })()
 
   // The live quote wins where there is one. The stored figures were captured
   // when the pipeline ran and are what the ranking was built on — right for
@@ -275,6 +295,25 @@ export default function PickCard({ pick, rank, defaultOpen = false, live, genera
                 trailing={riskScore != null && <ScoreMeter score={riskScore} tone="risk" />}
               >
                 <p className="text-[13.5px] leading-[1.8] text-ink/65">{bearCase}</p>
+              </Section>
+            </div>
+          )}
+
+          {/* The model's confidence and the chart don't always agree — shown as
+              its own callout rather than silently blended into one score,
+              because the conflict itself is the useful information. */}
+          {technicalAgreement === 'conflict' && disagreementNote && (
+            <div className="rounded-xl bg-warning/[0.08] px-3.5 py-3">
+              <Section label="The chart disagrees">
+                <p className="text-[13.5px] leading-[1.8] text-ink/65">{disagreementNote}</p>
+              </Section>
+            </div>
+          )}
+
+          {coverageNote && (
+            <div className="rounded-xl bg-ink/[0.03] px-3.5 py-3">
+              <Section label="How much it is being talked about">
+                <p className="text-[13.5px] leading-[1.8] text-ink/65">{coverageNote}</p>
               </Section>
             </div>
           )}

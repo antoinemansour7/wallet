@@ -47,6 +47,10 @@ async function runPremarketCheck(res) {
   const { quotes } = await fetchMarketQuotes(payload.picks.map((p) => p.ticker))
   const quoteMap = new Map(quotes.map((q) => [q.requestedSymbol || q.symbol, q]))
 
+  // Like finalizePicks, this re-rank ignores `technicalAgreement` on purpose.
+  // The overnight gap is a new fact about the price; the model-versus-chart
+  // conflict is not, and folding it in here would score the same disagreement
+  // the card is there to show the reader.
   const rescored = payload.picks.map((pick) => {
     const quote = quoteMap.get(pick.ticker)
     const live = quote?.price != null && quote?.price !== '' && quote?.cacheStatus !== 'stale' ? Number(quote.price) : NaN
@@ -196,9 +200,18 @@ export default async function handler(req, res) {
   let tickers = []
   let shadowBoard = []
   try {
+    // A run where a discovery feed failed produces low mention counts for every
+    // ticker. Recorded as though it were real, the next run would read a
+    // market-wide collapse in attention that never happened, so a degraded run
+    // is not written to the coverage history at all.
+    const DISCOVERY_STEPS = ['x', 'yahoo', 'screener', 'exa-discovery', 'day-trade']
+    const discoveryHealthy = !errors.some((e) => DISCOVERY_STEPS.includes(e.step))
+    if (!discoveryHealthy) console.warn('[nightly-research] discovery degraded — coverage history will not record this run')
+
     tickers = await extractTickers(signals, articles, {
       onBoard: (board) => { shadowBoard = board.slice(0, 15) },
       regime,
+      discoveryHealthy,
     })
     console.log(`[nightly-research] extracted ${tickers.length} tickers:`, tickers.map((t) => t.ticker))
   } catch (err) {

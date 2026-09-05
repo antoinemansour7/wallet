@@ -62,8 +62,18 @@ const TICKER_STOPWORDS = new Set([
   'UK', 'USA', 'USD', 'US', 'USED', 'VERY', 'VIEW', 'VIX',
   'WAIT', 'WANT', 'WAYS', 'WEEK', 'WHAT', 'WHEN', 'WHO', 'WILL', 'WITH', 'WORK', 'WSB',
   'X', 'YEAR', 'ZERO',
-  // Mega caps we don't want to discover (already too well-known)
-  'AAPL', 'AMZN', 'GOOG', 'GOOGL', 'META', 'MSFT', 'NVDA', 'TSLA',
+  // Eight mega-cap tickers used to sit here, under "we don't want to discover
+  // (already too well-known)". That was a size blacklist at discovery: an Exa
+  // article about NVDA produced no signal at all, so the name could never reach
+  // the board however strong its evidence. The ranking audit removed exactly
+  // this preference one layer up ("no blacklist of large companies"), and the
+  // model prompt states the rule outright — "do not favor or exclude a company
+  // simply because of nominal share price, size, or sector". Keeping the same
+  // exclusion at discovery just enforced it where it was harder to see.
+  //
+  // Everything left in this set is a genuine false positive: an English word,
+  // an acronym, or an exchange name that the uppercase-token regex would
+  // otherwise read as a ticker. Size is not a reason to be on this list.
 ])
 
 function extractTickersFromContent(text) {

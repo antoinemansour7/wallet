@@ -327,30 +327,7 @@ describe('rankHighUpsideBoard', () => {
     expect(ranked.find((item) => item.ticker === 'NATO').quoteVerified).toBe(false)
   })
 
-  it('marks mega-cap crowd favorites so downstream selection can drop them', () => {
-    const ranked = rankHighUpsideBoard([
-      {
-        ticker: 'TSLA',
-        signalCount: 4,
-        articleCount: 0,
-        maxScore: 8.4,
-        sources: ['@conviction1', '@conviction2'],
-        themes: ['ai', 'earnings'],
-        snippets: ['TSLA earnings chatter'],
-        squeezeSignals: 0,
-        volumeSignals: 1,
-        breakoutSignals: 1,
-        catalystSignals: 2,
-        negativeSignals: 0,
-        accountMentions: 2,
-        convictionMentions: 2,
-        contextMentions: 0,
-        searchMentions: 1,
-      },
-    ], new Map([
-      ['TSLA', { price: 378, changePercent: 1.2 }],
-    ]))
-
-    expect(ranked[0].mainstreamCrowdFavorite).toBe(true)
-  })
+  // The mega-cap flag this used to assert is gone. The ranking audit removed
+  // its scoring effect ("no blacklist of large companies") and nothing read it
+  // afterwards, so the field was carrying an intent the engine no longer has.
 })
