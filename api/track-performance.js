@@ -1,5 +1,6 @@
 import { Redis } from '@upstash/redis'
 import { storePickPerformance, invalidateStatsCache } from '../src/server/agents/signalHistoryTools.js'
+import { sessionCheckpoints } from '../src/server/researchPerformance.js'
 
 /**
  * Map days-held to a tracking checkpoint. Tolerant windows instead of exact
@@ -27,22 +28,6 @@ function getRedis() {
   return null
 }
 
-async function fetchCurrentPrice(ticker) {
-  try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1d`
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(8000),
-    })
-    if (!res.ok) return null
-    const data = await res.json()
-    const meta = data?.chart?.result?.[0]?.meta
-    return meta?.regularMarketPrice || null
-  } catch {
-    return null
-  }
-}
-
 /**
  * Pure: find the open/high of the first trading day AFTER pickDate in a set
  * of daily candles ({date, open, high}). Powers the honest day-1 metrics —
@@ -59,26 +44,23 @@ export function firstSessionAfter(candles, pickDate) {
 
 async function fetchRecentDailyCandles(ticker) {
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1mo`
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=3mo`
     const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) })
     if (!res.ok) return []
     const data = await res.json()
     const result = data?.chart?.result?.[0]
     const quote = result?.indicators?.quote?.[0]
     return (result?.timestamp || []).map((ts, i) => ({
+      timestamp: ts * 1000,
+      currency: result?.meta?.currency,
       date: new Date(ts * 1000).toISOString().slice(0, 10),
       open: quote?.open?.[i],
       high: quote?.high?.[i],
+      close: quote?.close?.[i],
     }))
   } catch {
     return []
   }
-}
-
-function daysBetween(dateStr1, dateStr2) {
-  const d1 = new Date(dateStr1)
-  const d2 = new Date(dateStr2)
-  return Math.floor((d2 - d1) / (1000 * 60 * 60 * 24))
 }
 
 export default async function handler(req, res) {
@@ -96,33 +78,33 @@ export default async function handler(req, res) {
   }
 
   const startedAt = Date.now()
-  const today = new Date().toISOString().slice(0, 10)
   const errors = []
   let tracked = 0
 
-  // Get history index — check picks far enough back to cover the day-10
-  // checkpoint's tolerance window (up to 12 days)
-  const historyIndex = await redis.lrange('research:history-index', 0, 12)
+  const historyIndex = [...new Set(await redis.lrange('research:history-index', 0, 29) || [])]
+  // One request per symbol per run, reused across dates and shadow records.
+  const candlesByTicker = new Map()
+  const candlesFor = (ticker) => {
+    if (!candlesByTicker.has(ticker)) candlesByTicker.set(ticker, fetchRecentDailyCandles(ticker))
+    return candlesByTicker.get(ticker)
+  }
+  const benchmark = await candlesFor('SPY')
 
-  async function trackPicks(dateKey, picks, daysHeld, { shadow = false } = {}) {
+  async function trackPicks(dateKey, picks, generatedAt, { shadow = false } = {}) {
+    // Old histories without an issuance timestamp cannot establish a fill.
+    if (!generatedAt) return
     for (const pick of picks) {
-      if (!pick.ticker || !pick.price) continue
-
+      if (!pick.ticker) continue
       try {
-        const currentPrice = await fetchCurrentPrice(pick.ticker)
-        if (currentPrice == null) continue
-
-        // Day-1 checkpoint also records the next session's open/high so the
-        // feedback loop scores achievable (open→close) returns, not phantom
-        // close-to-close ones.
-        let extras = { shadow }
-        if (daysHeld === 1) {
-          const session = firstSessionAfter(await fetchRecentDailyCandles(pick.ticker), dateKey)
-          if (session) extras = { ...extras, ...session }
+        const candles = await candlesFor(pick.ticker)
+        const sameCurrencyBenchmark = candles[0]?.currency === 'USD' ? benchmark : []
+        for (const checkpoint of sessionCheckpoints(candles, generatedAt, startedAt, sameCurrencyBenchmark)) {
+          await storePickPerformance(dateKey, pick.ticker, checkpoint.entryPrice, checkpoint.exitPrice, checkpoint.horizon, {
+            ...checkpoint, shadow, day1Open: checkpoint.entryPrice,
+            modelVersion: pick.modelVersion || 'legacy',
+          })
+          tracked++
         }
-
-        await storePickPerformance(dateKey, pick.ticker, pick.price, currentPrice, daysHeld, extras)
-        tracked++
       } catch (err) {
         errors.push({ ticker: pick.ticker, date: dateKey, error: err.message })
       }
@@ -130,16 +112,10 @@ export default async function handler(req, res) {
   }
 
   for (const dateKey of historyIndex) {
-    const daysHeld = checkpointSlot(daysBetween(dateKey, today))
-    if (daysHeld === null) continue
-
     const history = await redis.get(`research:history:${dateKey}`)
-    if (history?.picks) await trackPicks(dateKey, history.picks, daysHeld)
-
-    // Shadow board candidates — never shown to the user, tracked purely to
-    // feed the setup/source win-rate learning loop
+    if (history?.picks) await trackPicks(dateKey, history.picks, history.generatedAt)
     const shadowEntry = await redis.get(`research:shadow:${dateKey}`)
-    if (shadowEntry?.picks) await trackPicks(dateKey, shadowEntry.picks, daysHeld, { shadow: true })
+    if (shadowEntry?.picks) await trackPicks(dateKey, shadowEntry.picks, shadowEntry.generatedAt || history?.generatedAt, { shadow: true })
   }
 
   console.log(`[track-performance] tracked ${tracked} pick-price updates`)

@@ -121,10 +121,10 @@ export default function Research() {
       for (const quote of data.quotes ?? []) {
         const symbol = quote.requestedSymbol ?? quote.symbol
         const price = Number(quote.price ?? quote.regularMarketPrice)
-        if (!symbol || !Number.isFinite(price)) continue
+        if (!symbol || !Number.isFinite(price) || price <= 0 || quote.cacheStatus === 'stale') continue
         next[symbol] = {
           price,
-          changePercent: Number.isFinite(Number(quote.changePercent)) ? Number(quote.changePercent) : null,
+          changePercent: quote.changePercent != null && quote.changePercent !== '' && Number.isFinite(Number(quote.changePercent)) ? Number(quote.changePercent) : null,
           at,
         }
       }
@@ -171,7 +171,8 @@ export default function Research() {
   }, [research])
 
   const { picks, below } = useMemo(() => {
-    const all = [...(research?.picks ?? [])].sort((a, b) => b.conviction - a.conviction)
+    // The server order includes technicals, verified events, risk and premarket checks.
+    const all = research?.picks ?? []
     return {
       picks: all.filter((p) => p.conviction >= CONVICTION_THRESHOLD),
       below: all.filter((p) => p.conviction < CONVICTION_THRESHOLD),
@@ -224,8 +225,8 @@ export default function Research() {
         ) : !hasAnything ? (
           <div className="flex flex-col items-center rounded-2xl border border-dashed border-ink/[0.08] py-16 text-center">
             <SearchSpot />
-            <p className="mt-3 text-[14px] text-ink/50">No picks yet</p>
-            <p className="mt-1 text-[12px] text-ink/30">The pipeline runs nightly at 3 AM UTC</p>
+            <p className="mt-3 text-[14px] text-ink/50">{research?.generatedAt ? 'No qualifying ideas this run' : 'No picks yet'}</p>
+            <p className="mt-1 text-[12px] text-ink/30">{research?.generatedAt ? 'The research criteria did not produce a recommendation.' : 'New research appears after the next scheduled market scan.'}</p>
           </div>
         ) : (
           <>

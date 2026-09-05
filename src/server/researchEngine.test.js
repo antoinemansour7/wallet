@@ -9,6 +9,8 @@ import {
   sourcePerformanceAdjustment,
   finalizePicks,
   buildMacroContextBlock,
+  prepareResearchSignals,
+  summarizeSignalsForPrompt,
 } from './researchEngine'
 
 // fetchAllYahooNews tests
@@ -142,7 +144,7 @@ describe('rankHighUpsideBoard', () => {
     expect(ranked.find((r) => r.ticker === 'PENNY').pennyStockRisk).toBe(true)
   })
 
-  it('penalizes mega-cap tickers (AAPL, NVDA, etc.)', () => {
+  it('does not exclude a stronger candidate because it is a mega-cap', () => {
     const quoteMap = new Map([
       ['NVDA', { price: 150, changePercent: 1 }],
       ['RKLB', { price: 25, changePercent: 1 }],
@@ -154,7 +156,7 @@ describe('rankHighUpsideBoard', () => {
 
     const ranked = rankHighUpsideBoard(board, quoteMap)
 
-    expect(ranked[0].ticker).toBe('RKLB')
+    expect(ranked[0].ticker).toBe('NVDA')
     expect(ranked.find((r) => r.ticker === 'NVDA').mainstreamCrowdFavorite).toBe(true)
   })
 
@@ -176,7 +178,7 @@ describe('rankHighUpsideBoard', () => {
     expect(ranked[0].setupType).toBe('squeeze')
   })
 
-  it('boosts tech-themed picks', () => {
+  it('does not add an unsupported sector preference', () => {
     const quoteMap = new Map([
       ['TECH', { price: 30, changePercent: 1 }],
       ['NOTECH', { price: 30, changePercent: 1 }],
@@ -190,7 +192,7 @@ describe('rankHighUpsideBoard', () => {
 
     const techScore = ranked.find((r) => r.ticker === 'TECH').archetypeScore
     const noTechScore = ranked.find((r) => r.ticker === 'NOTECH').archetypeScore
-    expect(techScore).toBeGreaterThan(noTechScore)
+    expect(techScore).toBe(noTechScore)
   })
 
   it('applies sector downtrend penalty', () => {
@@ -264,7 +266,7 @@ describe('postProcessCandidates', () => {
     ...overrides,
   })
 
-  it('filters recently picked tickers when fresh alternatives exist', () => {
+  it('keeps a stronger recent pick ahead of weaker fresh alternatives', () => {
     const parsed = [
       { ticker: 'IREN', conviction: 9, reason: 'Recently picked again' },
       { ticker: 'RKLB', conviction: 7, reason: 'Fresh catalyst' },
@@ -278,7 +280,8 @@ describe('postProcessCandidates', () => {
       recentPickedTickers: new Set(['IREN']),
     })
 
-    expect(picks.map((p) => p.ticker)).toEqual(['RKLB'])
+    expect(picks.map((p) => p.ticker)).toEqual(['IREN', 'RKLB'])
+    expect(picks[0].recentRepeat).toBe(true)
   })
 
   it('lets a strong technical setup outrank a weak one at equal conviction', () => {
@@ -299,21 +302,17 @@ describe('postProcessCandidates', () => {
     expect(picks.find((p) => p.ticker === 'WEAK').techAdjustment).toBeLessThan(0)
   })
 
-  it('boosts picks flagged by proven sources and penalizes proven losers', () => {
-    const stats = {
-      bySource: {
-        '@winner': { weightedWinRate: 70, total: 5 },
-        '@loser': { weightedWinRate: 20, total: 4 },
-        '@thin': { weightedWinRate: 90, total: 2 },
-      },
-    }
-
-    expect(sourcePerformanceAdjustment(['@winner'], stats)).toBe(0.75)
-    expect(sourcePerformanceAdjustment(['@loser'], stats)).toBe(-1.0)
-    expect(sourcePerformanceAdjustment(['@thin'], stats)).toBe(0)
-    expect(sourcePerformanceAdjustment(['@winner', '@loser'], stats)).toBe(-0.25)
+  it('does not learn from small legacy win-rate samples', () => {
+    const stats = { bySource: { '@winner': { weightedWinRate: 100, total: 5 } } }
+    expect(sourcePerformanceAdjustment(['@winner'], stats)).toBe(0)
     expect(sourcePerformanceAdjustment([], stats)).toBe(0)
-    expect(sourcePerformanceAdjustment(['@winner'], null)).toBe(0)
+  })
+
+  it('uses bounded, non-duplicated feedback from comparable net returns', () => {
+    const group = { total: 30, distinctDates: 15, avgNetReturn: 4, avgExcessReturn: 3, lowerBound: 1, upperBound: 5 }
+    const stats = { learning: { bySource: { good: group }, bySetup: { catalyst: group } } }
+    expect(sourcePerformanceAdjustment(['good', 'good'], stats)).toBe(0.5)
+    expect(setupPerformanceAdjustment('catalyst', stats)).toBe(1)
   })
 
   it('attaches ATR-based stop and target when technicals include ATR', () => {
@@ -329,9 +328,9 @@ describe('postProcessCandidates', () => {
     expect(picks[0].target).toBe(45)     // 40 + 2.5×2
   })
 
-  it('applies setup win-rate adjustments only with enough samples', () => {
-    expect(setupPerformanceAdjustment('catalyst', { bySetup: { catalyst: { weightedWinRate: 70, total: 6 } } })).toBe(1.5)
-    expect(setupPerformanceAdjustment('squeeze', { bySetup: { squeeze: { weightedWinRate: 20, total: 8 } } })).toBe(-2.0)
+  it('ignores legacy win-rate adjustments regardless of win percentage', () => {
+    expect(setupPerformanceAdjustment('catalyst', { bySetup: { catalyst: { weightedWinRate: 70, total: 6 } } })).toBe(0)
+    expect(setupPerformanceAdjustment('squeeze', { bySetup: { squeeze: { weightedWinRate: 20, total: 8 } } })).toBe(0)
     expect(setupPerformanceAdjustment('squeeze', { bySetup: { squeeze: { weightedWinRate: 20, total: 3 } } })).toBe(0)
     expect(setupPerformanceAdjustment('breakout', null)).toBe(0)
   })
@@ -359,7 +358,7 @@ describe('finalizePicks', () => {
   it('promotes verified, not-priced-in catalysts over unverified picks', () => {
     const picks = [
       basePick('HYPE', { conviction: 9, catalystVerified: false }),
-      basePick('REAL', { conviction: 8, catalystVerified: true, catalystPricedIn: false, catalystConfidence: 8 }),
+      basePick('REAL', { conviction: 8, catalystVerified: true, catalystInWindow: true, catalystPricedIn: false, catalystConfidence: 8 }),
     ]
 
     const finalized = finalizePicks(picks)
@@ -379,12 +378,12 @@ describe('finalizePicks', () => {
     expect(finalized.map((p) => p.ticker)).toEqual(['OK'])
   })
 
-  it('keeps dangerous picks when nothing else survives', () => {
+  it('abstains when nothing survives the risk gate', () => {
     const picks = [
       basePick('ONLY', { catalystPricedIn: true, riskScore: 9 }),
     ]
 
-    expect(finalizePicks(picks).map((p) => p.ticker)).toEqual(['ONLY'])
+    expect(finalizePicks(picks).map((p) => p.ticker)).toEqual([])
     expect(finalizePicks([])).toEqual([])
   })
 
@@ -503,5 +502,83 @@ describe('buildMacroContextBlock', () => {
   it('renders days rather than hours once a post is over a day old', () => {
     const block = buildMacroContextBlock([post('macrodesk', 3 * 24 * 60, 'hawkish speech')])
     expect(block).toMatch(/\[@macrodesk, 3d ago\]/)
+  })
+})
+
+
+describe('research evidence and output integrity', () => {
+  const signal = (overrides = {}) => ({ id: 'a', ticker: 'ACME', tickers: ['ACME'], text: '$ACME wins a contract', username: 'desk', sourceType: 'account', sourceRole: 'conviction', sourceLabels: ['@desk'], score: 6, ...overrides })
+
+  it('deduplicates repeated discovery URLs per ticker without losing other tickers', () => {
+    const signals = [
+      signal({ id: 'query1', sourceLabels: ['exa-discovery'], url: 'https://news.example/story?utm_source=a', tickers: ['acme', 'OTHER'] }),
+      signal({ id: 'query2', sourceLabels: ['exa-discovery'], url: 'https://news.example/story?utm_source=b', tickers: ['ACME'] }),
+    ]
+    const prepared = prepareResearchSignals(signals)
+    expect(prepared).toHaveLength(1)
+    expect(prepared[0].tickers).toEqual(['ACME', 'OTHER'])
+  })
+
+  it('does not count multiple search labels or unlimited posts as independent corroboration', () => {
+    const repeated = Array.from({ length: 100 }, (_, i) => signal({ id: `${i}`, text: `$ACME contract update ${i}`, sourceLabels: [`query${i}`] }))
+    const { signalBoard } = summarizeSignalsForPrompt(repeated, [])
+    expect(signalBoard[0].signalCount).toBe(2)
+    expect(signalBoard[0].independentSources).toHaveLength(1)
+    expect(signalBoard[0].repeatedAttention).toBe(false)
+  })
+
+  it('retains both independent publishers and discards stale or future signals', () => {
+    const signals = [signal(), signal({ id: 'b', username: 'another' }),
+      signal({ id: 'stale', createdAt: new Date(Date.now() - 72 * 3600000).toISOString() }),
+      signal({ id: 'future', createdAt: new Date(Date.now() + 3600000).toISOString() })]
+    const { signalBoard } = summarizeSignalsForPrompt(signals, [])
+    expect(signalBoard[0].signalCount).toBe(2)
+    expect(signalBoard[0].repeatedAttention).toBe(true)
+  })
+
+  it.each([null, '', 0, -1, Infinity, NaN, true])('rejects invalid quote price %s', (price) => {
+    const [item] = rankHighUpsideBoard([{ ticker: 'BAD' }], new Map([['BAD', { price }]]))
+    expect(item.quoteVerified).toBe(false)
+  })
+
+  it('rejects stale cached quotes and retains missing daily changes as missing', () => {
+    const [stale] = rankHighUpsideBoard([{ ticker: 'A' }], new Map([['A', { price: 20, cacheStatus: 'stale' }]]))
+    expect(stale.quoteVerified).toBe(false)
+    const [valid] = rankHighUpsideBoard([{ ticker: 'A' }], new Map([['A', { price: 20, changePercent: null }]]))
+    expect(valid.quoteChangePercent).toBeNull()
+  })
+
+  const board = [{ ticker: 'ACME', sources: ['@desk'], price: 40, quoteVerified: true, convictionMentions: 1, archetypeScore: 10 }]
+  it('validates model output, deduplicates tickers, and prevents score injection', () => {
+    const picks = postProcessCandidates([null, { ticker: 'UNKNOWN', conviction: 10 }, { ticker: 'ACME', conviction: 100 },
+      { ticker: ' acme ', conviction: 7, techAdjustment: 9999, compositeScore: 9999, riskScore: 1 },
+      { ticker: 'ACME', conviction: 9 }], board)
+    expect(picks).toHaveLength(1)
+    expect(picks[0].ticker).toBe('ACME')
+    expect(picks[0].compositeScore).toBe(20.5)
+    expect(picks[0].riskScore).toBeUndefined()
+  })
+
+  it('never restores broken or context-only candidates to fill the list', () => {
+    const parsed = [{ ticker: 'ACME', conviction: 9 }]
+    expect(postProcessCandidates(parsed, [{ ...board[0], brokenSetupRisk: true }])).toEqual([])
+    expect(postProcessCandidates(parsed, [{ ...board[0], convictionMentions: 0, contextMentions: 3 }])).toEqual([])
+  })
+
+  it('does not publish negative stop prices for extreme ATR', () => {
+    const picks = postProcessCandidates([{ ticker: 'ACME', conviction: 7 }], board, new Map([['ACME', { analyzed: true, atr: 40 }]]))
+    expect(picks[0].stopLoss).toBeNull()
+    expect(picks[0].target).toBeNull()
+  })
+
+  it('preserves technical and learned contributions through final ranking', () => {
+    const picks = finalizePicks([{ ticker: 'A', conviction: 7, compositeScore: 25, techAdjustment: 3 }, { ticker: 'B', conviction: 9, compositeScore: 20 }])
+    expect(picks.map((p) => p.ticker)).toEqual(['A', 'B'])
+    expect(picks[0].finalScore).toBe(25)
+  })
+
+  it('does not reward missing risk scores or distant catalysts', () => {
+    const picks = finalizePicks([{ ticker: 'A', conviction: 7, compositeScore: 20, riskScore: null, catalystVerified: true, catalystInWindow: false }])
+    expect(picks[0].finalScore).toBe(20)
   })
 })

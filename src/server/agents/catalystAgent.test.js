@@ -54,7 +54,8 @@ describe('runCatalystAgent', () => {
           timeline: '35 days',
           pricedIn: false,
           confidence: 8,
-          sources: ['Yahoo Finance'],
+          sources: ['https://example.com'],
+          eventDate: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
         },
       ])}],
     })
@@ -67,6 +68,8 @@ describe('runCatalystAgent', () => {
     expect(result[0].catalystTimeline).toBe('35 days')
     expect(result[0].catalystPricedIn).toBe(false)
     expect(result[0].catalystConfidence).toBe(8)
+    expect(result[0].catalystInWindow).toBe(true)
+    expect(result[0].catalystSources).toEqual(['https://example.com'])
   })
 
   it('sets catalystVerified=false when no catalyst found', async () => {
@@ -150,7 +153,7 @@ describe('runCatalystAgent', () => {
   it('handles ticker case mismatch between Claude response and picks', async () => {
     mockCreate.mockResolvedValue({
       content: [{ type: 'text', text: JSON.stringify([
-        { ticker: 'mu', catalystVerified: true, catalyst: 'Earnings', timeline: '10 days', pricedIn: false, confidence: 7 },
+        { ticker: 'mu', catalystVerified: true, catalyst: 'Earnings', timeline: '10 days', pricedIn: false, confidence: 7, eventDate: '2026-12-01', sources: ['https://example.com'] },
       ])}],
     })
 
@@ -159,4 +162,13 @@ describe('runCatalystAgent', () => {
 
     expect(result[0].catalystVerified).toBe(true)
   })
+  it('does not accept invented citations or truthy string verification', async () => {
+    mockCreate.mockResolvedValue({ content: [{ type: 'text', text: JSON.stringify([
+      { ticker: 'MU', catalystVerified: true, eventDate: '2026-12-01', sources: ['https://invented.example'] },
+      { ticker: 'ASTS', catalystVerified: 'true', eventDate: '2026-12-01', sources: ['https://example.com'] },
+    ]) }] })
+    const result = await runCatalystAgent([{ ticker: 'MU' }, { ticker: 'ASTS' }])
+    expect(result.every((pick) => pick.catalystVerified === false)).toBe(true)
+  })
+
 })
