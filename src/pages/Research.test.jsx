@@ -2,6 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
 
 vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { uid: 'test' } }) }))
+// portfolioStorage.js imports firebase/config.js, which calls getAuth() at
+// module load and throws auth/invalid-api-key wherever Firebase keys are
+// absent — every CI machine, and every machine without a populated .env.
+// This is the same class of failure fixed for Login.test.jsx: importing the
+// real module here passed locally only because this working copy has a
+// populated .env, and failed in CI with no keys at all.
+vi.mock('../utils/portfolioStorage', () => ({ loadLocalPortfolio: () => null }))
 vi.mock('../preview/mockMode', () => ({ IS_PREVIEW: false, PREVIEW_RESEARCH: null }))
 vi.mock('./research/RegimeGauge', () => ({ default: () => null }))
 vi.mock('./research/PickCard', () => ({ default: ({ pick, rank }) => <article aria-label={pick.ticker}>{rank}: {pick.ticker}</article> }))
