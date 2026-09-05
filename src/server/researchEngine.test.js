@@ -5,6 +5,8 @@ import {
   CATALYST_REGEX,
   postProcessCandidates,
   technicalAdjustment,
+  convictionTechnicalDisagreement,
+  computeCoverageAcceleration,
   setupPerformanceAdjustment,
   sourcePerformanceAdjustment,
   finalizePicks,
@@ -156,8 +158,10 @@ describe('rankHighUpsideBoard', () => {
 
     const ranked = rankHighUpsideBoard(board, quoteMap)
 
+    // Ranked on evidence alone. The mega-cap flag that used to be asserted here
+    // is gone: it scored nothing after the ranking audit and nothing read it.
     expect(ranked[0].ticker).toBe('NVDA')
-    expect(ranked.find((r) => r.ticker === 'NVDA').mainstreamCrowdFavorite).toBe(true)
+    expect(ranked[0]).not.toHaveProperty('mainstreamCrowdFavorite')
   })
 
   it('marks broken setups when huge down day detected', () => {
@@ -241,6 +245,79 @@ describe('rankHighUpsideBoard', () => {
     expect(get('MID').priceBand).toBe('core-upside')
     expect(get('HIGH').priceBand).toBe('large')
   })
+
+  // Corroborated, so the acceleration bonus is actually reachable — a single
+  // publisher spiking is deliberately not enough. See the gate test below.
+  const corroborated = (overrides) => makeItem({
+    sources: ['@unusualwhales', '@optionshawk'],
+    convictionMentions: 2,
+    ...overrides,
+  })
+
+  it('rewards a corroborated ticker whose coverage is accelerating over its own history', () => {
+    const quoteMap = new Map([['ACCEL', { price: 30, changePercent: 0 }], ['FLAT', { price: 30, changePercent: 0 }]])
+    const board = [corroborated({ ticker: 'ACCEL', signalCount: 9 }), corroborated({ ticker: 'FLAT', signalCount: 9 })]
+    const coverageHistory = new Map([['ACCEL', [1, 2, 2]], ['FLAT', [8, 9, 9]]])
+
+    const ranked = rankHighUpsideBoard(board, quoteMap, new Map(), coverageHistory)
+    const get = (t) => ranked.find((r) => r.ticker === t)
+
+    expect(get('ACCEL').coverageAcceleration).toBe('accelerating')
+    expect(get('FLAT').coverageAcceleration).toBe('steady')
+    expect(get('ACCEL').archetypeScore).toBeGreaterThan(get('FLAT').archetypeScore)
+  })
+
+  it('measures acceleration on the real mention count, not the score-capped one', () => {
+    // Every scoring field is clamped to 4 so raw volume cannot dominate. Reading
+    // the clamped value made a jump from 2 to 9 look like 2 to 4 — a 1.5x ratio,
+    // reported as "steady". Acceleration above four mentions was undetectable.
+    const quoteMap = new Map([['SPIKE', { price: 30, changePercent: 0 }]])
+    const board = [corroborated({ ticker: 'SPIKE', signalCount: 9 })]
+
+    const ranked = rankHighUpsideBoard(board, quoteMap, new Map(), new Map([['SPIKE', [2, 2, 2]]]))
+
+    expect(ranked[0].coverageToday).toBe(9)
+    expect(ranked[0].coverageAcceleration).toBe('accelerating')
+  })
+
+  it('will not let a mention spike carry a ticker nobody corroborated', () => {
+    // One publisher posting nine times is what a pump looks like. The status is
+    // still reported — it is a true fact about coverage — but it earns no score.
+    const quoteMap = new Map([['LONE', { price: 30, changePercent: 0 }], ['QUIET', { price: 30, changePercent: 0 }]])
+    const board = [
+      makeItem({ ticker: 'LONE', signalCount: 9, sources: ['@onlyguy'], convictionMentions: 1 }),
+      makeItem({ ticker: 'QUIET', signalCount: 9, sources: ['@onlyguy'], convictionMentions: 1 }),
+    ]
+    const coverageHistory = new Map([['LONE', [1, 1, 2]], ['QUIET', [8, 9, 9]]])
+
+    const ranked = rankHighUpsideBoard(board, quoteMap, new Map(), coverageHistory)
+    const get = (t) => ranked.find((r) => r.ticker === t)
+
+    expect(get('LONE').coverageAcceleration).toBe('accelerating')
+    expect(get('QUIET').coverageAcceleration).toBe('steady')
+    expect(get('LONE').archetypeScore).toBe(get('QUIET').archetypeScore)
+  })
+
+  it('penalizes a ticker whose coverage is falling off, and never adjusts a brand-new one', () => {
+    const quoteMap = new Map([['FADING', { price: 30, changePercent: 0 }], ['NEWCOMER', { price: 30, changePercent: 0 }]])
+    const board = [makeItem({ ticker: 'FADING', signalCount: 3 }), makeItem({ ticker: 'NEWCOMER', signalCount: 3 })]
+    const coverageHistory = new Map([['FADING', [10, 12, 9]]]) // NEWCOMER has no entry at all
+
+    const ranked = rankHighUpsideBoard(board, quoteMap, new Map(), coverageHistory)
+    const get = (t) => ranked.find((r) => r.ticker === t)
+
+    expect(get('FADING').coverageAcceleration).toBe('decelerating')
+    expect(get('NEWCOMER').coverageAcceleration).toBe('new')
+    // The fade penalty is deliberately not gated on corroboration: coverage
+    // draining out of a name is worth knowing either way.
+    expect(get('NEWCOMER').archetypeScore).toBeGreaterThan(get('FADING').archetypeScore)
+  })
+
+  it('defaults to an empty coverage history, leaving every ticker "new" and unadjusted', () => {
+    const board = [makeItem({ ticker: 'ANY', signalCount: 5 })]
+    const ranked = rankHighUpsideBoard(board)
+    expect(ranked[0].coverageAcceleration).toBe('new')
+  })
 })
 
 describe('postProcessCandidates', () => {
@@ -260,7 +337,6 @@ describe('postProcessCandidates', () => {
     pennyStockRisk: false,
     exceptionalPennySetup: false,
     brokenSetupRisk: false,
-    mainstreamCrowdFavorite: false,
     convictionMentions: 2,
     contextMentions: 0,
     ...overrides,
@@ -328,6 +404,49 @@ describe('postProcessCandidates', () => {
     expect(picks[0].target).toBe(45)     // 40 + 2.5×2
   })
 
+  it('carries the model/chart disagreement onto the pick', () => {
+    const parsed = [{ ticker: 'RKLB', conviction: 9, reason: 'Confident despite the chart' }]
+    const signalBoard = [makeBoardItem('RKLB')]
+    const technicals = new Map([
+      ['RKLB', { analyzed: true, trend: 'downtrend', rsi: 40, macd: { histogram: -0.4 }, relativeVolume: 0.8 }],
+    ])
+
+    const picks = postProcessCandidates(parsed, signalBoard, technicals)
+
+    expect(picks[0].technicalAgreement).toBe('conflict')
+    expect(picks[0].disagreementNote).toMatch(/trending down/i)
+  })
+
+  it('reports the disagreement without letting it move the score', () => {
+    // The whole point of the callout is that the conflict reaches the reader
+    // instead of being absorbed into one number. technicalAdjustment already
+    // prices the chart; the disagreement must add nothing on top of it, or the
+    // card would be showing something the ranking had silently double-counted.
+    const parsed = [{ ticker: 'RKLB', conviction: 9, reason: 'Confident despite the chart' }]
+    const signalBoard = [makeBoardItem('RKLB', { archetypeScore: 12 })]
+    const technicals = new Map([
+      ['RKLB', { analyzed: true, trend: 'downtrend', rsi: 40, macd: { histogram: -0.4 }, relativeVolume: 0.8 }],
+    ])
+
+    const [pick] = postProcessCandidates(parsed, signalBoard, technicals)
+
+    expect(pick.technicalAgreement).toBe('conflict')
+    expect(pick.techAdjustment).toBe(-3.1)
+    // conviction 9 × 1.5 + archetype 12 + techAdjustment −3.1, and nothing else.
+    expect(pick.compositeScore).toBe(22.4)
+    // The final re-rank leaves it alone too — no catalyst or risk input here,
+    // so finalScore must equal the composite it started from.
+    expect(finalizePicks([pick])[0].finalScore).toBe(22.4)
+  })
+
+  it('records an unclear reading rather than guessing when a ticker has no chart', () => {
+    const parsed = [{ ticker: 'RKLB', conviction: 9, reason: 'No technicals available' }]
+    const picks = postProcessCandidates(parsed, [makeBoardItem('RKLB')], new Map())
+
+    expect(picks[0].technicalAgreement).toBe('unclear')
+    expect(picks[0].disagreementNote).toBe('')
+  })
+
   it('ignores legacy win-rate adjustments regardless of win percentage', () => {
     expect(setupPerformanceAdjustment('catalyst', { bySetup: { catalyst: { weightedWinRate: 70, total: 6 } } })).toBe(0)
     expect(setupPerformanceAdjustment('squeeze', { bySetup: { squeeze: { weightedWinRate: 20, total: 8 } } })).toBe(0)
@@ -344,6 +463,117 @@ describe('technicalAdjustment', () => {
     expect(strong).toBeGreaterThan(2)
     expect(weak).toBeLessThan(-3)
     expect(technicalAdjustment(null)).toBe(0)
+  })
+})
+
+describe('convictionTechnicalDisagreement', () => {
+  it('flags a confident pick whose chart is already falling', () => {
+    const result = convictionTechnicalDisagreement({
+      conviction: 8,
+      tech: { analyzed: true, trend: 'downtrend', rsi: 40, price: 42 },
+    })
+    expect(result.status).toBe('conflict')
+    expect(result.note).toMatch(/trending down/i)
+  })
+
+  it('flags a confident pick that has already run up hard, citing the actual RSI', () => {
+    // Precision is the point: the note names the number, not just the word
+    // "overbought" — matching the plain-language convention the rest of the
+    // research prompt already enforces.
+    const result = convictionTechnicalDisagreement({
+      conviction: 9,
+      tech: { analyzed: true, trend: 'overbought-uptrend', rsi: 82, price: 42 },
+    })
+    expect(result.status).toBe('conflict')
+    expect(result.note).toContain('82')
+  })
+
+  it('flags a low-conviction pick whose chart actually looks strong', () => {
+    // The disagreement runs both directions — a chart in a confirmed uptrend
+    // the model barely believes in is worth surfacing too.
+    const result = convictionTechnicalDisagreement({
+      conviction: 3,
+      tech: { analyzed: true, trend: 'uptrend', rsi: 55, price: 42 },
+    })
+    expect(result.status).toBe('conflict')
+    expect(result.note).toMatch(/uptrend/i)
+  })
+
+  it('agrees when a confident pick has a confirmed, unstretched uptrend', () => {
+    const result = convictionTechnicalDisagreement({
+      conviction: 8,
+      tech: { analyzed: true, trend: 'uptrend', rsi: 58, price: 42 },
+    })
+    expect(result.status).toBe('agree')
+    expect(result.note).toBe('')
+  })
+
+  it('agrees when a low-conviction pick has a genuinely weak chart', () => {
+    const result = convictionTechnicalDisagreement({
+      conviction: 3,
+      tech: { analyzed: true, trend: 'downtrend', rsi: 35, price: 42 },
+    })
+    expect(result.status).toBe('agree')
+  })
+
+  it('stays neutral in the middle range — moderate conviction disagreeing with nothing in particular', () => {
+    const result = convictionTechnicalDisagreement({
+      conviction: 6,
+      tech: { analyzed: true, trend: 'consolidating', rsi: 50, price: 42 },
+    })
+    expect(result.status).toBe('agree')
+  })
+
+  it('returns unclear rather than guessing when there is no technical read for this ticker', () => {
+    expect(convictionTechnicalDisagreement({ conviction: 9, tech: null }).status).toBe('unclear')
+    expect(convictionTechnicalDisagreement({ conviction: 9, tech: { analyzed: false } }).status).toBe('unclear')
+  })
+})
+
+describe('computeCoverageAcceleration', () => {
+  it('flags a ticker whose coverage has roughly doubled over its recent average', () => {
+    const result = computeCoverageAcceleration({ todayCount: 8, priorCounts: [3, 4, 5] })
+    expect(result.status).toBe('accelerating')
+    expect(result.ratio).toBeCloseTo(2, 1)
+  })
+
+  it('flags a ticker whose coverage has fallen off, not just gone quiet', () => {
+    const result = computeCoverageAcceleration({ todayCount: 1, priorCounts: [6, 8, 4] })
+    expect(result.status).toBe('decelerating')
+  })
+
+  it('calls it steady when coverage today is in line with its recent history', () => {
+    const result = computeCoverageAcceleration({ todayCount: 5, priorCounts: [4, 5, 6] })
+    expect(result.status).toBe('steady')
+  })
+
+  it('treats a ticker going from zero coverage to any coverage as accelerating, not a divide-by-zero', () => {
+    const result = computeCoverageAcceleration({ todayCount: 3, priorCounts: [0, 0, 0] })
+    expect(result.status).toBe('accelerating')
+  })
+
+  it('returns new for a ticker with no prior history at all, distinct from steady', () => {
+    // "10 mentions today, none of the last 3 days" is not the same fact as
+    // "10 mentions today, roughly like every day this week" — collapsing them
+    // into the same status would erase the thing this feature exists to show.
+    const result = computeCoverageAcceleration({ todayCount: 10, priorCounts: [] })
+    expect(result.status).toBe('new')
+  })
+
+  it('is not fooled by a single noisy day — it reads the average of the window, not day-over-day', () => {
+    const result = computeCoverageAcceleration({ todayCount: 5, priorCounts: [1, 9, 5] })
+    expect(result.status).toBe('steady')
+  })
+
+  it('returns null for an invalid count rather than guessing', () => {
+    expect(computeCoverageAcceleration({ todayCount: null, priorCounts: [3, 4] })).toBeNull()
+    expect(computeCoverageAcceleration({ todayCount: -1, priorCounts: [3, 4] })).toBeNull()
+    expect(computeCoverageAcceleration({})).toBeNull()
+  })
+
+  it('ignores non-finite entries in the prior window rather than letting them corrupt the average', () => {
+    const result = computeCoverageAcceleration({ todayCount: 5, priorCounts: [4, null, 6, undefined] })
+    expect(result.status).toBe('steady')
   })
 })
 

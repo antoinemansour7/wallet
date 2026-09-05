@@ -250,6 +250,17 @@ const TICKER_STOPWORDS = new Set([
   'PE', 'EV', 'ROE', 'ROI', 'ROIC', 'EBIT', 'EBITDA', 'FCF', 'YTD', 'QOQ', 'TTM', 'CAGR', 'DCF', 'MOIC', 'AUM',
 ])
 
+// Deliberately NOT a discovery exclusion, and deliberately not the size
+// blacklist that was removed from exaDiscoveryAgent.js. These names can still
+// be extracted from any signal, still reach the board, and still be picked on
+// their evidence.
+//
+// This list governs one thing: which tickers get to spend one of the ~10
+// adaptive query slots on a dedicated follow-up search. A search for "SPY" or
+// "NVDA" plus catalyst words returns index commentary and macro chatter rather
+// than a specific dated event, because these are the most-discussed symbols on
+// the platform. That is a query-budget judgment about what a search will
+// return, not a preference about what kind of company deserves to be picked.
 const SEED_TICKER_EXCLUSIONS = new Set([
   'AAPL', 'AMZN', 'GOOG', 'GOOGL', 'IGV', 'IWM', 'META', 'MSFT', 'NVDA', 'QQQ', 'SPY', 'TSLA',
 ])

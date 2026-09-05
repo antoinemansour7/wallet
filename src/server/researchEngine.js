@@ -120,9 +120,6 @@ export const CATALYST_REGEX = new RegExp([
 ].join('|'), 'i')
 const FAILURE_REGEX = /(collapse|collapsed|unwind|unwound|rug|rugged|bloodbath|dead cat|bagholder|dump|dumped|selloff|sell-off|guidance cut|cut guidance|secondary offering|offering|dilution|reverse split|halted|delisting|chapter 11|broken chart|crash|crashed|imploded|implosion)/i
 
-const MEGA_CAP_TICKERS = new Set(['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'GOOG', 'TSLA'])
-
-
 // Sector ETFs for trend detection — maps themes/keywords to sector ETFs
 const SECTOR_ETF_MAP = {
   software: 'IGV', saas: 'IGV', cloud: 'IGV',
@@ -387,8 +384,16 @@ function buildQuoteMap(quotes = []) {
 // fields — a single undefined field would turn the whole score into NaN.
 function normalizeBoardItem(item) {
   const num = (value) => (Number.isFinite(value) ? Math.max(0, Math.min(value, 4)) : 0)
+  const raw = (value) => (Number.isFinite(value) ? Math.max(0, value) : 0)
   return {
     ...item,
+    // Every scoring field above is clamped to 4 so raw volume cannot dominate.
+    // Coverage acceleration needs the opposite: the whole question is how far
+    // today's mention count moved against this ticker's own recent average, and
+    // reading the clamped value made that ratio uncomputable above 4 mentions —
+    // a jump from 3 to 9 measured as 3→4 and reported as "steady". Kept
+    // unclamped and used only by the acceleration comparison, never as a score.
+    coverageCount: raw(item.signalCount) + raw(item.articleCount),
     signalCount: num(item.signalCount),
     articleCount: num(item.articleCount),
     maxScore: Number.isFinite(item.maxScore) ? Math.max(0, Math.min(item.maxScore, 10)) : 0,
@@ -409,7 +414,7 @@ function normalizeBoardItem(item) {
   }
 }
 
-export function rankHighUpsideBoard(signalBoard, quotesByTicker = new Map(), sectorTrends = new Map()) {
+export function rankHighUpsideBoard(signalBoard, quotesByTicker = new Map(), sectorTrends = new Map(), coverageHistory = new Map()) {
   return signalBoard
     .map(normalizeBoardItem)
     .map((item) => {
@@ -424,7 +429,6 @@ export function rankHighUpsideBoard(signalBoard, quotesByTicker = new Map(), sec
       const hugeDownDay = quoteChangePercent !== null && quoteChangePercent <= -15
       const moderateDip = quoteChangePercent !== null && quoteChangePercent > -15 && quoteChangePercent <= -3
       const contextHeavy = item.convictionMentions === 0 && item.contextMentions > 0
-      const mainstreamCrowdFavorite = MEGA_CAP_TICKERS.has(item.ticker)
 
       let archetypeScore = (item.signalCount * 1.65)
         + (Math.min(sourceCount(item), 4) * 1.35)
@@ -463,6 +467,24 @@ export function rankHighUpsideBoard(signalBoard, quotesByTicker = new Map(), sec
         }
       }
       if (sectorPenalty > 0) archetypeScore -= sectorPenalty
+
+      // Coverage accelerating is genuine evidence strength changing today, not
+      // a categorical bias like the sector quota the ranking audit removed —
+      // it rewards a ticker whose own attention just changed, not what kind of
+      // company it is. A brand-new story (no prior history at all) gets no
+      // adjustment: "new" is a fact worth showing, not one worth scoring on,
+      // since there is nothing yet to say it is unusual for this ticker.
+      //
+      // The upward bonus is gated on corroboration and stays small on purpose.
+      // Acceleration is a tiebreaker between candidates that already have a
+      // case, never a route to the top for one that does not: a mention spike
+      // with a single publisher behind it is how a pump looks, and rewarding it
+      // ungated would let coordinated chatter carry a stock on its own. The
+      // fade penalty is not gated — coverage draining out of a name is worth
+      // knowing whether or not anyone corroborated it.
+      const coverage = computeCoverageAcceleration({ todayCount: item.coverageCount, priorCounts: coverageHistory.get(item.ticker) })
+      if (coverage?.status === 'accelerating' && repeatedAttention) archetypeScore += 1.0
+      else if (coverage?.status === 'decelerating') archetypeScore -= 0.5
 
       // Signal volume alone shouldn't dominate — cap signal count contribution
       if (item.signalCount > 4 && item.sources.length <= 1) archetypeScore -= 2.0
@@ -503,7 +525,9 @@ export function rankHighUpsideBoard(signalBoard, quotesByTicker = new Map(), sec
         moderateDip,
         repeatedAttention,
         brokenSetupRisk,
-        mainstreamCrowdFavorite,
+        coverageAcceleration: coverage?.status ?? null,
+        coverageToday: item.coverageCount,
+        coveragePriorAverage: coverage?.priorAverage ?? null,
         setupType,
         archetypeScore: Number(archetypeScore.toFixed(2)),
       }
@@ -515,8 +539,24 @@ export function rankHighUpsideBoard(signalBoard, quotesByTicker = new Map(), sec
     })
 }
 
-async function getRankedSignalBoard(signals, articles) {
+async function getRankedSignalBoard(signals, articles, { discoveryHealthy = true } = {}) {
   const baseBoard = buildSignalBoard(signals, articles)
+
+  // Coverage is read and written against the raw board, before selection,
+  // quote verification or any gate — the question is how loudly the feeds were
+  // talking about each name, not which names survived scoring.
+  let coverageHistory = new Map()
+  try {
+    const { loadCoverageHistory, recordCoverageSnapshot } = await import('./researchCoverageStore.js')
+    coverageHistory = await loadCoverageHistory()
+    if (coverageHistory.size > 0) console.log(`[researchEngine] coverage history for ${coverageHistory.size} tickers`)
+    await recordCoverageSnapshot(baseBoard, { healthy: discoveryHealthy })
+  } catch (err) {
+    // A missing history leaves every ticker "new", which scores nothing. The
+    // run must not fail because yesterday's coverage is unavailable.
+    console.error('[researchEngine] coverage store unavailable:', err.message)
+  }
+
   const candidateTickers = selectCandidates(baseBoard).map((item) => item.ticker)
   let quotesByTicker = new Map()
   let sectorTrends = new Map()
@@ -542,7 +582,7 @@ async function getRankedSignalBoard(signals, articles) {
     }
   }
 
-  const ranked = rankHighUpsideBoard(baseBoard, quotesByTicker, sectorTrends)
+  const ranked = rankHighUpsideBoard(baseBoard, quotesByTicker, sectorTrends, coverageHistory)
   return { board: ranked, sectorTrends }
 }
 
@@ -840,6 +880,91 @@ export function technicalAdjustment(tech) {
   return Number(adj.toFixed(2))
 }
 
+/**
+ * Whether the model's conviction and the chart actually agree, surfaced as
+ * its own field rather than absorbed into one blended number.
+ *
+ * technicalAdjustment already nudges the score by a few tenths for the same
+ * signals this reads — that is the right place for a small correction, and
+ * the wrong place for "the model is confident and the chart is falling",
+ * which is a conflict worth a person's attention, not a rounding error.
+ *
+ * Plain-language notes on purpose, matching the prompt's own rule for the
+ * model's prose: name the number, not just the label — "RSI 82", not just
+ * "overbought" — because the number is the part someone can actually check.
+ */
+const BEARISH_CHART_TRENDS = new Set(['downtrend', 'oversold-downtrend'])
+const BULLISH_CHART_TRENDS = new Set(['uptrend', 'recovery'])
+const HIGH_CONVICTION = 7
+const LOW_CONVICTION = 4
+
+export function convictionTechnicalDisagreement({ conviction, tech } = {}) {
+  if (!tech?.analyzed) return { status: 'unclear', note: '' }
+
+  const rsi = Number.isFinite(tech.rsi) ? tech.rsi : null
+  const overbought = rsi !== null && rsi > 75
+  const oversold = rsi !== null && rsi < 30
+
+  const bearishChart = BEARISH_CHART_TRENDS.has(tech.trend) || tech.trend === 'overbought-uptrend' && overbought
+  const bullishChart = BULLISH_CHART_TRENDS.has(tech.trend) && !overbought
+
+  if (conviction >= HIGH_CONVICTION && bearishChart) {
+    const note = tech.trend === 'overbought-uptrend'
+      ? `The model is confident, but the chart has already run up hard — RSI ${rsi}, typically read as stretched above 75.`
+      : oversold
+        ? `The model is confident, but the stock has been falling and is deeply oversold — RSI ${rsi}.`
+        : 'The model is confident, but the stock has been trending down.'
+    return { status: 'conflict', note }
+  }
+
+  if (conviction <= LOW_CONVICTION && bullishChart) {
+    return {
+      status: 'conflict',
+      note: 'The model is not convinced, but the chart shows a confirmed uptrend — price above both its 20- and 50-day averages.',
+    }
+  }
+
+  return { status: 'agree', note: '' }
+}
+
+/**
+ * Whether a ticker's coverage today is accelerating, not just how much of it
+ * exists. A ticker with 10 mentions today reads identically to one that has
+ * had 10 mentions every day this week under a flat signal count — the rate
+ * of change is the stronger short-horizon signal, and this is the pure
+ * comparison against a ticker's own recent history rather than a fixed count.
+ *
+ * `priorCounts` is the recent daily history excluding today, from
+ * researchCoverageStore.js — a short window (a few days) matching the same
+ * 3-5 session horizon the rest of this pipeline targets. Reads the window's
+ * average rather than yesterday alone, so one unusually quiet or loud day
+ * does not read as a trend change.
+ *
+ * `new` is kept distinct from `steady`: a ticker with no prior history and
+ * one with a flat history are different facts, and collapsing them would
+ * erase the thing this exists to surface.
+ */
+const ACCELERATION_RATIO = 2
+const DECELERATION_RATIO = 0.5
+
+export function computeCoverageAcceleration({ todayCount, priorCounts } = {}) {
+  if (!Number.isFinite(todayCount) || todayCount < 0) return null
+
+  const priorDays = (priorCounts || []).filter((c) => Number.isFinite(c) && c >= 0)
+  if (!priorDays.length) return { status: 'new', ratio: null, priorAverage: null }
+
+  const priorAverage = priorDays.reduce((sum, c) => sum + c, 0) / priorDays.length
+
+  if (priorAverage === 0) {
+    return { status: todayCount > 0 ? 'accelerating' : 'steady', ratio: null, priorAverage: 0 }
+  }
+
+  const ratio = todayCount / priorAverage
+  if (ratio >= ACCELERATION_RATIO) return { status: 'accelerating', ratio, priorAverage }
+  if (ratio <= DECELERATION_RATIO) return { status: 'decelerating', ratio, priorAverage }
+  return { status: 'steady', ratio, priorAverage }
+}
+
 // Learn only from comparable, matured five-session outcomes after costs.
 // Legacy one-day win rates and tiny samples do not steer the ranking.
 export function setupPerformanceAdjustment(setupType, stats) {
@@ -869,6 +994,7 @@ export function postProcessCandidates(parsed, signalBoard, technicals = new Map(
       const summary = boardByTicker.get(ticker)
       const tech = technicals.get(ticker)
       const techAdjustment = technicalAdjustment(tech?.analyzed ? tech : null)
+      const disagreement = convictionTechnicalDisagreement({ conviction: tickerObj.conviction, tech })
       const setupAdjustment = setupPerformanceAdjustment(summary?.setupType ?? 'momentum', performanceStats)
       const sourceAdjustment = sourcePerformanceAdjustment(summary?.sources ?? [], performanceStats)
       return {
@@ -876,6 +1002,8 @@ export function postProcessCandidates(parsed, signalBoard, technicals = new Map(
         conviction: tickerObj.conviction,
         modelVersion: RESEARCH_MODEL_VERSION,
         techAdjustment,
+        technicalAgreement: disagreement.status,
+        disagreementNote: disagreement.note,
         setupAdjustment,
         sourceAdjustment,
         sources: summary?.sources ?? [],
@@ -894,7 +1022,9 @@ export function postProcessCandidates(parsed, signalBoard, technicals = new Map(
         pennyStockRisk: Boolean(summary?.pennyStockRisk),
         exceptionalPennySetup: Boolean(summary?.exceptionalPennySetup),
         brokenSetupRisk: Boolean(summary?.brokenSetupRisk),
-        mainstreamCrowdFavorite: Boolean(summary?.mainstreamCrowdFavorite),
+        coverageAcceleration: summary?.coverageAcceleration ?? null,
+        coverageToday: summary?.coverageToday ?? null,
+        coveragePriorAverage: summary?.coveragePriorAverage ?? null,
         convictionMentions: summary?.convictionMentions ?? 0,
         contextMentions: summary?.contextMentions ?? 0,
         recentRepeat: recentPickedTickers.has(ticker),
@@ -939,7 +1069,9 @@ export async function extractTickers(signals, articles, options = {}) {
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
 
   signals = prepareResearchSignals(signals)
-  const { board: signalBoard, sectorTrends } = await getRankedSignalBoard(signals, articles)
+  const { board: signalBoard, sectorTrends } = await getRankedSignalBoard(signals, articles, {
+    discoveryHealthy: options.discoveryHealthy !== false,
+  })
 
   // Fetch per-ticker technical analysis for top candidates
   const { analyzeTickersBatch } = await import('./technicalAnalysis.js')
@@ -1071,6 +1203,11 @@ export async function extractTickers(signals, articles, options = {}) {
 // catalystConfidence — this folds them into the order picks are delivered in,
 // instead of leaving them as display-only metadata.
 
+// `technicalAgreement` is deliberately absent from this function. A conflict
+// between the model's conviction and the chart is information for the reader,
+// not a score adjustment — technicalAdjustment already prices the chart itself,
+// and adjusting again here would re-blend the very thing the callout exists to
+// pull apart. Leave it out on purpose, not by oversight.
 export function finalizePicks(picks) {
   if (!picks || picks.length === 0) return []
 
