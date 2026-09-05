@@ -65,6 +65,36 @@ describe('classifyHolding', () => {
     const unknown = holding({ SYMBOL: 'ZZZZ.TO', DESCRIPTION: 'SOME NEW ETF', 'ACCOUNT CURRENCY': 'CAD' })
     expect(classifyHolding(unknown).treatment).toBe(TREATMENT.UNKNOWN)
   })
+
+  describe('fundExposureHint (#88 — real fund composition, when the caller has it)', () => {
+    const unknown = holding({ SYMBOL: 'ZZZZ.TO', DESCRIPTION: 'SOME NEW ETF', 'ACCOUNT CURRENCY': 'CAD' })
+
+    it('resolves a fund the hardcoded lists have never heard of, given real composition data', () => {
+      const result = classifyHolding(unknown, { fundExposureHint: { holdsForeignEquities: true } })
+      expect(result.treatment).toBe(TREATMENT.IN_FUND)
+    })
+
+    it('resolves a fund as domestic when its real holdings are all domestic', () => {
+      const result = classifyHolding(unknown, { fundExposureHint: { holdsForeignEquities: false } })
+      expect(result.treatment).toBe(TREATMENT.NONE)
+    })
+
+    it('takes priority over the hardcoded lists when both could answer', () => {
+      // The hint is live data about this specific fund's current holdings; the
+      // hardcoded set is a stale snapshot from whenever it was last edited.
+      // Real data wins.
+      const knownForeign = holding({ SYMBOL: 'VFV.TO', DESCRIPTION: 'VANGUARD S&P 500 INDEX ETF', 'ACCOUNT CURRENCY': 'CAD' })
+      const result = classifyHolding(knownForeign, { fundExposureHint: { holdsForeignEquities: false } })
+      expect(result.treatment).toBe(TREATMENT.NONE)
+    })
+
+    it('falls back to the hardcoded lists when no hint is supplied, unchanged', () => {
+      // Every other test in this file calls classifyHolding with one argument.
+      // This proves the sync, hint-free path — the one those tests actually
+      // exercise — still behaves exactly as before.
+      expect(classifyHolding(unknown).treatment).toBe(TREATMENT.UNKNOWN)
+    })
+  })
 })
 
 describe('projectWithholding', () => {

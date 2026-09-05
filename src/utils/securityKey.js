@@ -19,11 +19,18 @@
  * So: prefer a real identifier, fall back to the listing, and always report
  * which rung was used, because a symbol-based join is a guess and the caller
  * is entitled to know that before putting a number on a screen.
+ *
+ * ISIN and CUSIP come from Plaid directly for connected accounts. Statement
+ * imports have neither, and there is no free service that maps a bare ticker
+ * to an ISIN — but OpenFIGI maps ticker+exchange to a FIGI, a different
+ * identifier family serving the identical purpose here (#88): a real,
+ * globally unique key, ranked below the two Plaid supplies directly.
  */
 
 export const KEY_BASIS = {
   ISIN: 'isin',
   CUSIP: 'cusip',
+  FIGI: 'figi',
   SYMBOL: 'symbol',
 }
 
@@ -61,6 +68,15 @@ export function resolveSecurityKey(security) {
 
   const cusip = validIdentifier(security.cusip, 9)
   if (cusip) return { key: `cusip:${cusip}`, basis: KEY_BASIS.CUSIP }
+
+  // FIGI arrives on a distinct `figi` field, never on `isin` — it happens to
+  // share ISIN's 12-character length, but a security carrying only a FIGI
+  // must resolve to a figi: key, never get promoted to isin: by coincidence
+  // of length. It ranks below CUSIP because Plaid, the higher-confidence
+  // source, supplies ISIN/CUSIP directly; FIGI (#88) is a looked-up
+  // substitute for statement imports that have neither.
+  const figi = validIdentifier(security.figi, 12)
+  if (figi) return { key: `figi:${figi}`, basis: KEY_BASIS.FIGI }
 
   const symbol = clean(security.symbol)
   if (!symbol) return null
