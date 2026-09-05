@@ -35,10 +35,12 @@ export default function CompositionPanel({ rows, accounts }) {
 
       {segments.length === 0 ? <div className="mt-4"><EmptyChart /></div> : (
         <>
-          {/* The strip. Fixed-height row with centred segments, so an active
-              segment can grow without nudging anything below it. */}
+          {/* The strip: one continuous ribbon cut largest-to-smallest. The
+              hairline seams are the card showing through a 1px flex gap, so the
+              slices read as one bar rather than detached blocks. Height is fixed
+              and emphasis is a sheen overlay, so hovering never reflows. */}
           <div
-            className="mt-5 flex h-5 items-center gap-[3px]"
+            className="mt-5 flex h-3.5 w-full gap-px overflow-hidden rounded-full"
             onMouseLeave={() => setActive(null)}
           >
             {segments.map((seg, i) => (
@@ -48,12 +50,19 @@ export default function CompositionPanel({ rows, accounts }) {
                 onMouseEnter={() => setActive(i)}
                 onFocus={() => setActive(i)}
                 onBlur={() => setActive(null)}
-                style={{ flexGrow: Math.max(seg.share, 0.6), flexBasis: 0, backgroundColor: seg.color }}
-                className={`min-w-[4px] rounded-[4px] transition-all duration-motion-short focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/40 ${
-                  active === i ? 'h-5' : 'h-[13px]'
-                } ${active !== null && active !== i ? 'opacity-25' : 'opacity-100'}`}
+                style={{ flexGrow: Math.max(seg.share, 0.5), flexBasis: 0, backgroundColor: seg.color }}
+                className={`relative h-full min-w-[3px] outline-none transition-opacity duration-motion-short focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/40 ${
+                  active !== null && active !== i ? 'opacity-30' : 'opacity-100'
+                }`}
                 aria-label={`${seg.symbol}, ${fmtCurrency(seg.value)}, ${seg.share.toFixed(1)}% of holdings`}
-              />
+              >
+                <span
+                  aria-hidden="true"
+                  className={`absolute inset-0 bg-gradient-to-b from-white/30 to-transparent transition-opacity duration-motion-short ${
+                    active === i ? 'opacity-100' : 'opacity-0'
+                  }`}
+                />
+              </button>
             ))}
           </div>
 
