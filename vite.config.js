@@ -109,6 +109,11 @@ function livePricesPlugin() {
             }
 
             if (Array.isArray(parsed.positions)) {
+              if (parsed.comparison) {
+                const { getPortfolioComparison } = await import('./src/server/portfolioComparison.js')
+                res.setHeader('Content-Type', 'application/json')
+                return res.end(JSON.stringify(await getPortfolioComparison({ positions: parsed.positions, cashValue: Number(parsed.cashValue) || 0, currency: parsed.currency, benchmark: parsed.benchmark })))
+              }
               const mod = await import('./src/server/portfolioSeries.js')
               const series = parsed.intraday
                 ? await mod.getIntradaySeries({ positions: parsed.positions, cashValue: Number(parsed.cashValue) || 0 })

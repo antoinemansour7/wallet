@@ -318,6 +318,7 @@ async function fetchHoldingsForItem(client, doc, usdCadRate) {
         ? accountCurrency
         : cashCurrency
       cashEntries.push({
+        __plaidAccountId: account.account_id,
         account: mapAccountType(account),
         accountNumber: accountLabel(account),
         currency: statedCashCurrency,
@@ -489,7 +490,9 @@ async function handleDisconnect(req, res) {
   // institution name to go on, and the client used to send that slug *as* the
   // item id — which matched no document, so the disconnect 404'd silently and
   // the connection kept syncing. Resolving it here retires those too.
-  if (!docSnap?.exists && institution) {
+  // A known item id is authoritative. A retry for an already removed item
+  // must never fall through to a different connection at the same brokerage.
+  if (!itemId && institution) {
     const all = await collection.get()
     const match = all.docs.find((d) => slugify(d.data().institution) === slugify(institution))
     if (match) {
@@ -508,7 +511,11 @@ async function handleDisconnect(req, res) {
       const client = getPlaidClient()
       await client.itemRemove({ access_token: accessToken })
     } catch (err) {
-      console.warn('[plaid] itemRemove failed (may already be removed):', err.message)
+      const code = err.response?.data?.error_code
+      if (code !== 'INVALID_ACCESS_TOKEN' && code !== 'ITEM_NOT_FOUND') {
+        console.warn('[plaid] itemRemove failed:', err.message)
+        return res.status(502).json({ error: 'The brokerage could not be disconnected. Please try again.' })
+      }
     }
   }
 

@@ -575,12 +575,12 @@ export function summarizeSignalsForPrompt(signals, articles, options = {}) {
   return { signalBoard, boardText, signalText }
 }
 
-const TICKER_SYSTEM_PROMPT = `You are an elite stock signal analyst. Your job is to find the stocks most likely to rise in the NEXT TRADING SESSION (measured open→close). The user buys at the next open and is scored on that single session — a great pick that takes a week to move is a failed pick here. You think critically, not reactively.
+const TICKER_SYSTEM_PROMPT = `You are an elite stock signal analyst. Your job is to find the stocks most likely to rise over the NEXT 3 TO 5 TRADING DAYS. The user buys at the next open and holds for a few sessions, so the pick has room to work — but the edge still has to show up this week, not next month. A great pick that takes a month to move is a failed pick here. You think critically, not reactively.
 
-Because the horizon is one session, weight these hardest:
-- Catalysts landing TODAY or TOMORROW (earnings before open/after close, FDA dates, scheduled announcements) beat vague "upcoming" catalysts
-- earnings-calendar and premarket-movers screener signals are time-critical — a stock reporting earnings tomorrow morning IS tomorrow's mover, in one direction or the other; pick them only when the setup and positioning favor an upside reaction
-- Fresh signals (<24h) beat persistent multi-day chatter, which is usually already priced in
+Because the horizon is days, not weeks, weight these hardest:
+- Catalysts landing INSIDE the window (earnings this week, FDA dates, scheduled announcements in the next few sessions) beat vague "upcoming" catalysts months out
+- earnings-calendar and premarket-movers screener signals are time-critical — a stock reporting earnings this week IS one of this week's movers, in one direction or the other; pick them only when the setup and positioning favor an upside reaction. A near-term earnings date is a reason to lean in, not sit out, when the evidence is strong
+- Fresh signals (<48h) that are still building beat stale multi-day chatter that has already run and is likely priced in
 
 ## Your Decision Framework
 
@@ -619,7 +619,12 @@ Return ONLY a valid JSON array, no markdown fences, no explanation:
 [{"ticker":"RKLB","conviction":9,"reason":"NASA awarded a $150M hypersonic test contract last week, and 3 independent flow traders flagged heavy May call buying. The stock is consolidating at $42 support with a screener-confirmed breakout pattern — classic pre-catalyst coil with asymmetric upside if the contract pipeline accelerates."},...]
 
 Rules:
-- conviction 1–10 (10 = strongest). Be honest — a 7 with clear reasoning beats an inflated 9
+- conviction 1–10 (10 = strongest). Calibrate to the WEIGHT OF EVIDENCE, not to a gut feeling — the scale has been sagging to a permanent 5–6 because nothing gave you permission to go high. Anchor it:
+  - 8–10: strong corroboration — roughly 4+ independent sources (check sourceCount) carrying conviction language, AND a specific dated catalyst inside the 3–5 day window, AND screener/technical confirmation (screener hit, or price above SMA20+SMA50 with RSI <70 and positive MACD). When all three line up, START at 8 and justify going higher — do NOT round down to 6 out of caution. Heavy multi-source corroboration is exactly the signal you are here to reward.
+  - 6–7: solid but incomplete — two of the three above, or strong evidence with one real blemish (mild extension, mixed sector tape, a single loud source doing some of the talking).
+  - 3–5: thin — one lane only (screener with no narrative, or chatter with no catalyst), or conflicting evidence.
+  - 1–2: actively broken — down 15%+, failure signals, attention that is about damage not setup.
+- Be honest in BOTH directions: an inflated 9 on vibes is a failure, but so is a defensive 6 on a pick with four independent sources, a dated catalyst, and a confirmed chart — that is an 8+, score it like one.
 - reason: 2-4 sentences (40-80 words). Explain the SPECIFIC catalyst, why the setup is compelling, and what makes the risk/reward asymmetric. Reference concrete details from the signals — dates, price levels, contract values, earnings dates, specific trader observations. Also reference the technical setup (RSI, trend, MACD direction) to validate entry timing. This is the main thing users read, make it insightful and specific, not generic.
 - WRITE THE reason FOR A NON-PROFESSIONAL. The reader is a retail investor, not a desk analyst. Keep every number and date — precision is the point — but say what they mean in ordinary words. Write "coiled in a tight range just under $42, which often precedes a sharp move" rather than "consolidating at $42 support with a screener-confirmed breakout pattern".
 - BANNED WORDS, unless the same sentence says what the word means: squeeze, breakout, breaking out, coil, coiled, setup, extended, sell-the-news, priced in, asymmetric, coiled, bagholder, tape, beta, coiled, relative volume, sector tailwind, tailwind, headwind, rotation, rotate, core position, starter position, support, resistance, overbought, oversold, crowded, extension, momentum, catalyst.
@@ -1081,11 +1086,14 @@ export function finalizePicks(picks) {
   return kept.sort((a, b) => b.finalScore - a.finalScore)
 }
 
-// ─── OpenAI: generate research reports (with web search) ─────────────────────
+// ─── Claude: generate research reports (with web search) ─────────────────────
 
-import OpenAI from 'openai'
-
-const OPENAI_RESEARCH_MODEL = 'gpt-4.1-mini'
+// The reports were generated through OpenAI's Responses API, but every stored
+// report came back empty: api.openai.com is unreachable from the run
+// environment, so each per-ticker call failed and was silently swallowed into
+// report:null. Anthropic is already the extraction provider on this key and is
+// reachable, so reports run through Claude's server-side web search instead.
+const RESEARCH_REPORT_MODEL = process.env.RESEARCH_REPORT_MODEL || CLAUDE_MODEL
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -1145,44 +1153,58 @@ Based on everything above, give ${ticker} an overall Buy Score out of 10. Break 
 }
 
 export async function generateResearchReports(tickers) {
-  const apiKey = process.env.OPENAI_API_KEY
+  const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
-    console.warn('[researchEngine] OPENAI_API_KEY not set — returning picks without reports')
+    console.warn('[researchEngine] ANTHROPIC_API_KEY not set — returning picks without reports')
     return tickers.map((t) => ({ ...t, report: null, citations: [] }))
   }
 
-  const client = new OpenAI({ apiKey })
+  const client = new Anthropic({ apiKey })
   const results = []
 
   for (const tickerObj of tickers) {
     try {
-      const response = await client.responses.create({
-        model: OPENAI_RESEARCH_MODEL,
-        tools: [{ type: 'web_search_preview' }],
-        input: buildResearchPrompt(tickerObj),
-        max_output_tokens: 4096,
-        temperature: 0.2,
+      const response = await client.messages.create({
+        model: RESEARCH_REPORT_MODEL,
+        max_tokens: 4096,
+        tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 6 }],
+        messages: [{ role: 'user', content: buildResearchPrompt(tickerObj) }],
       })
 
-      const report = response.output_text || ''
-      const citations = (response.output || [])
-        .filter((item) => item.type === 'web_search_call')
-        .flatMap((item) => item.results || [])
-        .map((r) => r.url)
-        .filter(Boolean)
+      const blocks = response.content || []
+      const report = blocks
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text)
+        .join('')
+        .trim()
+      // Citation URLs surface either as web_search_tool_result blocks or as
+      // citations attached to the text the model wrote from them; collect both.
+      const citations = [...new Set(
+        blocks.flatMap((b) => {
+          if (b.type === 'web_search_tool_result' && Array.isArray(b.content)) {
+            return b.content.map((r) => r.url).filter(Boolean)
+          }
+          if (b.type === 'text' && Array.isArray(b.citations)) {
+            return b.citations.map((c) => c.url).filter(Boolean)
+          }
+          return []
+        }),
+      )]
 
       results.push({ ...tickerObj, report, citations })
     } catch (err) {
       console.error(`[researchEngine] report failed for ${tickerObj.ticker}:`, err.message)
-      if (err.status === 402 || err.status === 429 || err.message?.includes('insufficient_quota')) {
-        console.warn('[researchEngine] OpenAI credits exhausted — returning remaining picks without reports')
-        results.push({ ...tickerObj, report: null, citations: [] })
+      if (err.status === 402 || err.status === 429 || err.message?.includes('credit')) {
+        console.warn('[researchEngine] Anthropic credits/rate limit hit — returning remaining picks without reports')
+        results.push({ ...tickerObj, report: null, citations: [], reportError: err.message })
         for (const remaining of tickers.slice(tickers.indexOf(tickerObj) + 1)) {
           results.push({ ...remaining, report: null, citations: [] })
         }
         return results
       }
-      results.push({ ...tickerObj, error: err.message, report: null, citations: [] })
+      // Record the failure on the pick so an empty report is diagnosable from
+      // stored data instead of only living in ephemeral function logs.
+      results.push({ ...tickerObj, reportError: err.message, report: null, citations: [] })
     }
 
     if (tickers.indexOf(tickerObj) < tickers.length - 1) {

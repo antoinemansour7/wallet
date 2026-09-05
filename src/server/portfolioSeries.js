@@ -31,7 +31,7 @@ function getRedis() {
 // without it every Canadian holding contributed zero to the chart, and since
 // the daily and intraday paths dropped different sets of them, the portfolio
 // total visibly changed as you switched range.
-async function withTsxFallback(symbol, fetcher) {
+export async function withTsxFallback(symbol, fetcher) {
   const direct = await fetcher(symbol)
   if (hasCloses(direct)) return direct
   if (symbol.includes('.')) return direct
@@ -45,7 +45,7 @@ function hasCloses(candles) {
   return Object.keys(closes).length > 0
 }
 
-async function fetchDailyCloses(symbol, days = 365) {
+export async function fetchDailyCloses(symbol, days = 365) {
   const period2 = Math.floor(Date.now() / 1000)
   const period1 = period2 - days * 24 * 60 * 60
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?period1=${period1}&period2=${period2}&interval=1d`

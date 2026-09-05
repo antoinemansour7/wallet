@@ -3,40 +3,27 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getAuthErrorMessage } from '../context/authErrors'
 import { Logo } from '../components/Navbar'
+import './Login.css'
 
-const BENEFITS = [
-  'Portfolio syncs across all your devices.',
-  'CDR-aware pricing — Canadian listings stay in CAD.',
-  'Live FX conversion for USD stocks in CAD accounts.',
-]
-
-/**
- * Sign in and sign up are one surface, not two routes.
- *
- * The only thing that differs between them is a label, an autocomplete hint and
- * which function the submit handler calls — so they share a card and swap state
- * in place. Navigating a whole page to change two words reads as heavier than
- * it is, and it throws away whatever the person already typed.
- */
 const MODES = {
   signin: {
-    eyebrow: 'Welcome back',
-    heading: 'Continue to WallAI',
-    submit: 'Sign in',
-    pending: 'Signing in…',
+    heading: 'Welcome back',
+    subheading: 'Let’s check in on your investments.',
+    submit: 'Log in',
+    pending: 'Logging in…',
     passwordAutoComplete: 'current-password',
-    switchPrompt: 'New here?',
-    switchAction: 'Create an account',
+    switchPrompt: 'New to WallAI?',
+    switchAction: 'Sign up',
     other: 'signup',
   },
   signup: {
-    eyebrow: 'Get started',
     heading: 'Create your account',
+    subheading: 'A home for all your investments. Free during beta.',
     submit: 'Create account',
     pending: 'Creating account…',
     passwordAutoComplete: 'new-password',
     switchPrompt: 'Already have an account?',
-    switchAction: 'Sign in',
+    switchAction: 'Log in',
     other: 'signin',
   },
 }
@@ -53,6 +40,8 @@ export default function Login() {
   const [notice, setNotice] = useState('')
   const [pending, setPending] = useState('')
   const emailRef = useRef(null)
+  const headingRef = useRef(null)
+  const previousMode = useRef(mode)
 
   const copy = MODES[mode]
 
@@ -60,12 +49,16 @@ export default function Login() {
     if (user) navigate('/portfolio', { replace: true })
   }, [user, navigate])
 
+  useEffect(() => {
+    if (previousMode.current !== mode) {
+      headingRef.current?.focus()
+      previousMode.current = mode
+    }
+  }, [mode])
+
   const switchMode = () => {
     setMode(copy.other)
-    // The password does not survive the switch: a value typed as "the password I
-    // already have" is not the one being chosen for a new account, and carrying
-    // it over invites submitting the wrong one by reflex. The email does survive
-    // — it is the same address either way, and retyping it is pure friction.
+    // Keep the address, but never carry an existing password into sign-up.
     setPassword('')
     setShowPassword(false)
     setError('')
@@ -87,6 +80,7 @@ export default function Login() {
 
   const handleSubmit = (event) => {
     event.preventDefault()
+    if (busy) return
     run(mode, () => (
       mode === 'signin' ? signInWithEmail(email, password) : signUpWithEmail(email, password)
     ))
@@ -109,188 +103,147 @@ export default function Login() {
   const busy = Boolean(pending)
 
   return (
-    <main className="login-shell relative min-h-screen overflow-hidden">
-      <div className="login-grid pointer-events-none absolute inset-0" aria-hidden="true" />
-      <div className="login-orbit login-orbit-one pointer-events-none absolute" aria-hidden="true" />
-      <div className="login-orbit login-orbit-two pointer-events-none absolute" aria-hidden="true" />
+    <main className="login-shell">
+      <header className="login-brand">
+        <Logo size={36} inverted />
+        <span className="login-beta"><span /> Beta</span>
+      </header>
 
-      <nav className="relative z-10 mx-auto flex max-w-7xl items-center justify-between px-6 py-6 sm:px-10 lg:px-12">
-        <Logo size={38} inverted />
-        <div className="flex items-center gap-2 text-xs font-medium tracking-wide text-white/65 dark:text-white/45">
-          <span className="size-1.5 rounded-full bg-gain" />
-          Private beta
-        </div>
-      </nav>
-
-      <div className="relative z-10 mx-auto grid min-h-[calc(100vh-92px)] max-w-7xl items-center gap-14 px-6 pb-14 pt-8 sm:px-10 lg:grid-cols-[minmax(0,1fr)_430px] lg:gap-20 lg:px-12 lg:pb-20 lg:pt-10">
-        {/* On a phone the card comes first: the pitch is worth reading, but not
-            worth a full screen of scrolling before you can reach the thing you
-            came to do. On desktop both fit side by side and the order reverts. */}
-        <section className="order-2 max-w-2xl lg:order-1" aria-labelledby="login-heading">
-          <div className="mb-8 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.24em] text-[#8fd7ba] dark:text-accent">
-            <span className="h-px w-8 bg-[#8fd7ba] dark:bg-accent" />
-            Intelligent portfolio tracking
-          </div>
-          <h1 id="login-heading" className="max-w-xl font-display text-[clamp(3.1rem,7vw,6.4rem)] font-semibold leading-[0.95] tracking-[-0.055em] text-white">
-            Your money,<br />made <span className="text-gradient">legible.</span>
-          </h1>
-          <p className="mt-8 max-w-lg text-base leading-7 text-white/70 dark:text-white/48 sm:text-lg">
-            WallAI turns scattered brokerage data into one calm, considered view of your wealth.
-          </p>
-
-          <div className="mt-12 max-w-xl border-y border-white/[0.16] py-5 dark:border-white/[0.10]">
-            <div className="mb-4 flex items-center justify-between text-xs text-white/60 dark:text-white/40">
-              <span>Portfolio performance</span>
-              <span className="font-mono text-gain">+18.42% <span className="text-white/45 dark:text-white/25">YTD</span></span>
+      <section className="login-access" aria-labelledby="sign-in-title">
+        <div className="login-access-top"><span className="login-small-mark" /> Your portfolio, at a glance</div>
+        <div className="login-form-wrap">
+          <div key={mode} className="login-face">
+            <div className="login-form-heading">
+              <h1 id="sign-in-title" ref={headingRef} tabIndex={-1}>{copy.heading}</h1>
+              <p>{copy.subheading}</p>
             </div>
-            <PerformanceChart />
-          </div>
 
-          {/* The benefits moved out of the card when the card gained a form —
-              three reassurances stacked under a password field push the submit
-              button below the fold on a phone. */}
-          <div className="mt-7 flex flex-col gap-3">
-            {BENEFITS.map((benefit) => (
-              <div key={benefit} className="flex items-start gap-3 text-sm leading-5 text-white/60 dark:text-white/45">
-                <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-white/10 text-[#8fd7ba] dark:bg-gain/15 dark:text-gain"><CheckIcon /></span>
-                {benefit}
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="order-1 rounded-[2rem] border border-[#dce7e0] bg-[#f3f6f2] p-6 text-ink shadow-2xl shadow-black/25 dark:border-white/[0.12] dark:bg-wall-surface/90 dark:text-white dark:shadow-black/20 dark:backdrop-blur-xl sm:p-8 lg:order-2" aria-labelledby="sign-in-title">
-          <div className="mb-7">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-ink/65 dark:text-white/35">{copy.eyebrow}</p>
-            <h2 id="sign-in-title" className="font-display text-[2rem] font-semibold leading-[1.1] tracking-[-0.04em] text-ink dark:text-white">{copy.heading}</h2>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => run('google', signInWithGoogle)}
-            disabled={busy}
-            className="flex w-full items-center justify-center gap-3 rounded-xl border border-ink/15 bg-white px-4 py-3.5 text-sm font-semibold text-ink transition-all duration-motion-long hover:border-ink/30 hover:shadow-[0_8px_24px_rgba(23,33,29,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/15 dark:bg-white/[0.06] dark:text-white dark:hover:border-white/30 dark:hover:bg-white/[0.10] dark:focus-visible:ring-offset-0"
-          >
-            <GoogleIcon />
-            {pending === 'google' ? 'Opening Google…' : 'Continue with Google'}
-          </button>
-
-          <div className="my-6 flex items-center gap-4" aria-hidden="true">
-            <span className="h-px flex-1 bg-ink/10 dark:bg-white/10" />
-            <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-ink/45 dark:text-white/30">or</span>
-            <span className="h-px flex-1 bg-ink/10 dark:bg-white/10" />
-          </div>
-
-          <form onSubmit={handleSubmit} noValidate>
-            <div className="flex flex-col gap-4">
-              <Field label="Email" htmlFor="login-email">
-                <input
-                  ref={emailRef}
-                  id="login-email"
-                  name="email"
-                  type="email"
-                  inputMode="email"
-                  autoComplete="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  className={INPUT_CLASS}
-                />
-              </Field>
-
-              <Field
-                label="Password"
-                htmlFor="login-password"
-                action={mode === 'signin' ? (
-                  <button
-                    type="button"
-                    onClick={handleReset}
-                    disabled={busy}
-                    className="rounded text-xs font-medium text-ink/60 underline-offset-4 transition-colors duration-motion-short hover:text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 dark:text-white/45 dark:hover:text-white"
-                  >
-                    {pending === 'reset' ? 'Sending…' : 'Forgot password?'}
-                  </button>
-                ) : null}
-              >
-                <div className="relative">
+            <form onSubmit={handleSubmit} noValidate aria-busy={busy}>
+              <div className="login-fields">
+                <Field label="Email" htmlFor="login-email">
                   <input
-                    id="login-password"
-                    name="password"
-                    type={showPassword ? 'text' : 'password'}
-                    autoComplete={copy.passwordAutoComplete}
+                    ref={emailRef}
+                    id="login-email"
+                    name="email"
+                    type="email"
+                    inputMode="email"
+                    autoComplete="email"
+                    autoCapitalize="none"
+                    spellCheck={false}
                     required
-                    minLength={6}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder={mode === 'signup' ? 'At least 6 characters' : '••••••••'}
-                    className={`${INPUT_CLASS} pr-11`}
+                    disabled={busy}
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="you@example.com"
+                    className="login-input"
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    aria-pressed={showPassword}
-                    className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-xl text-ink/45 transition-colors duration-motion-short hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent dark:text-white/35 dark:hover:text-white"
-                  >
-                    {showPassword ? <EyeOffIcon /> : <EyeIcon />}
-                  </button>
-                </div>
-              </Field>
-            </div>
-
-            {/* Feedback sits directly above the button that produced it, so it is
-                read on the way back to trying again. */}
-            {error && (
-              <div role="alert" className="mt-5 rounded-xl border border-loss/20 bg-loss-bg px-4 py-3 text-sm leading-5 text-loss dark:border-loss/30 dark:bg-loss/10">
-                {error}
+                </Field>
+                <Field
+                  label="Password"
+                  htmlFor="login-password"
+                  action={mode === 'signin' ? (
+                    <button type="button" onClick={handleReset} disabled={busy} className="login-text-button login-forgot">
+                      {pending === 'reset' ? 'Sending…' : 'Forgot password?'}
+                    </button>
+                  ) : null}
+                >
+                  <div className="login-password-wrap">
+                    <input
+                      id="login-password"
+                      name="password"
+                      type={showPassword ? 'text' : 'password'}
+                      autoComplete={copy.passwordAutoComplete}
+                      required
+                      minLength={6}
+                      disabled={busy}
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      placeholder={mode === 'signup' ? 'At least 6 characters' : 'Enter your password'}
+                      className="login-input login-password-input"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((value) => !value)}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      aria-pressed={showPassword}
+                      className="login-password-toggle"
+                    >
+                      {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                    </button>
+                  </div>
+                </Field>
               </div>
-            )}
-            {notice && (
-              <div role="status" className="mt-5 rounded-xl border border-gain/25 bg-gain/[0.08] px-4 py-3 text-sm leading-5 text-ink/80 dark:text-white/70">
-                {notice}
-              </div>
-            )}
 
-            <button
-              type="submit"
-              disabled={busy}
-              className="mt-5 w-full rounded-xl bg-ink px-4 py-3.5 text-sm font-semibold text-white transition-all duration-motion-long hover:bg-ink/90 hover:shadow-[0_12px_32px_rgba(23,33,29,0.20)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-brand dark:hover:bg-white/90 dark:hover:shadow-[0_12px_32px_rgba(255,255,255,0.12)] dark:focus-visible:ring-offset-0"
-            >
-              {pending === mode ? copy.pending : copy.submit}
-            </button>
-          </form>
+              {error && <div role="alert" className="login-feedback login-error">{error}</div>}
+              {notice && <div role="status" className="login-feedback login-notice">{notice}</div>}
 
-          <div className="mt-6 flex gap-3 rounded-xl bg-ink/[0.045] px-4 py-3.5 text-xs leading-5 text-ink/65 dark:bg-white/[0.045] dark:text-white/35">
-            <LockIcon />
-            <span>Your connection is encrypted, and your password is stored only by Firebase Authentication.</span>
-          </div>
+              <button type="submit" disabled={busy} className="login-submit">
+                <span>{pending === mode ? copy.pending : copy.submit}</span>
+                {pending === mode ? <span className="login-spinner" aria-hidden="true" /> : <ArrowIcon />}
+              </button>
+            </form>
 
-          <div className="-mx-6 mt-6 border-t border-ink/10 px-6 pt-5 text-center text-sm text-ink/65 dark:border-white/[0.09] dark:text-white/45 sm:-mx-8 sm:px-8">
-            {copy.switchPrompt}{' '}
+            <div className="login-divider" aria-hidden="true"><span />or<span /></div>
+
             <button
               type="button"
-              onClick={switchMode}
-              className="rounded font-semibold text-ink underline-offset-4 transition-colors duration-motion-short hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent dark:text-white"
+              onClick={() => run('google', signInWithGoogle)}
+              disabled={busy}
+              className="login-google"
             >
-              {copy.switchAction}
+              {pending === 'google' ? <span className="login-spinner" aria-hidden="true" /> : <GoogleIcon />}
+              {pending === 'google' ? 'Opening Google…' : 'Continue with Google'}
             </button>
+
+            <p className="login-switch">
+              {copy.switchPrompt}{' '}
+              <button type="button" onClick={switchMode} disabled={busy} className="login-text-button">
+                {copy.switchAction}<span aria-hidden="true"> ↗</span>
+              </button>
+            </p>
           </div>
 
-          <p className="mt-5 text-center text-[11px] leading-4 text-ink/65 dark:text-white/22">For portfolio tracking only — not financial advice.</p>
-        </section>
-      </div>
+          <p className="login-reassurance"><LockIcon /> Your money stays with your brokerage.</p>
+        </div>
+        <footer className="login-access-footer">
+          <span>© {new Date().getFullYear()} WallAI</span>
+          <span>Portfolio tracking</span>
+        </footer>
+      </section>
+
+      <section className="login-story" aria-labelledby="login-heading">
+        <div className="login-sculpture" aria-hidden="true">
+          {Array.from({ length: 12 }, (_, index) => (
+            <span key={index} style={{ '--ring': index }} />
+          ))}
+        </div>
+        <div className="login-story-content">
+          <div className="login-intro">
+            <p className="login-eyebrow"><span /> Your personal portfolio</p>
+            <h2 id="login-heading">Your investments.<br /><span>All together.</span></h2>
+            <p className="login-description">
+              See what you own. Know where you stand.<br className="login-desktop-break" />
+              {' '}All your accounts, without all the tabs.
+            </p>
+          </div>
+
+          <PortfolioPreview />
+
+          <div className="login-story-footer">
+            <span className="login-footer-mark" aria-hidden="true">✳</span>
+            <span>Canadian accounts. Global investments.</span>
+          </div>
+        </div>
+      </section>
     </main>
   )
 }
 
-const INPUT_CLASS = 'w-full rounded-xl border border-ink/15 bg-ink/[0.03] px-3.5 py-3 text-sm text-ink outline-none transition-colors duration-motion-short placeholder:text-ink/30 focus:border-ink/35 focus:ring-2 focus:ring-accent/25 dark:border-white/12 dark:bg-white/[0.04] dark:text-white dark:placeholder:text-white/25 dark:focus:border-white/30'
-
 function Field({ label, htmlFor, action, children }) {
   return (
     <div>
-      <div className="mb-1.5 flex items-baseline justify-between gap-3">
-        <label htmlFor={htmlFor} className="text-xs font-medium text-ink/70 dark:text-white/50">{label}</label>
+      <div className="login-field-label">
+        <label htmlFor={htmlFor}>{label}</label>
         {action}
       </div>
       {children}
@@ -298,12 +251,81 @@ function Field({ label, htmlFor, action, children }) {
   )
 }
 
-function PerformanceChart() {
-  return <div className="relative h-24 w-full overflow-hidden"><svg className="h-full w-full" viewBox="0 0 600 96" preserveAspectRatio="none" role="img" aria-label="Rising portfolio performance chart"><defs><linearGradient id="chart-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#34d399" stopOpacity="0.18" /><stop offset="1" stopColor="#34d399" stopOpacity="0" /></linearGradient></defs><path d="M0 79 C45 76 50 65 88 68 S130 56 160 61 S204 48 240 54 S278 39 316 44 S360 31 396 36 S438 21 470 27 S520 8 600 12 V96 H0Z" fill="url(#chart-fill)" /><path d="M0 79 C45 76 50 65 88 68 S130 56 160 61 S204 48 240 54 S278 39 316 44 S360 31 396 36 S438 21 470 27 S520 8 600 12" fill="none" stroke="#34d399" strokeWidth="2" vectorEffect="non-scaling-stroke" /></svg><span className="absolute right-0 top-8 z-10 rounded-md border border-gain/30 bg-[#203229] px-2 py-1 font-mono text-[10px] text-gain shadow-sm dark:border-gain/20 dark:bg-wall-surface">$84,291</span></div>
+// Illustrative values only: this preview never reads a visitor's financial data.
+const PREVIEW_RANGES = {
+  '1M': {
+    change: '+$2,840.00 (2.26%)', period: 'this month', start: 'Aug 1', end: 'Aug 31',
+    points: [96, 91, 99, 88, 86, 98, 93, 102, 83, 91, 75, 79, 66, 69, 61, 65, 55, 60, 46, 42, 50, 36, 31, 39, 24],
+  },
+  '6M': {
+    change: '+$7,620.00 (6.31%)', period: 'past 6 months', start: 'Mar', end: 'Aug',
+    points: [115, 106, 110, 102, 92, 95, 78, 81, 66, 69, 83, 94, 86, 71, 73, 66, 63, 50, 61, 44, 37, 45, 29, 34, 24],
+  },
+  '1Y': {
+    change: '+$11,460.00 (9.80%)', period: 'past year', start: 'Sep', end: 'Aug',
+    points: [132, 126, 129, 113, 117, 108, 113, 93, 101, 86, 92, 80, 89, 73, 78, 57, 61, 47, 55, 36, 42, 29, 36, 18, 24],
+  },
+  ALL: {
+    change: '+$28,450.00 (28.45%)', period: 'all time', start: '2022', end: '2026',
+    points: [145, 137, 143, 128, 134, 120, 127, 112, 120, 108, 114, 94, 102, 88, 93, 78, 88, 64, 70, 51, 60, 41, 48, 28, 24],
+  },
 }
 
-function CheckIcon() { return <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M10 3L4.75 8.25L2 5.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg> }
-function LockIcon() { return <svg className="mt-0.5 size-4 shrink-0 text-ink/55 dark:text-white/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> }
+function PortfolioPreview() {
+  const [range, setRange] = useState('1Y')
+  const data = PREVIEW_RANGES[range]
+  const path = data.points.map((y, index) => `${index === 0 ? 'M' : 'L'}${8 + index * 19.5} ${y}`).join(' ')
+
+  return (
+    <figure className="login-preview" aria-label="Sample portfolio preview">
+      <div className="login-preview-card">
+        <div className="login-preview-header">
+          <span><span className="login-preview-dot" /> Portfolio overview</span>
+          <p className="login-preview-caption">Sample portfolio</p>
+        </div>
+        <div className="login-preview-balance">$128,450<span>.00</span><span className="login-currency">CAD</span></div>
+        <div className="login-preview-change" aria-live="polite" aria-atomic="true">
+          <span>↗ {data.change}</span><span>{data.period}</span>
+        </div>
+        <div className="login-chart">
+          <svg viewBox="0 0 484 170" preserveAspectRatio="none" role="img" aria-label={`Sample portfolio value ${data.period}, up ${data.change}`}>
+            <defs>
+              <linearGradient id="login-chart-fill" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0%" stopColor="#d6e8aa" stopOpacity="0.2" />
+                <stop offset="100%" stopColor="#d6e8aa" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            {[40, 85, 130].map((y) => <line key={y} x1="0" y1={y} x2="484" y2={y} className="login-chart-guide" />)}
+            <g key={range}>
+              <path d={`${path} L476 170 L8 170 Z`} fill="url(#login-chart-fill)" className="login-chart-area" />
+              <path d={path} fill="none" stroke="#d6e8aa" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" pathLength="1" className="login-chart-line" />
+              <circle cx="476" cy="24" r="8" fill="#d6e8aa" fillOpacity="0.12" className="login-chart-end" />
+              <circle cx="476" cy="24" r="3.5" fill="#e3efc4" className="login-chart-end" />
+            </g>
+          </svg>
+          <div className="login-chart-labels"><span>{data.start}</span><span>{data.end}</span></div>
+        </div>
+        <div className="login-preview-bottom">
+          <span>Portfolio value</span>
+          <div className="login-chart-ranges" role="group" aria-label="Sample portfolio time range">
+            {Object.keys(PREVIEW_RANGES).map((value) => (
+              <button key={value} type="button" aria-pressed={range === value} onClick={() => setRange(value)}>{value}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="login-account-strip">
+        <div className="login-account-icons" aria-hidden="true"><span>T</span><span>R</span><span>N</span></div>
+        <div><strong>Different accounts. One view.</strong><span>TFSA, RRSP & non-registered</span></div>
+        <span className="login-account-check" aria-hidden="true"><CheckIcon /></span>
+      </div>
+    </figure>
+  )
+}
+
+function ArrowIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg> }
+function CheckIcon() { return <svg width="13" height="13" viewBox="0 0 12 12" fill="none"><path d="M10 3L4.75 8.25L2 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg> }
+function LockIcon() { return <svg className="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> }
 function EyeIcon() { return <svg className="size-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg> }
 function EyeOffIcon() { return <svg className="size-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M10.6 6.2A9.6 9.6 0 0 1 12 6c6.4 0 10 7 10 7a17 17 0 0 1-2.9 3.8M6.2 6.7A17 17 0 0 0 2 13s3.6 7 10 7a9.3 9.3 0 0 0 4.3-1" /><path d="m3 3 18 18" /><path d="M9.9 10.1a3 3 0 0 0 4.1 4.2" /></svg> }
 function GoogleIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" /><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" /><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" /><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" /></svg> }

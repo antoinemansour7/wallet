@@ -1,5 +1,6 @@
 import { fetchMarketQuotes, fetchCachedMarketQuotes } from '../src/server/marketQuotes.js'
 import { getPortfolioSeries, getIntradaySeries } from '../src/server/portfolioSeries.js'
+import { getPortfolioComparison } from '../src/server/portfolioComparison.js'
 import { isRateLimited } from '../src/server/rateLimit.js'
 import { withRunLog } from '../src/server/runLog.js'
 
@@ -42,6 +43,9 @@ async function realHandler(req, res) {
     }
 
     if (Array.isArray(body.positions)) {
+      if (body.comparison) {
+        return res.status(200).json(await getPortfolioComparison({ positions: body.positions, cashValue: Number(body.cashValue) || 0, currency: body.currency, benchmark: body.benchmark }))
+      }
       if (body.intraday) {
         const series = await getIntradaySeries({
           positions: body.positions,

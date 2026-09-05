@@ -7,18 +7,16 @@ import { callPlaid } from '../utils/plaidClient'
 import { useAuth } from '../context/AuthContext'
 import ErrorBoundary, { PanelFallback } from '../components/ErrorBoundary'
 import { buildAccountPortfolio, cashEntryAmount, flattenAccountRows, getAccountEntries, hasAccountPortfolio } from '../utils/accountPortfolio'
-import { PLAID_ITEM_KEY, accountSources, aggregateRowsBySymbol, applyMerge, applyMergeByAccount, knownAccountsIn, plaidItemIdFor, previewMerge, removeAccount, removeSource, sourceIdFor } from '../utils/accountMerge'
+import { PLAID_ACCOUNT_KEY, PLAID_ITEM_KEY, applyMerge, applyMergeByAccount, previewMerge, sourceIdFor } from '../utils/accountMerge'
+import { importAccountSummary, planAccountRemoval, prepareImportRows } from '../utils/accountManagement'
 import { computeStats } from '../utils/portfolioStats'
 import { AUTO_PRICE_REFRESH_MS } from './portfolio/constants'
 import TabNav from './portfolio/TabNav'
 import StatRail from './portfolio/StatRail'
 import LiveBanner from './portfolio/LiveBanner'
 import CompositionPanel from './portfolio/CompositionPanel'
-import ValueVsBookChart from './portfolio/ValueVsBookChart'
-import PnlBreakdownChart from './portfolio/PnlBreakdownChart'
 import PerformanceChart from './portfolio/PerformanceChart'
-import AllocationDonut from './portfolio/AllocationDonut'
-import ChartPanel from './portfolio/ChartPanel'
+import ChartsView from './portfolio/ChartsView'
 import { IS_PREVIEW, previewPlaidHoldings } from '../preview/mockMode'
 import HoldingsView from './portfolio/HoldingsView'
 import AccountsView from './portfolio/AccountsView'
@@ -40,6 +38,9 @@ export default function Portfolio() {
   const [liveMessage, setLiveMessage]     = useState('')
   const [lastUpdatedAt, setLastUpdatedAt] = useState(null)
   const inputRef = useRef(null)
+  const structureVersion = useRef(0)
+  const mutationBusy = useRef(false)
+  const draftConnection = useRef(null)
 
   const { user } = useAuth()
   const uid = user?.uid
@@ -78,7 +79,7 @@ export default function Portfolio() {
     if (!uid) return
     const local = loadLocalPortfolio(uid)
     const applySaved = (saved) => {
-      if (!saved) return
+      if (!saved || structureVersion.current > 0) return
       setRows(saved.rows ?? [])
       setAccounts(saved.accounts ?? {})
       setFileName(saved.fileName || '')
@@ -105,6 +106,7 @@ export default function Portfolio() {
   useEffect(() => {
     if (!uid || !fileName || !hasData) return
     const timer = setTimeout(() => {
+      if (mutationBusy.current) return
       savePortfolio(uid, {
         fileName,
         rows,
@@ -124,6 +126,9 @@ export default function Portfolio() {
   }, [uid, stats])
 
   const refreshRowsWithLivePrices = useCallback(async (sourceRows, options = {}) => {
+    const version = structureVersion.current
+    const current = () => version === structureVersion.current
+    if (mutationBusy.current) return sourceRows
     if (!sourceRows.length) {
       applyPortfolioRows(sourceRows, options)
       setLiveStatus('idle')
@@ -137,15 +142,17 @@ export default function Portfolio() {
     if (isFirstRefresh || options.instant) {
       try {
         const cached = await enrichRowsWithLivePrices(sourceRows, { cachedOnly: true })
-        if (cached.updatedRows > 0) applyPortfolioRows(cached.rows, options)
+        if (current() && cached.updatedRows > 0) applyPortfolioRows(cached.rows, options)
       } catch { /* fall through to the live fetch */ }
     }
 
+    if (!current()) return sourceRows
     setLiveStatus('loading')
     setLiveMessage('Refreshing current prices from market data providers…')
     try {
       const result   = await enrichRowsWithLivePrices(sourceRows)
       const nextRows = result.rows
+      if (!current()) return sourceRows
       applyPortfolioRows(nextRows, options)
       if (result.updatedRows > 0) setLastUpdatedAt(new Date())
       // Only warn about something a person can act on: a holding with no price.
@@ -171,6 +178,7 @@ export default function Portfolio() {
       }
       return nextRows
     } catch (err) {
+      if (!current()) return sourceRows
       applyPortfolioRows(sourceRows, options)
       setLiveStatus('error'); setLiveMessage(`Price refresh failed: ${err.message}`)
       return sourceRows
@@ -184,7 +192,7 @@ export default function Portfolio() {
     if (!rows.length) return undefined
     const CHECK_MS = 30_000
     const tryRefresh = () => {
-      if (liveStatus === 'loading') return
+      if (liveStatus === 'loading' || mutationBusy.current) return
       if (Date.now() - lastRefreshRef.current >= AUTO_PRICE_REFRESH_MS) {
         refreshRowsWithLivePrices(rows, { previousAccounts: accounts })
       }
@@ -245,294 +253,210 @@ export default function Portfolio() {
   const [preview, setPreview] = useState(null)
   const [merging, setMerging] = useState(false)
 
-  const stageStatement = useCallback(({ name, kind, rows: incoming, cashEntries }) => {
-    if (incoming.length === 0 && cashEntries.length === 0) {
-      setError('No holdings found in that statement.')
-      return
+  const [completed, setCompleted] = useState(null)
+  const [accountNotice, setAccountNotice] = useState('')
+  const [removalError, setRemovalError] = useState('')
+
+  const stageStatement = useCallback(({ name, kind, rows: incoming = [], cashEntries = [], connection = null }) => {
+    if (!incoming.length && !cashEntries.length) {
+      setError(kind === 'plaid' ? 'No holdings or cash balances were returned. Choose another account or try a statement.' : 'No holdings or cash balances were found in this statement.')
+      return false
     }
     setError('')
     setPreview(null)
-    // Collapsed to one line per symbol here, so the staged set is the set that
-    // gets previewed, counted, and stored. Two accounts at one brokerage that
-    // both hold a symbol arrive as two rows; leaving that until later meant the
-    // sheet counted six holdings, listed five, and saved six.
-    const rows = aggregateRowsBySymbol(incoming)
-    // A connected brokerage reports holdings per account and says which. Those
-    // stay where they belong instead of being funnelled into one destination.
-    const knownAccounts = knownAccountsIn(rows)
+    const rows = prepareImportRows(incoming)
+    const knownAccounts = importAccountSummary(rows, cashEntries, kind === 'plaid')
     setPending({
-      name,
-      rows,
-      knownAccounts,
-      cashEntries,
+      name, kind, rows, knownAccounts, cashEntries, connection,
       sourceId: sourceIdFor({ kind, name }),
-      // What the file called the account, offered as the name for a new one.
-      suggestedAccountNumber: String(rows[0]?.['ACCOUNT NUMBER'] ?? name).trim() || name,
+      suggestedAccountNumber: String(rows[0]?.['ACCOUNT NUMBER'] || cashEntries[0]?.accountNumber || name).trim() || name,
     })
+    return true
   }, [])
 
   const handleChooseDestination = useCallback((destination) => {
     if (!pending || pending.knownAccounts?.length) return
-    setPreview({
-      ...previewMerge({
-        accounts,
-        accountNumber: destination.accountNumber,
-        sourceId: pending.sourceId,
-        rows: pending.rows,
-      }),
-      destination,
-    })
+    setPreview({ ...previewMerge({ accounts, accountNumber: destination.accountNumber, sourceId: pending.sourceId, rows: pending.rows }), destination })
   }, [accounts, pending])
 
   const openAdd = useCallback((mode) => {
-    // Also passed straight to onClick in places, so a click event is not a mode.
     setAddMode(typeof mode === 'string' ? mode : null)
     setPending(null)
     setPreview(null)
     setDiscovered(null)
+    setCompleted(null)
     setError('')
     setAddOpen(true)
   }, [])
 
-  const closeAdd = useCallback(() => {
+  const closeAdd = useCallback(async () => {
+    if (loading || merging) return
+    // An exchanged token is a real connection even before holdings are saved.
+    // Canceling the review must retire that unfinished connection as well.
+    if (draftConnection.current && !IS_PREVIEW) {
+      setLoading(true)
+      setLoadingMsg('Closing the connection…')
+      try {
+        const response = await callPlaid({ action: 'disconnect', userId: uid, itemId: draftConnection.current.itemId })
+        if (!response.ok && response.status !== 404) throw new Error('We couldn’t close this connection. Please try closing it again.')
+      } catch (err) {
+        setError(err.message || 'We couldn’t close this connection. Please try again.')
+        return
+      } finally { setLoading(false); setLoadingMsg('') }
+    }
+    draftConnection.current = null
     setAddOpen(false)
     setAddMode(null)
     setPending(null)
     setPreview(null)
     setDiscovered(null)
-  }, [])
+    setCompleted(null)
+    setError('')
+  }, [loading, merging, uid])
 
   const handleCancelMerge = useCallback(() => {
+    if (pending?.kind === 'plaid' && draftConnection.current) setDiscovered(draftConnection.current)
     setPending(null)
     setPreview(null)
     setError('')
-  }, [])
-
-  /** Cash belongs to the account that reported it, not to the whole import. */
-  const cashByAccount = (entries = []) => entries.reduce((acc, entry) => {
-    const number = String(entry.accountNumber ?? '').trim()
-    if (!number) return acc
-    acc[number] = Math.round(((acc[number] ?? 0) + cashEntryAmount(entry)) * 100) / 100
-    return acc
-  }, {})
+  }, [pending])
 
   const handleConfirmMerge = useCallback(async () => {
-    if (!pending || (!preview && !pending.knownAccounts?.length)) return
+    if (!pending || !uid || mutationBusy.current || (!preview && !pending.knownAccounts?.length)) return
+    mutationBusy.current = true
+    structureVersion.current += 1
     setMerging(true)
+    setError('')
     try {
-      const cashForAccount = pending.cashEntries.length > 0
-        ? pending.cashEntries.reduce((sum, entry) => sum + cashEntryAmount(entry), 0)
-        : null
-
+      const cashByAccount = {}
+      const currencyByAccount = {}
+      for (const entry of pending.cashEntries) {
+        if (!entry.accountNumber) continue
+        cashByAccount[entry.accountNumber] = Math.round(((cashByAccount[entry.accountNumber] || 0) + cashEntryAmount(entry)) * 100) / 100
+        currencyByAccount[entry.accountNumber] = entry.currency || ''
+      }
+      const sourceMetadataByAccount = {}
+      if (pending.connection) {
+        for (const account of pending.knownAccounts) {
+          const rows = pending.rows.filter((row) => row['ACCOUNT NUMBER'] === account.accountNumber)
+          const cash = pending.cashEntries.filter((entry) => entry.accountNumber === account.accountNumber)
+          sourceMetadataByAccount[account.accountNumber] = {
+            plaidItemId: pending.connection.itemId,
+            plaidAccountIds: [...new Set([...rows, ...cash].map((row) => row[PLAID_ACCOUNT_KEY]).filter(Boolean))],
+          }
+        }
+      }
       const nextAccounts = pending.knownAccounts?.length
-        ? applyMergeByAccount({
-          accounts,
-          sourceId: pending.sourceId,
-          rows: pending.rows,
-          cashByAccount: cashByAccount(pending.cashEntries),
-        })
-        : applyMerge({
-          accounts,
-          accountNumber: preview.accountNumber,
-          sourceId: pending.sourceId,
-          rows: pending.rows,
-          cash: cashForAccount,
-        })
+        ? applyMergeByAccount({ accounts, sourceId: pending.sourceId, rows: pending.rows, cashByAccount, currencyByAccount, sourceMetadataByAccount })
+        : applyMerge({ accounts, accountNumber: preview.accountNumber, sourceId: pending.sourceId, rows: pending.rows, cash: pending.cashEntries.length ? pending.cashEntries.reduce((sum, entry) => sum + cashEntryAmount(entry), 0) : null, currency: pending.cashEntries[0]?.currency || '' })
       const nextRows = flattenAccountRows(nextAccounts)
+      await savePortfolio(uid, { fileName: pending.name, rows: nextRows, accounts: nextAccounts, lastPriceRefreshAt: lastUpdatedAt })
       setAccounts(nextAccounts)
       setRows(nextRows)
       setFileName(pending.name)
+      setCompleted({ count: pending.knownAccounts?.length || 1, name: pending.name })
+      draftConnection.current = null
       setPending(null)
       setPreview(null)
-      setAddOpen(false)
-      setActiveView('overview')
-
-      if (nextRows.length > 0) {
-        setLoadingMsg('Fetching live prices…')
-        await refreshRowsWithLivePrices(nextRows, { previousAccounts: nextAccounts })
-      }
+      setDiscovered(null)
+      setActiveView('add')
+      setLiveStatus('idle')
+      mutationBusy.current = false
+      if (nextRows.length) void refreshRowsWithLivePrices(nextRows, { previousAccounts: nextAccounts })
     } catch (err) {
-      setError(err.message)
+      setError(err.message || 'The accounts couldn’t be saved. Please try again.')
     } finally {
+      mutationBusy.current = false
       setMerging(false)
       setLoadingMsg('')
     }
-  }, [accounts, pending, preview, refreshRowsWithLivePrices])
+  }, [accounts, pending, preview, refreshRowsWithLivePrices, uid, lastUpdatedAt])
 
   const handlePlaidConnecting = useCallback(() => {
+    setError('')
     setLoading(true)
     setLoadingMsg('Connecting to your brokerage…')
   }, [])
 
-  // Removing the last feed empties the portfolio, and empty has to be written
-  // rather than left to the autosave: that effect is gated on hasData, so the
-  // cleared state would never reach storage and the next load would restore
-  // everything just removed.
-  /**
-   * Best effort: a live Plaid item should stop syncing, but a failure here must
-   * not block removing the holdings the person asked to remove.
-   *
-   * This used to send `sourceId.slice('plaid:'.length)` as the item id — the
-   * institution slug, not Plaid's item id, so the lookup 404'd into the catch
-   * below and every disconnect did nothing while reporting success. Rows now
-   * carry the real id; `institution` lets the server resolve rows imported
-   * before they did.
-   */
-  const disconnectPlaid = useCallback(async (account, sourceId) => {
-    if (!String(sourceId).startsWith('plaid:') || IS_PREVIEW) return
-    try {
-      const res = await callPlaid({
-        action: 'disconnect',
-        userId: uid,
-        itemId: plaidItemIdFor(account, sourceId),
-        institution: sourceId.slice('plaid:'.length),
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        console.warn('[portfolio] Plaid disconnect failed:', data.error || `HTTP ${res.status}`)
-      }
-    } catch (err) {
-      console.warn('[portfolio] Plaid disconnect failed:', err.message)
-    }
-  }, [uid])
-
-  const handleRemoveSource = useCallback(async (accountNumber, sourceId) => {
-    if (!uid) return
+  const removeFromPortfolio = useCallback(async (accountNumber, sourceId) => {
+    if (!uid || mutationBusy.current) return false
+    mutationBusy.current = true
+    structureVersion.current += 1
     setRemoving(true)
-    setError('')
+    setRemovalError('')
     try {
-      await disconnectPlaid(accounts[accountNumber], sourceId)
-
-      const nextAccounts = removeSource({ accounts, accountNumber, sourceId })
+      const { nextAccounts, operations } = planAccountRemoval({ accounts, accountNumber, sourceId })
+      if (!IS_PREVIEW) {
+        for (const operation of operations) {
+          if (operation.action === 'keep-connection') continue
+          const response = await callPlaid({ ...operation, userId: uid })
+          if (!response.ok && !(operation.action === 'disconnect' && response.status === 404)) {
+            throw new Error('The brokerage connection couldn’t be updated. Your account is still here. Please try again.')
+          }
+        }
+      }
       const nextRows = flattenAccountRows(nextAccounts)
-      const emptied = !hasAccountPortfolio(nextAccounts)
-
+      const empty = !hasAccountPortfolio(nextAccounts)
+      if (empty) await clearPortfolio(uid)
+      else await savePortfolio(uid, { fileName, rows: nextRows, accounts: nextAccounts, lastPriceRefreshAt: lastUpdatedAt })
       setAccounts(nextAccounts)
       setRows(nextRows)
-
-      if (emptied) {
-        setFileName('')
-        setOpenAccount(null)
-        setActiveView('accounts')
-        await clearPortfolio(uid)
-        return
-      }
-
-      const stillOpen = nextAccounts[accountNumber]
-      setOpenAccount(stillOpen ? { ...stillOpen, stats: undefined } : null)
-      await savePortfolio(uid, { fileName, rows: nextRows, accounts: nextAccounts, lastPriceRefreshAt: lastUpdatedAt })
+      setOpenAccount(nextAccounts[accountNumber] || null)
+      setActiveView('add')
+      setAccountNotice(sourceId ? 'The import was removed from your portfolio.' : `Account ${accountNumber} was removed from your portfolio.`)
+      setLiveStatus('idle')
+      if (empty) setFileName('')
+      return true
     } catch (err) {
-      setError(err.message || 'Could not remove that import')
+      setRemovalError(err.message || 'The account couldn’t be removed. Please try again.')
+      return false
     } finally {
+      mutationBusy.current = false
       setRemoving(false)
     }
-  }, [accounts, disconnectPlaid, fileName, lastUpdatedAt, uid])
+  }, [accounts, fileName, lastUpdatedAt, uid])
 
-  /** The whole account, for one with no imports left to remove one at a time. */
-  const handleRemoveAccount = useCallback(async (accountNumber) => {
-    if (!uid) return
-    setRemoving(true)
-    setError('')
-    try {
-      const account = accounts[accountNumber]
-      for (const feed of accountSources(account ?? {})) {
-        await disconnectPlaid(account, feed.id)
-      }
-
-      const nextAccounts = removeAccount({ accounts, accountNumber })
-      const nextRows = flattenAccountRows(nextAccounts)
-
-      setAccounts(nextAccounts)
-      setRows(nextRows)
-      setOpenAccount(null)
-
-      // Cash with no positions is still a portfolio, so emptiness is asked of
-      // the accounts rather than of the row count.
-      if (!hasAccountPortfolio(nextAccounts)) {
-        setFileName('')
-        setActiveView('accounts')
-        await clearPortfolio(uid)
-        return
-      }
-
-      await savePortfolio(uid, { fileName, rows: nextRows, accounts: nextAccounts, lastPriceRefreshAt: lastUpdatedAt })
-    } catch (err) {
-      setError(err.message || 'Could not remove that account')
-    } finally {
-      setRemoving(false)
-    }
-  }, [accounts, disconnectPlaid, fileName, lastUpdatedAt, uid])
+  const handleRemoveSource = useCallback((accountNumber, sourceId) => removeFromPortfolio(accountNumber, sourceId), [removeFromPortfolio])
+  const handleRemoveAccount = useCallback((accountNumber) => removeFromPortfolio(accountNumber), [removeFromPortfolio])
 
   const handlePlaidError = useCallback((err) => {
     setLoading(false)
     setLoadingMsg('')
-    setError(err?.message || 'Failed to connect brokerage')
+    setError(err?.message || 'We couldn’t connect your brokerage. Please try again.')
   }, [])
 
-  // Link came back. Show what it found rather than importing it — the bank may
-  // have insisted on a chequing account, and that is not a portfolio.
   const handlePlaidAccounts = useCallback((found) => {
+    draftConnection.current = found
     setLoading(false)
     setLoadingMsg('')
+    setError('')
     setDiscovered(found)
   }, [])
 
   const handleImportDiscovered = useCallback(async (accountIds) => {
-    if (!discovered || !uid) return
+    if (!discovered || !uid || merging || !accountIds.length) return
     setMerging(true)
     setError('')
     try {
-      // Preview has no Plaid item behind it, so both calls are answered from
-      // the fixture — the selection still filters the holdings, which is the
-      // behaviour worth being able to see.
+      let data
       if (IS_PREVIEW) {
-        await new Promise((r) => setTimeout(r, 500))
-        const data = previewPlaidHoldings(accountIds)
-        const name = discovered.institutionName
-        setDiscovered(null)
-        stageStatement({ name: name || 'Connected brokerage', kind: 'plaid', rows: data.rows, cashEntries: data.cashEntries })
-        return
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        data = previewPlaidHoldings(accountIds)
+      } else {
+        const selection = await callPlaid({ action: 'select-accounts', userId: uid, itemId: discovered.itemId, accountIds })
+        if (!selection.ok) throw new Error('We couldn’t save your selection. Please try again.')
+        const response = await callPlaid({ action: 'holdings', userId: uid, itemId: discovered.itemId })
+        data = await response.json()
+        if (!response.ok || data.errors?.length) throw new Error('Some account details couldn’t be loaded. Please try again before adding them.')
       }
-
-      const selectRes = await callPlaid({
-        action: 'select-accounts', userId: uid, itemId: discovered.itemId, accountIds,
-      })
-      const selectData = await selectRes.json()
-      if (!selectRes.ok) throw new Error(selectData.error || 'Could not save your selection')
-
-      // Scoped to the connection just linked: without it the route replies
-      // with every stored item's holdings, so a retried link reports each
-      // holding twice.
-      const holdingsRes = await callPlaid({ action: 'holdings', userId: uid, itemId: discovered.itemId })
-      const holdingsData = await holdingsRes.json()
-      if (!holdingsRes.ok) throw new Error(holdingsData.error || 'Holdings fetch failed')
-
-      const institutionName = discovered.institutionName
-      setDiscovered(null)
-      // From here a connection is staged and previewed exactly like a file, so
-      // choosing the destination account is the same decision either way.
-      stageStatement({
-        name: institutionName || 'Connected brokerage',
-        kind: 'plaid',
-        // Carried on the rows so removing this import later can name the
-        // connection to Plaid. The source id is `plaid:<institution>`, which is
-        // a label for people, not the id the connection is filed under.
-        rows: (holdingsData.rows || []).map((row) => ({ ...row, [PLAID_ITEM_KEY]: discovered.itemId })),
-        cashEntries: holdingsData.cashEntries || [],
-      })
-      // stageStatement clears the error on success, so this has to come after
-      // it: a connection can partially fail and still return rows worth
-      // staging, and that should say so rather than just showing fewer
-      // holdings than the account actually has.
-      if (holdingsData.errors?.length) {
-        setError(`Imported, but ${institutionName || 'this connection'} didn't fully load — some holdings may be missing. Try again in a moment.`)
-      }
+      const connection = { ...discovered, enabledAccountIds: accountIds }
+      draftConnection.current = connection
+      const staged = stageStatement({ name: discovered.institutionName || 'Connected brokerage', kind: 'plaid', rows: (data.rows || []).map((row) => ({ ...row, [PLAID_ITEM_KEY]: discovered.itemId })), cashEntries: data.cashEntries || [], connection })
+      if (staged) setDiscovered(null)
     } catch (err) {
-      setError(err.message || 'Failed to import accounts')
-    } finally {
-      setMerging(false)
-    }
-  }, [discovered, uid, stageStatement])
+      setError(err.message || 'We couldn’t load your accounts. Please try again.')
+    } finally { setMerging(false) }
+  }, [discovered, uid, stageStatement, merging])
   const onDrop = (e) => { e.preventDefault(); setIsDragging(false); handleFile(e.dataTransfer.files[0]) }
 
   // Dropped or picked on the accounts screen: the sheet opens straight into
@@ -563,15 +487,7 @@ export default function Portfolio() {
           {visibleView === 'charts' && stats && (
             <>
               <LiveBanner liveStatus={liveStatus} liveMessage={liveMessage} lastUpdatedAt={lastUpdatedAt} />
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
-                <ChartPanel title="Allocation" meta={`${accountEntries.length} account${accountEntries.length === 1 ? '' : 's'}`} className="h-full">
-                  <AllocationDonut rows={rows} stats={stats} />
-                </ChartPanel>
-                <div className="flex flex-col gap-4">
-                  <ValueVsBookChart stats={stats} />
-                  <PnlBreakdownChart rows={rows} />
-                </div>
-              </div>
+              <ChartsView accounts={accountEntries} />
             </>
           )}
           {visibleView === 'charts' && !stats && <EmptyState onUploadClick={() => openAdd()} />}
@@ -584,7 +500,9 @@ export default function Portfolio() {
               accounts={accountEntries}
               onAdd={openAdd}
               onFile={addFromFile}
-              onOpenAccount={(account) => setOpenAccount(account)}
+              onOpenAccount={(account) => { setRemovalError(''); setOpenAccount(account) }}
+              notice={accountNotice}
+              onDismissNotice={() => setAccountNotice('')}
             />
           )}
         </ErrorBoundary>
@@ -602,6 +520,7 @@ export default function Portfolio() {
         isDragging={isDragging}
         userId={uid}
         pending={pending}
+        completed={completed}
         preview={preview}
         busy={merging}
         onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
@@ -622,7 +541,9 @@ export default function Portfolio() {
         open={Boolean(openAccount)}
         account={openAccount ? (accountEntries.find((a) => a.accountNumber === openAccount.accountNumber) ?? null) : null}
         busy={removing}
-        onClose={() => setOpenAccount(null)}
+        accounts={accountEntries}
+        error={removalError}
+        onClose={() => { if (!removing) { setOpenAccount(null); setRemovalError('') } }}
         onRemoveSource={handleRemoveSource}
         onRemoveAccount={handleRemoveAccount}
       />

@@ -49,11 +49,22 @@ const NAME_NOISE = new Set([
  * nothing. There is no single company behind them, and the issuer's own logo is
  * the honest answer.
  */
-const DIRECTION_WORDS = new Set(['LONG', 'BULL', 'BEAR', 'SHORT'])
+// Direction words, including the abbreviation LNG that real ETF names use
+// ("2X LNG NBIS"). They also act as anchors — the underlying sits right next
+// to the leverage/direction marker.
+const DIRECTION_WORDS = new Set(['LONG', 'LNG', 'BULL', 'BEAR', 'SHORT'])
+
+// Marks the leverage/direction part of the name: a multiplier glued to letters
+// or standing alone (2X, 2XL, LEV2X), an explicit LEVERAGED, or a direction word.
+const isLeverageAnchor = (w) => (
+  /\dX/.test(w) || w === 'LEVERAGED' || w === 'LEV' || DIRECTION_WORDS.has(w)
+)
 
 export function underlyingFromName(name, symbol) {
   const text = String(name || '')
-  if (!/\b(\d+(?:\.\d+)?\s*X|BULL|BEAR|LEVERAGED)\b/i.test(text)) return null
+  // Require a real multiplier (…X) or the word LEVERAGED, so a plain
+  // "long-term bond" fund is never mistaken for a single-stock wrapper.
+  if (!/\d\s*x/i.test(text) && !/leveraged/i.test(text)) return null
 
   const self = String(symbol || '').toUpperCase().split('.')[0]
   const words = text.toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean)
@@ -65,16 +76,19 @@ export function underlyingFromName(name, symbol) {
     && w !== self
   )
 
-  // The underlying sits next to the direction word, on one side or the other:
-  //   "GraniteShares 2x Long NVDA Daily"   -> after
-  //   "Direxion Daily TSLA Bull 2X ETF"    -> before
-  // Scanning for the first plausible token anywhere instead picked up the
-  // issuer — "T-Rex 2X Long MSTR" yielded REX.
-  for (let i = 0; i < words.length; i += 1) {
-    if (!DIRECTION_WORDS.has(words[i])) continue
-    for (const candidate of [words[i + 1], words[i - 1]]) {
-      if (plausible(candidate)) return candidate
-    }
+  // The underlying sits just past the leverage/direction marker:
+  //   "INV TRD 2XL IREN ETF"       -> after 2XL
+  //   "Direxion Daily TSLA Bull"   -> before Bull
+  // Anchor on the first marker and prefer the ticker after it, only falling
+  // back to the one before — scanning the whole name picks up the issuer
+  // ("T-Rex 2X Long MSTR" -> REX; "INV TRADR 2X LNG AAOI" -> TRADR).
+  const anchor = words.findIndex(isLeverageAnchor)
+  if (anchor === -1) return null
+  for (let i = anchor + 1; i < words.length; i += 1) {
+    if (plausible(words[i])) return words[i]
+  }
+  for (let i = anchor - 1; i >= 0; i -= 1) {
+    if (plausible(words[i])) return words[i]
   }
   return null
 }
@@ -163,12 +177,16 @@ export default function CompanyLogo({ symbol, description = '', size = 40, class
   const sym = candidates[attempt]
 
   if (!sym) {
+    // No CDN logo — show the ticker itself (e.g. IREN), not a lone initial,
+    // scaled down as it gets longer so it stays inside the circle.
+    const label = String(symbol || '?').split('.')[0].toUpperCase().slice(0, 5) || '?'
+    const scale = label.length >= 5 ? 0.24 : label.length === 4 ? 0.28 : label.length === 3 ? 0.34 : label.length === 2 ? 0.42 : 0.46
     return (
       <div
-        className={`flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br font-semibold text-white ${avatarTint(symbol)} ${className}`}
-        style={{ width: size, height: size, fontSize: size * 0.38 }}
+        className={`flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br font-semibold leading-none tracking-tight text-white ${avatarTint(symbol)} ${className}`}
+        style={{ width: size, height: size, fontSize: Math.round(size * scale) }}
       >
-        {String(symbol || '?')[0]}
+        {label}
       </div>
     )
   }

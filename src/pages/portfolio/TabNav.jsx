@@ -19,14 +19,14 @@ export default function TabNav({ activeView, hasData, onChange }) {
             <span
               className={`block rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors duration-motion-short ${
                 isActive
-                  ? 'bg-accent/[0.12] text-ink dark:bg-ink/[0.08] dark:text-ink'
+                  ? 'bg-brand-accent/[0.10] text-ink dark:bg-brand-accent/[0.16] dark:text-ink'
                   : 'text-ink/50 group-hover:bg-ink/[0.04] group-hover:text-ink/90'
               } ${disabled ? 'group-hover:bg-transparent group-hover:text-ink/50' : ''}`}
             >
               {tab.label}
             </span>
             {isActive && (
-              <span className="motion-select absolute inset-x-2 -bottom-px h-px bg-accent" />
+              <span className="motion-select absolute inset-x-2 -bottom-px h-px bg-brand-accent" />
             )}
           </button>
         )

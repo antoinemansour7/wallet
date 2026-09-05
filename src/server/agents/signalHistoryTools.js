@@ -370,12 +370,13 @@ export function formatStatsForPrompt(stats) {
   if (!stats || stats.totalPicks === 0) return ''
 
   const lines = [
-    `## Historical Performance (${stats.totalPicks} tracked picks; win = +1.5% open→close next session)`,
-    `Overall win rate: ${stats.overallWinRate}% | Avg next-session return: ${stats.avgReturn > 0 ? '+' : ''}${stats.avgReturn}% | Max drawdown: ${stats.maxDrawdown}%`,
+    `## Historical Performance (${stats.totalPicks} tracked picks; win = +1.5% captured by the day-1 open→close checkpoint)`,
+    `Overall win rate: ${stats.overallWinRate}% | Avg day-1 open→close return: ${stats.avgReturn > 0 ? '+' : ''}${stats.avgReturn}% | Max drawdown: ${stats.maxDrawdown}%`,
+    `(Day-1 is an EARLY read on a 3–5 day hold, not the finish line — a pick that is flat on day 1 can still work by day 3–5. Use it to judge follow-through, not to demand instant payoff.)`,
   ]
 
   if (stats.avgIntradayPeak != null) {
-    lines.push(`Avg intraday peak (open→high day 1): +${stats.avgIntradayPeak}% — calibrate how much upside is realistically capturable in one session.`)
+    lines.push(`Avg intraday peak (open→high day 1): +${stats.avgIntradayPeak}% — a first-day read on how much the move tends to carry, not a one-session ceiling.`)
   }
 
   if (stats.recentTotal >= 2) {
