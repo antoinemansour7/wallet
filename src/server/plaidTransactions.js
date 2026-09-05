@@ -197,14 +197,37 @@ export async function writeLedgerRecords({ db, uid, records, historyStartsAt = {
 }
 
 /**
+ * Turns a batch resolver (`dates => Map<date, {rate, source, asOf} | null>`)
+ * into the synchronous per-transaction `fxFor` that `buildLedgerRecords`
+ * expects.
+ *
+ * The resolution has to happen before `buildLedgerRecords` runs, and as one
+ * batched call over every date in the import — one call, not one per
+ * transaction, is the entire reason `getRatesForDates` exists. Exported so
+ * the batching itself is independently testable.
+ */
+export async function resolveFxForTransactions(transactions, resolveFxRates) {
+  const dates = [...new Set((transactions || []).map((t) => t.date).filter(Boolean))]
+  const rates = dates.length ? await resolveFxRates(dates) : new Map()
+  return (raw) => rates.get(raw?.date) ?? null
+}
+
+/**
  * The whole import for one Plaid item.
  *
  * A failure part-way leaves whatever was written in place, which is safe
  * precisely because the ids are derived: re-running writes the same documents
  * again rather than duplicating them.
+ *
+ * `resolveFxRates` is optional and separate from `fxFor`: passing `fxFor`
+ * directly (as the tests do) skips FX resolution entirely and is how a
+ * caller states "I already know the rates" or "I don't need them yet".
+ * `resolveFxRates` is for the real path — a batch resolver like
+ * `(dates) => getRatesForDates(dates, { cache: historicalFxCache() })` — and
+ * only runs when `fxFor` was not already supplied.
  */
 export async function syncInvestmentTransactions({
-  client, accessToken, db, uid, enabledAccountIds, accountTypeFor, fxFor, now,
+  client, accessToken, db, uid, enabledAccountIds, accountTypeFor, fxFor, resolveFxRates, now,
 }) {
   const { startDate, endDate } = defaultWindow(now)
 
@@ -212,8 +235,10 @@ export async function syncInvestmentTransactions({
     client, accessToken, startDate, endDate,
   })
 
+  const resolvedFxFor = fxFor || (resolveFxRates ? await resolveFxForTransactions(transactions, resolveFxRates) : undefined)
+
   const { records, skipped } = buildLedgerRecords({
-    transactions, securities, accounts, enabledAccountIds, accountTypeFor, fxFor,
+    transactions, securities, accounts, enabledAccountIds, accountTypeFor, fxFor: resolvedFxFor,
   })
 
   const accountIds = [...accounts.keys()].filter((id) => !enabledAccountIds || enabledAccountIds.includes(id))
