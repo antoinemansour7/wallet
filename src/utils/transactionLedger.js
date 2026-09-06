@@ -18,8 +18,8 @@
  *     is worse than a gap someone can see.
  */
 
-import { resolveSecurityKey } from './securityKey'
-import { toMinorUnits } from './money'
+import { resolveSecurityKey } from './securityKey.js'
+import { toMinorUnits } from './money.js'
 
 export const ACTIONS = {
   BUY: 'BUY',

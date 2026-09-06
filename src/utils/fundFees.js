@@ -24,7 +24,7 @@
  * which is the line #16 draws.
  */
 
-import { toMinorUnits } from './money'
+import { toMinorUnits } from './money.js'
 
 const marketValueMinorOf = (row) => toMinorUnits(row?.['MARKET VALUE'])
 

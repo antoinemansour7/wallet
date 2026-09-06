@@ -32,7 +32,7 @@
  * feature exists to prevent.
  */
 
-import { toMinorUnits } from './money'
+import { toMinorUnits } from './money.js'
 
 /** 1% of the excess per month, for every month it stays over. */
 export const MONTHLY_PENALTY_RATE = 0.01

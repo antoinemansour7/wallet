@@ -1,4 +1,4 @@
-import { parseNum } from './portfolioStats'
+import { parseNum } from './portfolioStats.js'
 
 function normalizeAccountNumber(value) {
   const text = String(value ?? '').trim()

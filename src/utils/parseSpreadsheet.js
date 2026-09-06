@@ -1,7 +1,7 @@
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
-import { extractTextFromPdf, extractPositionsFromText } from './extractPdfPositions'
-import { parseNum } from './portfolioStats'
+import { extractTextFromPdf, extractPositionsFromText } from './extractPdfPositions.js'
+import { parseNum } from './portfolioStats.js'
 
 const OUTPUT_HEADERS = [
   'ACCOUNT NUMBER',

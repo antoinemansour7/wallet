@@ -24,7 +24,7 @@
  * unrecognised security returns UNKNOWN and the screen says nothing.
  */
 
-import { toMinorUnits } from './money'
+import { toMinorUnits } from './money.js'
 
 export const LISTING = { US: 'US', CA: 'CA', UNKNOWN: 'UNKNOWN' }
 

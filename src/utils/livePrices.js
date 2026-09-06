@@ -1,4 +1,4 @@
-import { parseNum } from './portfolioStats'
+import { parseNum } from './portfolioStats.js'
 
 const FX_SYMBOL = 'USDCAD=X'
 

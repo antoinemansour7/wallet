@@ -21,8 +21,8 @@
  * and a test guards the copy against reading like a recommendation.
  */
 
-import { classifyHolding, LISTING } from './withholdingTax'
-import { toMinorUnits } from './money'
+import { classifyHolding, LISTING } from './withholdingTax.js'
+import { toMinorUnits } from './money.js'
 
 /** Below this the saving stops being worth the steps and the settlement wait. */
 export const GAMBIT_MINIMUM_CAD = 5000

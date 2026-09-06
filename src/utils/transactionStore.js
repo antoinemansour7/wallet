@@ -13,8 +13,8 @@
  */
 
 import { collection, doc, getDoc, getDocs, limit, orderBy, query, where } from 'firebase/firestore'
-import { db } from '../firebase/config'
-import { IS_PREVIEW } from '../preview/mockMode'
+import { db } from '../firebase/config.js'
+import { IS_PREVIEW } from '../preview/mockMode.js'
 
 /**
  * Enough to cover the twelve-month withholding window and a cost-base pool

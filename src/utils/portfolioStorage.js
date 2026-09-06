@@ -1,12 +1,12 @@
 import { deleteDoc, doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore'
-import { db } from '../firebase/config'
+import { db } from '../firebase/config.js'
 import {
   buildAccountPortfolio,
   flattenAccountRows,
   hasAccountPortfolio,
   normalizeStoredAccounts,
-} from './accountPortfolio'
-import { IS_PREVIEW, IS_PREVIEW_EMPTY, PREVIEW_PORTFOLIO } from '../preview/mockMode'
+} from './accountPortfolio.js'
+import { IS_PREVIEW, IS_PREVIEW_EMPTY, PREVIEW_PORTFOLIO } from '../preview/mockMode.js'
 
 function localStorageKey(uid) {
   return `wallai:portfolio:${uid}`

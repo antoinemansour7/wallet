@@ -1,4 +1,4 @@
-import { auth } from '../firebase/config'
+import { auth } from '../firebase/config.js'
 
 /**
  * The one way to reach /api/plaid.
