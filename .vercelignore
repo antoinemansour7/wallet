@@ -1,0 +1,10 @@
+# Vercel turns every file under api/ into a serverless function, test files
+# included. api/plaid.test.js has been deployed as a live function this whole
+# time — it does nothing, and it occupies one of the plan's twelve slots.
+#
+# That ceiling is not theoretical: api/ was sitting at exactly 12, so adding a
+# single test file failed the build outright, with an error that names neither
+# the limit nor the file. Excluding tests frees a slot and stops a test ever
+# costing one again.
+*.test.js
+*.test.jsx
