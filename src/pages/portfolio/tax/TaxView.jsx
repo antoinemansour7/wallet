@@ -3,15 +3,22 @@ import AccountIcon from '../AccountIcons'
 import { projectWithholding } from '../../../utils/withholdingTax'
 import { summarizeFundFees } from '../../../utils/fundFees'
 import { toMinorUnits } from '../../../utils/money'
-import { conversionComparison } from '../../../utils/currencyConversion'
 import { measureConversionCost } from '../../../utils/conversionCost'
-import { accountTypeLabel, contributionView, localTaxDate, money, saleReview, taxAccountType, taxOverview, validNumber } from './taxModel'
+import { accountTypeLabel, contributionView, localTaxDate, money, saleReview, taxAccountType, taxOverview } from './taxModel'
 import './Tax.css'
 
 const CRA_TFSA = 'https://www.canada.ca/en/revenue-agency/services/tax/individuals/topics/tax-free-savings-account/contributing/before.html'
 const CRA_RRSP = 'https://www.canada.ca/en/revenue-agency/services/tax/individuals/topics/rrsps-related-plans/contributing-a-rrsp-prpp.html'
 const TREATY = 'https://www.canada.ca/en/department-finance/programs/tax-policy/tax-treaties/country/united-states-america-convention-consolidated-1980-1983-1984-1995-1997-2007.html'
 const Field = ({ label, children, hint }) => <label className="tax-field"><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>
+/** "Aug 12", the way a statement line reads. */
+const formatConversionDate = (iso) => {
+  const ms = Date.parse(`${iso}T00:00:00Z`)
+  return Number.isFinite(ms)
+    ? new Date(ms).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+    : iso
+}
+
 const SectionHeading = ({ title, subtitle, aside }) => <div className="tax-section-heading"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>{aside}</div>
 const Badge = ({ children }) => <span className="tax-badge">{children}</span>
 
@@ -103,30 +110,47 @@ function ContributionSection({ workspace, accounts }) {
   </section>
 }
 
-function ConversionSection({ transactions = [], historyStarts = {} }) {
-  // The measured half of #18. The scenario below prices a conversion someone
-  // types in; this prices the ones they actually made, from the rate implied by
-  // the two legs against the Bank of Canada mid rate already on each record.
-  const measured = measureConversionCost({ transactions, historyStarts })
-  const [amount, setAmount] = useState('10000')
-  const [spread, setSpread] = useState('1.5')
-  const [commission, setCommission] = useState('9.95')
-  const [bidAsk, setBidAsk] = useState('0.1')
-  const base = conversionComparison({ amountCad: validNumber(amount) })
-  const valid = base && [spread, commission, bidAsk].every((v) => validNumber(v) !== null) && Number(spread) <= 100 && Number(bidAsk) <= 100
-  const brokerMinor = valid ? Math.round(Number(amount) * Number(spread)) : null
-  const gambitMinor = valid ? Math.round(Number(amount) * Number(bidAsk)) + Math.round(Number(commission) * 100) * 2 : null
-  return <section className="tax-card" id="tax-conversion"><SectionHeading title="Currency conversion" subtitle="Compare costs for a CAD-to-USD conversion." aside={<Badge>{measured ? 'Recorded' : 'Scenario'}</Badge>} />
-    {measured && <div className="tax-measured-block">
-      <div className="tax-cost-row"><span>What your conversions actually cost<small>{measured.conversions.length} recorded{measured.complete ? '' : ` · ${measured.unpricedCount} not priced`}</small></span><strong>{money(measured.totalCostMinor)} <small>CAD</small></strong></div>
-      {measured.averageSpreadPct !== null && <p className="tax-notice">An average spread of {measured.averageSpreadPct}% on {money(measured.totalConvertedMinor)} converted. This is the rate implied by the amounts on each conversion, against the Bank of Canada rate for that day.</p>}
-      {measured.conversions[0]?.couldHaveSavedMinor !== null && measured.conversions[0]?.couldHaveSavedMinor > 0 && <p className="tax-notice">The most recent, on {measured.conversions[0].tradeDate}, cost {money(measured.conversions[0].costMinor)} at {measured.conversions[0].spreadPct}%. Norbert’s Gambit would have cost about {money(measured.conversions[0].alternativeCostMinor)}.</p>}
-      {!measured.complete && <p className="tax-notice">Conversions this could not pair into two legs are excluded from the total rather than estimated.</p>}
+function ConversionSection({ transactions = [], historyStarts = {}, year, hasUsdActivity }) {
+  // Not a calculator any more. The question this answers is what past
+  // conversions actually cost, so every figure comes off the ledger and a
+  // conversion that cannot be priced is left out rather than estimated.
+  const measured = measureConversionCost({ transactions, historyStarts, year })
+  const conversions = measured?.conversions ?? []
+
+  return <section className="tax-card" id="tax-conversion" aria-label="Currency conversion">
+    <SectionHeading title="Currency conversion" subtitle={`What your ${year} conversions cost.`} aside={<Badge>Measured</Badge>} />
+    {conversions.length > 0 ? <>
+      <div className="tax-fee-total">
+        <span>Total FX cost<small>{conversions.length} measured conversion{conversions.length === 1 ? '' : 's'}{measured.complete ? '' : ` · ${measured.unpricedCount} not priced`}</small></span>
+        <strong>{money(measured.totalCostMinor, 'CAD')} <small>CAD</small></strong>
+      </div>
+      {/* Newest first: the most recent conversion is the one a person can still
+          check against a statement they have not filed yet. */}
+      <ul className="tax-conversion-list">
+        {conversions.map((c) => <li key={c.transactionId ?? `${c.tradeDate}:${c.toAmountMinor}`} className="tax-conversion">
+          <div className="tax-conversion-head">
+            <strong>{formatConversionDate(c.tradeDate)}{c.symbol ? ` · ${c.symbol}` : ''}</strong>
+            <strong className="tax-numeric">{money(c.costMinor, 'CAD')} <small>CAD</small></strong>
+          </div>
+          {/* Only the fields the event actually carries. An explicit ledger
+              conversion has no symbol, and inventing one would attach a real
+              cost to a trade that did not incur it. */}
+          <dl className="tax-conversion-detail">
+            <div><dt>CAD converted</dt><dd>{money(c.fromAmountMinor, 'CAD')}</dd></div>
+            <div><dt>USD used</dt><dd>{money(c.toAmountMinor, 'USD')}</dd></div>
+            {Number.isFinite(c.midRate) && <div><dt>Reference rate</dt><dd>{c.midRate.toFixed(4)}</dd></div>}
+            {Number.isFinite(c.chargedRate) && <div><dt>Effective broker rate</dt><dd>{c.chargedRate.toFixed(4)}</dd></div>}
+          </dl>
+        </li>)}
+      </ul>
+      {!measured.complete && <p className="tax-notice">Conversions without enough information to price are excluded from the total rather than estimated.</p>}
+    </> : <div className="tax-empty">
+      <h3>No measured FX conversions yet</h3>
+      {/* Only claim USD activity exists when it does. */}
+      <p>{hasUsdActivity
+        ? 'We found USD activity, but do not have enough information to determine the actual currency conversion cost.'
+        : 'No conversions recorded.'}</p>
     </div>}
-    <div className="tax-input-grid"><Field label="Amount to convert (CAD)"><input type="number" min="0" step="100" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field><Field label="Broker FX spread (%)"><input type="number" min="0" max="100" step="0.01" value={spread} onChange={(e) => setSpread(e.target.value)} /></Field><Field label="Commission per trade (CAD)"><input type="number" min="0" step="0.01" value={commission} onChange={(e) => setCommission(e.target.value)} /></Field><Field label="Combined bid–ask cost (%)"><input type="number" min="0" max="100" step="0.01" value={bidAsk} onChange={(e) => setBidAsk(e.target.value)} /></Field></div>
-    <div className="tax-cost-row"><span>Broker conversion</span><strong>{money(brokerMinor)} <small>CAD</small></strong></div><div className="tax-cost-row"><span>Norbert’s Gambit <small>Two commissions + bid–ask cost</small></span><strong>{money(gambitMinor)} <small>CAD</small></strong></div>
-    {valid ? <div className="tax-scenario-difference"><span>Difference under these assumptions</span><strong>{money(brokerMinor - gambitMinor)} CAD</strong></div> : <p className="tax-notice">{validNumber(amount) !== null && Number(amount) < 5000 ? 'Enter at least $5,000 CAD to compare this approach.' : 'Enter valid amounts and percentages to compare costs.'}</p>}
-    <details className="tax-details"><summary>How this comparison works</summary><p>Norbert’s Gambit uses a dual-currency security such as DLR / DLR.U: buy in CAD, journal to its USD listing, then sell in USD. Confirm eligibility, commissions and journalling steps with your broker. These are editable examples, not a quote from your brokerage. The exchange rate can move between trades; settlement and waiting costs are excluded.</p></details>
   </section>
 }
 
@@ -181,9 +205,12 @@ export default function TaxView({ accounts, workspace, onAddAccount }) {
   const [view, setView] = useState('summary')
   const [tool, setTool] = useState('accounts')
   // The same call ConversionSection makes. One FX pricing path, read twice.
+  // One year for both the Summary card and the Planning report, so the two
+  // totals are the same number rather than two aggregations that can drift.
+  const taxYear = Number(localTaxDate().slice(0, 4))
   const fx = useMemo(
-    () => measureConversionCost({ transactions: data.transactions, historyStarts: data.historyStarts }),
-    [data.transactions, data.historyStarts],
+    () => measureConversionCost({ transactions: data.transactions, historyStarts: data.historyStarts, year: taxYear }),
+    [data.transactions, data.historyStarts, taxYear],
   )
   const fxAvoidableMinor = (fx?.conversions ?? [])
     .map((c) => c.couldHaveSavedMinor)
@@ -246,7 +273,7 @@ export default function TaxView({ accounts, workspace, onAddAccount }) {
           <div className="tax-hero-label">FX conversion costs <Badge>Measured</Badge></div>
           <div className={`tax-hero-amount ${!fx?.conversions.length ? 'tax-amount-empty' : ''}`}>{fx?.conversions.length ? money(fx.totalCostMinor, 'CAD') : 'No measured conversions yet'}</div>
           <p>{fx?.conversions.length
-            ? `Estimated FX spread paid across ${fx.conversions.length} measured conversion${fx.conversions.length === 1 ? '' : 's'}${fx.complete ? '' : ` · ${fx.unpricedCount} not priced`}`
+            ? `Measured from ${fx.conversions.length} conversion${fx.conversions.length === 1 ? '' : 's'} in ${taxYear}${fx.complete ? '' : ` · ${fx.unpricedCount} not priced`}`
             : hasUsdActivity
               ? 'We found USD purchases, but do not have enough information to determine the currency conversion cost.'
               : 'No conversions recorded.'}</p>
@@ -274,7 +301,7 @@ export default function TaxView({ accounts, workspace, onAddAccount }) {
     <div id="tax-panel-planning" role="tabpanel" aria-labelledby="tax-tab-planning" hidden={view !== 'planning'}>
       <div className="tax-planning-intro"><div><h2>Plan a change</h2><p>Compare accounts or currency conversion costs.</p></div><div className="tax-tool-switch" role="group" aria-label="Planning tool"><button type="button" aria-pressed={tool === 'accounts'} onClick={() => setTool('accounts')}>Account comparison</button><button type="button" aria-pressed={tool === 'currency'} onClick={() => setTool('currency')}>Currency conversion</button></div></div>
       <div className="tax-tool-panel" hidden={tool !== 'accounts'}><WithholdingSimulator accounts={accounts} settings={settings} currency={currency} reference={data.reference} /></div>
-      <div className="tax-tool-panel" hidden={tool !== 'currency'}><ConversionSection transactions={data.transactions} historyStarts={data.historyStarts} /></div>
+      <div className="tax-tool-panel" hidden={tool !== 'currency'}><ConversionSection transactions={data.transactions} historyStarts={data.historyStarts} year={taxYear} hasUsdActivity={hasUsdActivity} /></div>
     </div>
     <div id="tax-panel-sales" role="tabpanel" aria-labelledby="tax-tab-sales" hidden={view !== 'sales'}><SalesSection ledger={ledger} prices={prices} /></div>
     <footer className="tax-footer"><span>Estimates, not a tax return.</span><div><button type="button" onClick={workspace.retry}>Refresh data</button><a href={TREATY} target="_blank" rel="noreferrer">Canada–US treaty ↗</a></div></footer>

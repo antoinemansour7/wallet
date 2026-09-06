@@ -145,21 +145,28 @@ export function measureConversion(event, { sourceId } = {}) {
  * screen can say the total is incomplete rather than presenting a partial sum
  * as the whole picture.
  */
-export function measureConversionCost({ transactions = [], sourceId = null, historyStarts = {} } = {}) {
+export function measureConversionCost({ transactions = [], sourceId = null, historyStarts = {}, year = null } = {}) {
   const { events, unpairable } = conversionEventsFromLedger(transactions)
   // Both kinds of evidence, priced by the same formula and merged into one
   // list, so a caller never has to know which sort of record a conversion came
   // from — only that it happened and what it cost.
   const embedded = tradeEmbeddedConversions({ transactions, historyStarts, explicitEvents: events })
 
+  // A single year, applied here rather than by each caller. The Summary card and
+  // the Planning report both read this function, and two aggregations over the
+  // same data are two chances to disagree about what a year cost.
+  const inYear = (entry) => !year || String(entry?.tradeDate ?? '').slice(0, 4) === String(year)
+
   const priced = [
     ...events.map((event) => measureConversion({ ...event, source: 'ledger-fx' }, { sourceId })),
     ...embedded.events.map((event) => measureConversion(event, { sourceId })),
-  ].filter(Boolean)
+  ].filter(Boolean).filter(inYear)
 
-  const unpricedCount = unpairable.length
-    + (events.length + embedded.events.length - priced.length)
-    + embedded.unpriced.length
+  // Refusals are counted for the same year the total covers, so "3 conversions,
+  // 1 not priced" describes one period rather than two.
+  const unpricedCount = unpairable.filter(inYear).length
+    + (events.filter(inYear).length + embedded.events.filter(inYear).length - priced.length)
+    + embedded.unpriced.filter(inYear).length
 
   if (priced.length === 0 && unpricedCount === 0) return null
 
@@ -177,6 +184,7 @@ export function measureConversionCost({ transactions = [], sourceId = null, hist
       : null,
     unpricedCount,
     complete: unpricedCount === 0,
+    year: year ?? null,
     currency: 'CAD',
   }
 }
@@ -307,13 +315,13 @@ export function tradeEmbeddedConversions({ transactions = [], historyStarts = {}
     // predates the boundary has an opening balance this cannot see.
     const startsAt = historyStarts[row.accountId]
     if (!startsAt || row.tradeDate <= startsAt) {
-      unpriced.push({ transactionId: row.id ?? null, reason: 'insufficient-history' })
+      unpriced.push({ transactionId: row.id ?? null, tradeDate: row.tradeDate, reason: 'insufficient-history' })
       continue
     }
 
     const midRate = Number(row.fxRate)
     if (!(midRate > 0)) {
-      unpriced.push({ transactionId: row.id ?? null, reason: 'no-reference-rate' })
+      unpriced.push({ transactionId: row.id ?? null, tradeDate: row.tradeDate, reason: 'no-reference-rate' })
       continue
     }
 
