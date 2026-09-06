@@ -10,7 +10,7 @@ import { getFirestore } from 'firebase-admin/firestore'
 import { getAuth } from 'firebase-admin/auth'
 import { withRunLog } from '../src/server/runLog.js'
 import { writeAccessToken, readAccessToken, deleteAccessToken } from '../src/server/plaidTokens.js'
-import { syncInvestmentTransactions } from '../src/server/plaidTransactions.js'
+import { syncInvestmentTransactions, dedupeEnabledAccounts } from '../src/server/plaidTransactions.js'
 import { getRatesForDates } from '../src/server/historicalFx.js'
 import { historicalFxCache } from '../src/server/historicalFxCache.js'
 
@@ -513,8 +513,8 @@ async function handleHoldings(req, res) {
  * and a failure here reports as an error entry rather than losing every
  * other connection's import with it (#55).
  */
-async function syncTransactionsForItem({ client, db, uid, doc, resolveFxRates, since = null }) {
-  const { enabledAccountIds } = doc.data()
+async function syncTransactionsForItem({ client, db, uid, doc, resolveFxRates, since = null, enabledAccountIds }) {
+  const effectiveEnabled = enabledAccountIds ?? doc.data().enabledAccountIds
 
   const accessToken = await readAccessToken({ db, uid, itemId: doc.id, legacyData: doc.data() })
   if (!accessToken) throw new Error(`No access token for Plaid item ${doc.id}`)
@@ -524,7 +524,7 @@ async function syncTransactionsForItem({ client, db, uid, doc, resolveFxRates, s
     accessToken,
     db,
     uid,
-    enabledAccountIds,
+    enabledAccountIds: effectiveEnabled,
     accountTypeFor: mapAccountType,
     resolveFxRates,
     since,
@@ -556,8 +556,19 @@ async function handleSyncTransactions(req, res) {
   // once per connection.
   const resolveFxRates = (dates) => getRatesForDates(dates, { cache: historicalFxCache() })
 
+  // The same brokerage connected twice reports the same real accounts under
+  // two items; claim each real account for one item so its transactions are
+  // imported once, not once per connection. Computed over every item (not just
+  // the filtered set) so a single-item sync still respects that ownership.
+  const enabledByItem = dedupeEnabledAccounts(
+    plaidDocs.docs.map((d) => {
+      const data = d.data()
+      return { itemId: d.id, institution: data.institution, accounts: data.accounts || [], enabledAccountIds: data.enabledAccountIds }
+    }),
+  )
+
   const settled = await Promise.allSettled(
-    docs.map((doc) => syncTransactionsForItem({ client, db, uid: userId, doc, resolveFxRates })),
+    docs.map((doc) => syncTransactionsForItem({ client, db, uid: userId, doc, resolveFxRates, enabledAccountIds: enabledByItem.get(doc.id) })),
   )
 
   let written = 0

@@ -11,7 +11,47 @@ import {
   writeLedgerRecords,
   resolveFxForTransactions,
   syncInvestmentTransactions,
+  dedupeEnabledAccounts,
 } from './plaidTransactions'
+
+describe('dedupeEnabledAccounts', () => {
+  const acct = (id, mask, subtype = 'tfsa') => ({ id, mask, subtype })
+  const item = (itemId, institution, accounts, enabledAccountIds) => ({ itemId, institution, accounts, enabledAccountIds })
+
+  it('claims a real account (institution+mask+subtype) for a single item when a login is connected twice', () => {
+    // The real bug: one Wealthsimple login connected through two Plaid items,
+    // both reporting the same accounts under different ids (same masks).
+    const items = [
+      item('itemA', 'Wealthsimple', [acct('oNgq', '17K9'), acct('ps07A', 'PS07', 'brokerage')], ['oNgq', 'ps07A']),
+      item('itemB', 'Wealthsimple', [acct('jrky', '17K9'), acct('ps07B', 'PS07', 'brokerage')], ['jrky', 'ps07B']),
+    ]
+    const map = dedupeEnabledAccounts(items)
+    // smallest id wins deterministically: 'jrky' < 'oNgq', 'ps07A' < 'ps07B'
+    expect(map.get('itemA')).toEqual(['ps07A'])
+    expect(map.get('itemB')).toEqual(['jrky'])
+    // every real account is now owned by exactly one item
+    expect([...map.values()].flat().sort()).toEqual(['jrky', 'ps07A'])
+  })
+
+  it('does not collapse the same mask across different institutions', () => {
+    const map = dedupeEnabledAccounts([
+      item('i1', 'Wealthsimple', [acct('w', '17K9')], ['w']),
+      item('i2', 'Questrade', [acct('q', '17K9')], ['q']),
+    ])
+    expect(map.get('i1')).toEqual(['w'])
+    expect(map.get('i2')).toEqual(['q'])
+  })
+
+  it('only considers enabled accounts, and leaves a single connection untouched', () => {
+    expect(dedupeEnabledAccounts([
+      item('only', 'X', [acct('a', 'M1'), acct('b', 'M2', 'brokerage')], ['a', 'b']),
+    ]).get('only')).toEqual(['a', 'b'])
+
+    expect(dedupeEnabledAccounts([
+      item('i', 'X', [acct('a', 'M1'), acct('b', 'M2')], ['a']),
+    ]).get('i')).toEqual(['a'])
+  })
+})
 
 const security = (overrides = {}) => ({
   security_id: 'sec1',
