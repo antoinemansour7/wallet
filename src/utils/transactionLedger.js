@@ -44,6 +44,19 @@ export const ACTIONS = {
   FX: 'FX',
 }
 
+/**
+ * Actions that are movements of cash rather than of a security.
+ *
+ * Withholding tax and a currency conversion have no security — they are cash
+ * movements, and Plaid sends them with a null security_id. Requiring a
+ * resolvable security before looking at the action therefore dropped every one
+ * of them, which made the TAX and FX actions unreachable and the measured
+ * figures built on them permanently empty. A cash row keeps a null securityKey;
+ * poolCostBase already filters on that field, so none of this reaches a cost
+ * base.
+ */
+const CASH_ACTIONS = new Set(['TAX', 'FX', 'FEE'])
+
 // Actions whose quantity is a disposition and is therefore stored negative,
 // so that summing quantity over a security is the position.
 const NEGATIVE_QUANTITY = new Set([ACTIONS.SELL])
@@ -145,11 +158,12 @@ export function normalizeTransaction(raw, context = {}) {
   const { source = 'manual', security, accountId, accountType = null, fx = null } = context
   if (!accountId) return null
 
-  const resolvedSecurity = resolveSecurityKey(security)
-  if (!resolvedSecurity) return null
-
+  // The action decides whether a security is required, so it is resolved first.
   const action = resolveAction(raw)
   if (!action) return null
+
+  const resolvedSecurity = resolveSecurityKey(security)
+  if (!resolvedSecurity && !CASH_ACTIONS.has(action)) return null
 
   const tradeDate = resolveTradeDate(raw)
   if (!tradeDate) return null
@@ -161,8 +175,8 @@ export function normalizeTransaction(raw, context = {}) {
   const record = {
     accountId,
     accountType,
-    securityKey: resolvedSecurity.key,
-    securityKeyBasis: resolvedSecurity.basis,
+    securityKey: resolvedSecurity?.key ?? null,
+    securityKeyBasis: resolvedSecurity?.basis ?? null,
     symbol: String(security?.symbol ?? '').trim().toUpperCase(),
     action,
     tradeDate,
