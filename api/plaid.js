@@ -71,10 +71,27 @@ function loadServiceAccount() {
   }
 }
 
-function getDb() {
+/**
+ * Firebase Admin, initialised exactly once per container.
+ *
+ * This used to live inside getDb(), which meant the app was only created when a
+ * handler asked for Firestore. verifyCaller runs *before* any handler — it is
+ * the first thing realHandler does — so on a cold container getAuth() was
+ * reached with no app and threw `app/no-app`, which the catch reported as
+ * "Invalid or expired session". A perfectly valid token, rejected because
+ * nothing had touched the database yet.
+ *
+ * Auth and Firestore are now both fronted by this, so the order handlers happen
+ * to call things in cannot decide whether authentication works.
+ */
+function ensureFirebaseApp() {
   if (!getApps().length) {
     initializeApp({ credential: cert(loadServiceAccount()) })
   }
+}
+
+function getDb() {
+  ensureFirebaseApp()
   return getFirestore()
 }
 
@@ -743,6 +760,9 @@ async function verifyCaller(req) {
     throw Object.assign(new Error('Missing Authorization header'), { status: 401 })
   }
   try {
+    // Before getAuth(), not after: this is the first code to run in the
+    // request, so nothing else has created the app yet.
+    ensureFirebaseApp()
     const decoded = await getAuth().verifyIdToken(token)
     return decoded.uid
   } catch (err) {
