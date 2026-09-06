@@ -111,6 +111,11 @@ describe('normalizeTransaction', () => {
       ['cash', ACTIONS.DIVIDEND],
       ['fee', ACTIONS.FEE],
       ['transfer', ACTIONS.TRANSFER],
+      // Withholding arrives as its own record. Before TAX existed these failed
+      // to classify and were dropped, so the ledger kept the gross dividend and
+      // no trace of the tax — the one figure #17 stage 2 has to measure.
+      ['tax', ACTIONS.TAX],
+      ['tax withholding', ACTIONS.TAX],
     ]
 
     it.each(cases)('maps Plaid subtype %s', (subtype, expected) => {

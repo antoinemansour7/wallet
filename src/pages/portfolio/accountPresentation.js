@@ -1,5 +1,6 @@
 import { accountSources, plaidItemIdFor, sourceLabel } from '../../utils/accountMerge'
 import { analyticsScopes } from './chartAnalytics'
+import { projectWithholding, measureAccountWithholding, TREATMENT, DEFAULT_ASSUMPTIONS } from '../../utils/withholdingTax'
 
 export function accountTitle(account) {
   const type = account.positions?.find((row) => row['ACCOUNT TYPE'])?.['ACCOUNT TYPE']
@@ -26,4 +27,98 @@ export function brokerageConnections(accounts) {
     }
   }
   return [...connections.values()]
+}
+
+// ─── Foreign withholding (#17, #83) ────────────────────────────────────────────
+
+/**
+ * The withholding drag for a whole account, at the grain a person recognises.
+ *
+ * Per account rather than per holding row, because a figure on every row is
+ * noise — most rows have nothing to say — and because the measured figure
+ * arrives account-level anyway. Only the holdings that actually contribute are
+ * named.
+ *
+ * Returns null when there is nothing to say. No "all optimal" banner: an
+ * account with no US-listed holdings should render nothing at all.
+ */
+export function accountTypeOf(account) {
+  return account?.positions?.find((row) => row['ACCOUNT TYPE'])?.['ACCOUNT TYPE'] ?? null
+}
+
+export function accountWithholding(account, { accounts = [], transactions = [], now = Date.now() } = {}) {
+  const accountType = accountTypeOf(account)
+  if (!accountType) return null
+
+  const rows = account?.positions ?? []
+  const projections = rows
+    .map((row) => ({ row, projection: projectWithholding({ row, accountType }) }))
+    .filter((entry) => entry.projection)
+  if (projections.length === 0) return null
+
+  const projectedMinor = projections.reduce((sum, { projection }) => sum + projection.annualWithheldMinor, 0)
+  const contributors = projections
+    .filter(({ projection }) => projection.annualWithheldMinor > 0)
+    .map(({ row }) => String(row.SYMBOL ?? '').toUpperCase())
+
+  // In-fund tax is taken before any distribution reaches the account, so no
+  // record of it can exist here and the projection is the only statement of it.
+  const anyInFund = projections.some(({ projection }) => projection.treatment === TREATMENT.IN_FUND)
+  const measured = anyInFund
+    ? null
+    : measureAccountWithholding({ transactions, accountId: account?.accountNumber, now })
+
+  const total = measured?.annualWithheldMinor ?? projectedMinor
+  const basis = measured ? 'measured' : 'projected'
+
+  // Only the account types the user actually holds. Offering an RRSP column to
+  // someone without an RRSP is a recommendation to open one.
+  const availableTypes = [...new Set(accounts.map(accountTypeOf).filter(Boolean))]
+    .filter((type) => type !== accountType)
+  const options = availableTypes
+    .map((type) => ({
+      accountType: type,
+      annualWithheldMinor: projections.reduce(
+        (sum, { row }) => sum + (projectWithholding({ row, accountType: type })?.annualWithheldMinor ?? 0),
+        0,
+      ),
+    }))
+    .filter((option) => option.annualWithheldMinor !== projectedMinor)
+
+  const marketValueMinor = projections.reduce((sum, { projection }) => sum + projection.workings.marketValueMinor, 0)
+
+  return {
+    accountType,
+    annualWithheldMinor: total,
+    basis,
+    unavoidable: anyInFund,
+    recoverable: projections.every(({ projection }) => projection.recoverable),
+    contributors,
+    comparison: options.length > 0 ? options : null,
+    workings: measured
+      ? measured.workings
+      : { marketValueMinor, yieldPct: DEFAULT_ASSUMPTIONS.yieldPct, withholdingRatePct: 15 },
+  }
+}
+
+/**
+ * One number for the whole portfolio, for the quiet Overview line. Null when
+ * no account has anything to report.
+ */
+export function portfolioWithholding(accounts = [], options = {}) {
+  const perAccount = accounts
+    .map((account) => accountWithholding(account, { ...options, accounts }))
+    .filter(Boolean)
+  if (perAccount.length === 0) return null
+
+  const annualWithheldMinor = perAccount.reduce((sum, entry) => sum + entry.annualWithheldMinor, 0)
+  if (annualWithheldMinor <= 0) return null
+
+  return {
+    annualWithheldMinor,
+    // Mixed bases across accounts are reported as projected: the weaker of the
+    // two is the honest label for a total that contains one.
+    basis: perAccount.every((entry) => entry.basis === 'measured') ? 'measured' : 'projected',
+    accountCount: perAccount.filter((entry) => entry.annualWithheldMinor > 0).length,
+  }
 }
