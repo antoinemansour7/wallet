@@ -224,7 +224,7 @@ export async function fetchLivePrices(symbols, { cachedOnly = false } = {}) {
   const fxQuote = allQuotes.find(
     (q) => symbolKey(q.symbol) === FX_SYMBOL || symbolKey(q.requestedSymbol) === FX_SYMBOL,
   )
-  const usdCadRate = fxQuote && Number.isFinite(fxQuote.price) ? fxQuote.price : null
+  const usdCadRate = fxQuote && fxQuote.cacheStatus !== 'stale' && Number.isFinite(fxQuote.price) && fxQuote.price > 0 ? fxQuote.price : null
   const quotes = allQuotes.filter(
     (q) => symbolKey(q.symbol) !== FX_SYMBOL && symbolKey(q.requestedSymbol) !== FX_SYMBOL,
   )

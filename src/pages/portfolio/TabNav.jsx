@@ -2,15 +2,16 @@ import { TABS } from './constants'
 
 export default function TabNav({ activeView, hasData, onChange }) {
   return (
-    <nav className="mb-8 flex gap-1 overflow-x-auto border-b border-ink/[0.08] scrollbar-none">
+    <nav aria-label="Portfolio views" className="mb-8 flex gap-1 overflow-x-auto border-b border-ink/[0.08] scrollbar-none">
       {TABS.map((tab) => {
-        const disabled = !hasData && tab.id !== 'add'
+        const disabled = !hasData && !['add', 'tax'].includes(tab.id)
         const isActive = activeView === tab.id
         return (
           <button
             key={tab.id}
             type="button"
             disabled={disabled}
+            aria-current={isActive ? 'page' : undefined}
             onClick={() => onChange(tab.id)}
             className={`group relative shrink-0 pb-2.5 focus-visible:outline-none ${
               disabled ? 'cursor-not-allowed opacity-25' : ''

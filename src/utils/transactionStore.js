@@ -35,7 +35,7 @@ function transactionsCollection(uid) {
  * projection that says it is one, so a read failure degrades to the behaviour
  * that existed before the ledger did.
  */
-export async function loadTransactions(uid, { since = null, max = DEFAULT_LIMIT } = {}) {
+export async function loadTransactions(uid, { since = null, max = DEFAULT_LIMIT, strict = false } = {}) {
   if (!uid || IS_PREVIEW) return []
 
   try {
@@ -47,6 +47,7 @@ export async function loadTransactions(uid, { since = null, max = DEFAULT_LIMIT 
     const snapshot = await getDocs(query(transactionsCollection(uid), ...constraints))
     return snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() }))
   } catch (error) {
+    if (strict) throw error
     console.error('[transactionStore] ledger read failed:', error?.message ?? error)
     return []
   }
@@ -60,7 +61,7 @@ export async function loadTransactions(uid, { since = null, max = DEFAULT_LIMIT 
  * history starts at no particular date" are different, and only the first is
  * true here.
  */
-export async function loadHistoryStarts(uid) {
+export async function loadHistoryStarts(uid, { strict = false } = {}) {
   if (!uid || IS_PREVIEW) return {}
 
   try {
@@ -72,6 +73,7 @@ export async function loadHistoryStarts(uid) {
     }
     return starts
   } catch (error) {
+    if (strict) throw error
     console.error('[transactionStore] account metadata read failed:', error?.message ?? error)
     return {}
   }

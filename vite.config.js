@@ -102,6 +102,15 @@ function livePricesPlugin() {
 
             // Mirror the deployed function: { cachedOnly } → instant cache read,
             // { positions } → history series, { symbols } → live quotes
+            if (Array.isArray(parsed.reference)) {
+              // Use the production handler so reference fields and limits stay identical.
+              const { default: handler } = await import('./api/live-prices.js')
+              req.body = parsed
+              res.status = (code) => { res.statusCode = code; return res }
+              res.json = (payload) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(payload)); return res }
+              return await handler(req, res)
+            }
+
             if (parsed.cachedOnly && Array.isArray(parsed.symbols)) {
               const { fetchCachedMarketQuotes } = await import('./src/server/marketQuotes.js')
               res.setHeader('Content-Type', 'application/json')

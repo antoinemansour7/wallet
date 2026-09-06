@@ -1,3 +1,5 @@
+import TaxView, { TaxOverviewPointer } from './portfolio/tax/TaxView'
+import useTaxWorkspace from './portfolio/tax/useTaxWorkspace'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { parseSpreadsheet } from '../utils/parseSpreadsheet'
 import { enrichRowsWithLivePrices } from '../utils/livePrices'
@@ -9,11 +11,7 @@ import ErrorBoundary, { PanelFallback } from '../components/ErrorBoundary'
 import { buildAccountPortfolio, cashEntryAmount, flattenAccountRows, getAccountEntries, hasAccountPortfolio } from '../utils/accountPortfolio'
 import { PLAID_ACCOUNT_KEY, PLAID_ITEM_KEY, applyMerge, applyMergeByAccount, previewMerge, sourceIdFor } from '../utils/accountMerge'
 import { importAccountSummary, planAccountRemoval, prepareImportRows } from '../utils/accountManagement'
-import { computeStats, fmtCurrency } from '../utils/portfolioStats'
-import { portfolioWithholding } from './portfolio/accountPresentation'
-import { fetchSecurityReference, symbolsToResolve } from '../utils/securityReference'
-import { loadTransactions, loadHistoryStarts } from '../utils/transactionStore'
-import { summarizeFundFees } from '../utils/fundFees'
+import { computeStats } from '../utils/portfolioStats'
 import { AUTO_PRICE_REFRESH_MS } from './portfolio/constants'
 import TabNav from './portfolio/TabNav'
 import StatRail from './portfolio/StatRail'
@@ -55,35 +53,6 @@ export default function Portfolio() {
       stats: computeStats(account.positions, { cashValue: account.cash, realizedPnl: account.realizedPnl }),
     }))
   ), [accounts])
-  // Reference data and the ledger both arrive after the first paint. Until
-  // they do, the tax figures render from holdings alone and say they are
-  // projections — which is what they are, so nothing has to be hidden while
-  // the lookups are in flight.
-  const [reference, setReference] = useState({})
-  const [ledger, setLedger] = useState({ transactions: [], historyStarts: {} })
-
-  const symbolKey = useMemo(() => symbolsToResolve(rows).sort().join(','), [rows])
-  useEffect(() => {
-    if (!symbolKey) return undefined
-    let cancelled = false
-    fetchSecurityReference(symbolKey.split(','))
-      .then((resolved) => { if (!cancelled) setReference(resolved) })
-    return () => { cancelled = true }
-  }, [symbolKey])
-
-  useEffect(() => {
-    if (!uid) return undefined
-    let cancelled = false
-    Promise.all([loadTransactions(uid), loadHistoryStarts(uid)])
-      .then(([transactions, historyStarts]) => { if (!cancelled) setLedger({ transactions, historyStarts }) })
-    return () => { cancelled = true }
-  }, [uid])
-
-  const portfolioDrag = useMemo(
-    () => portfolioWithholding(accountEntries, { reference, transactions: ledger.transactions, historyStarts: ledger.historyStarts }),
-    [accountEntries, reference, ledger],
-  )
-  const fundFees = useMemo(() => summarizeFundFees(rows, reference), [rows, reference])
   const totalCashValue = useMemo(() => accountEntries.reduce((sum, account) => sum + account.cash, 0), [accountEntries])
   const totalRealizedPnl = useMemo(() => accountEntries.reduce((sum, account) => sum + account.realizedPnl, 0), [accountEntries])
   const hasData     = rows.length > 0 || hasAccountPortfolio(accounts)
@@ -92,7 +61,8 @@ export default function Portfolio() {
       ? computeStats(rows, { cashValue: totalCashValue, realizedPnl: totalRealizedPnl })
       : null
   ), [hasData, rows, totalCashValue, totalRealizedPnl])
-  const visibleView = hasData ? activeView : 'add'
+  const visibleView = hasData || activeView === 'tax' ? activeView : 'add'
+  const taxWorkspace = useTaxWorkspace(uid, visibleView === 'tax', accountEntries)
 
   const applyPortfolioRows = useCallback((nextRows, {
     previousAccounts = accounts,
@@ -513,25 +483,7 @@ export default function Portfolio() {
               <PerformanceChart hero stats={stats} rows={rows} />
               <StatRail rows={rows} stats={stats} accounts={accountEntries} onCashOverride={handleCashOverride} />
               <CompositionPanel rows={rows} accounts={accountEntries} />
-              {/* One quiet line, deliberately not a stat tile: this is a tax
-                  fact sitting among performance numbers, and a dollar figure
-                  styled like a metric reads as an alarm. */}
-              {portfolioDrag && (
-                <p className="mt-6 text-[13px] leading-[1.7] text-ink/45">
-                  About {fmtCurrency(portfolioDrag.annualWithheldMinor / 100)}
-                  {portfolioDrag.basis === 'projected' ? ' a year is withheld' : ' was withheld over the last 12 months'}
-                  {' '}on US dividends across {portfolioDrag.accountCount === 1 ? 'one account' : `${portfolioDrag.accountCount} accounts`}. Open an account to see the detail.
-                </p>
-              )}
-              {/* Fund fees, in dollars. Never "$0 in fees" from a failed
-                  lookup: a fund whose fee did not resolve is named, not
-                  folded into the total. */}
-              {fundFees && fundFees.annualFeeMinor > 0 && (
-                <p className="mt-2 text-[13px] leading-[1.7] text-ink/45">
-                  Your funds charge about {fmtCurrency(fundFees.annualFeeMinor / 100)} a year, averaging {fundFees.weightedMerPct}% of the amount they hold.
-                  {!fundFees.complete && ` No fee data for ${fundFees.missingFeeData.join(', ')}, so ${fundFees.missingFeeData.length === 1 ? 'it is' : 'they are'} not in that figure.`}
-                </p>
-              )}
+              <TaxOverviewPointer accounts={accountEntries} settings={taxWorkspace.settings} onOpen={() => setActiveView('tax')} />
             </>
           )}
           {visibleView === 'overview' && !stats && <EmptyState onUploadClick={() => openAdd()} />}
@@ -547,6 +499,7 @@ export default function Portfolio() {
           {visibleView === 'holdings' && (
             <HoldingsView rows={rows} accounts={accountEntries} onUploadClick={() => openAdd()} />
           )}
+          {visibleView === 'tax' && <TaxView accounts={accountEntries} workspace={taxWorkspace} onAddAccount={openAdd} onOpenAccount={(account) => { setRemovalError(''); setOpenAccount(account) }} />}
           {visibleView === 'add' && (
             <AccountsView
               accounts={accountEntries}
@@ -590,13 +543,13 @@ export default function Portfolio() {
       />
 
       <AccountDetailModal
+        taxSettings={taxWorkspace.settings}
+        taxData={taxWorkspace.data}
+        onOpenTax={() => { setOpenAccount(null); setActiveView('tax') }}
         open={Boolean(openAccount)}
         account={openAccount ? (accountEntries.find((a) => a.accountNumber === openAccount.accountNumber) ?? null) : null}
         busy={removing}
         accounts={accountEntries}
-        reference={reference}
-        transactions={ledger.transactions}
-        historyStarts={ledger.historyStarts}
         error={removalError}
         onClose={() => { if (!removing) { setOpenAccount(null); setRemovalError('') } }}
         onRemoveSource={handleRemoveSource}

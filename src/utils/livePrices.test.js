@@ -309,3 +309,8 @@ describe('knowing which prices are stale', () => {
     expect(isPriceStale(at(iso(4000)), newest)).toBe(false)
   })
 })
+
+it('does not use an explicitly stale FX quote for conversion', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ quotes: [{ symbol: 'USDCAD=X', price: 1.4, cacheStatus: 'stale' }] }) }))
+  expect((await fetchLivePrices(['MSFT'])).usdCadRate).toBeNull()
+})
