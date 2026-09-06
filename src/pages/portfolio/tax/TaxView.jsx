@@ -104,11 +104,11 @@ function ContributionSection({ workspace, accounts }) {
   </section>
 }
 
-function ConversionSection({ transactions = [] }) {
+function ConversionSection({ transactions = [], historyStarts = {} }) {
   // The measured half of #18. The scenario below prices a conversion someone
   // types in; this prices the ones they actually made, from the rate implied by
   // the two legs against the Bank of Canada mid rate already on each record.
-  const measured = measureConversionCost({ transactions })
+  const measured = measureConversionCost({ transactions, historyStarts })
   const [amount, setAmount] = useState('10000')
   const [spread, setSpread] = useState('1.5')
   const [commission, setCommission] = useState('9.95')
@@ -252,7 +252,7 @@ export default function TaxView({ accounts, workspace, onOpenAccount, onAddAccou
     <div id="tax-panel-planning" role="tabpanel" aria-labelledby="tax-tab-planning" hidden={view !== 'planning'}>
       <div className="tax-planning-intro"><div><h2>Plan a change</h2><p>Compare accounts or currency conversion costs.</p></div><div className="tax-tool-switch" role="group" aria-label="Planning tool"><button type="button" aria-pressed={tool === 'accounts'} onClick={() => setTool('accounts')}>Account comparison</button><button type="button" aria-pressed={tool === 'currency'} onClick={() => setTool('currency')}>Currency conversion</button></div></div>
       <div className="tax-tool-panel" hidden={tool !== 'accounts'}><WithholdingSimulator accounts={accounts} settings={settings} currency={currency} reference={data.reference} /></div>
-      <div className="tax-tool-panel" hidden={tool !== 'currency'}><ConversionSection transactions={data.transactions} /></div>
+      <div className="tax-tool-panel" hidden={tool !== 'currency'}><ConversionSection transactions={data.transactions} historyStarts={data.historyStarts} /></div>
     </div>
     <div id="tax-panel-sales" role="tabpanel" aria-labelledby="tax-tab-sales" hidden={view !== 'sales'}><SalesSection ledger={ledger} prices={prices} /></div>
     <footer className="tax-footer"><span>Estimates, not a tax return.</span><div><button type="button" onClick={workspace.retry}>Refresh data</button><a href={TREATY} target="_blank" rel="noreferrer">Canada–US treaty ↗</a></div></footer>

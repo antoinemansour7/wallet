@@ -145,11 +145,23 @@ export function measureConversion(event, { sourceId } = {}) {
  * screen can say the total is incomplete rather than presenting a partial sum
  * as the whole picture.
  */
-export function measureConversionCost({ transactions = [], sourceId = null } = {}) {
+export function measureConversionCost({ transactions = [], sourceId = null, historyStarts = {} } = {}) {
   const { events, unpairable } = conversionEventsFromLedger(transactions)
-  const priced = events.map((event) => measureConversion(event, { sourceId })).filter(Boolean)
+  // Both kinds of evidence, priced by the same formula and merged into one
+  // list, so a caller never has to know which sort of record a conversion came
+  // from — only that it happened and what it cost.
+  const embedded = tradeEmbeddedConversions({ transactions, historyStarts, explicitEvents: events })
 
-  if (priced.length === 0 && unpairable.length === 0) return null
+  const priced = [
+    ...events.map((event) => measureConversion({ ...event, source: 'ledger-fx' }, { sourceId })),
+    ...embedded.events.map((event) => measureConversion(event, { sourceId })),
+  ].filter(Boolean)
+
+  const unpricedCount = unpairable.length
+    + (events.length + embedded.events.length - priced.length)
+    + embedded.unpriced.length
+
+  if (priced.length === 0 && unpricedCount === 0) return null
 
   const totalCostMinor = priced.reduce((sum, entry) => sum + entry.costMinor, 0)
   const totalConvertedMinor = priced.reduce((sum, entry) => sum + entry.fromAmountMinor, 0)
@@ -163,8 +175,173 @@ export function measureConversionCost({ transactions = [], sourceId = null } = {
     averageSpreadPct: totalConvertedMinor > 0
       ? Number(((totalCostMinor / totalConvertedMinor) * 100).toFixed(3))
       : null,
-    unpricedCount: unpairable.length + (events.length - priced.length),
-    complete: unpairable.length === 0 && events.length === priced.length,
+    unpricedCount,
+    complete: unpricedCount === 0,
     currency: 'CAD',
   }
+}
+
+// ─── Conversions bundled into a trade (#137) ──────────────────────────────────
+
+/**
+ * Not every conversion arrives as its own ledger row.
+ *
+ * The pairing above prices an *explicit* conversion — two cash movements a
+ * broker reported as such. The commonest real case is quieter: a USD purchase
+ * the account had no USD cash to fund, where the broker converted CAD to cover
+ * it and reported one trade rather than a trade plus a conversion. Priced only
+ * from explicit rows, that conversion contributes nothing to the total even
+ * though it really happened.
+ *
+ * A USD buy is **not** evidence of a conversion on its own. An account holding
+ * enough USD cash pays for it out of that cash and converts nothing. The
+ * evidence is a shortfall: what the trade cost against what the account held
+ * immediately before it.
+ */
+
+/** Rows that move cash in the currency they are denominated in. */
+const CASH_INFLOW = new Set(['SELL', 'DIVIDEND', 'ROC', 'TRANSFER', 'FX'])
+const CASH_OUTFLOW = new Set(['BUY', 'FEE', 'TAX'])
+
+const isCash = (action) => CASH_INFLOW.has(action) || CASH_OUTFLOW.has(action)
+
+/**
+ * A running cash balance per account, in one currency, keyed by the row that
+ * follows it. The value against a transaction id is the balance *immediately
+ * before* that row is applied, which is the quantity the shortfall test needs.
+ *
+ * The opening balance is taken as zero at the account's `historyStartsAt`.
+ * That is an assumption, and it is the one place this module cannot verify:
+ * cash held before the ledger begins is invisible, and would make a funded
+ * purchase look like a shortfall. Trades are therefore only priced for accounts
+ * whose history demonstrably predates them — see `tradeEmbeddedConversions`.
+ */
+export function runningCashBalances(transactions = [], currency = 'USD') {
+  const wanted = String(currency).toUpperCase()
+  // Every cash-affecting row is ordered, not only the ones denominated in the
+  // tracked currency. A purchase the broker settled in CAD moves no US dollars
+  // — but it is exactly the row whose USD balance has to be read, so it has to
+  // appear in the timeline to be given one.
+  const ordered = [...transactions]
+    .filter((t) => t?.tradeDate && isCash(t.action))
+    .sort((a, b) => (
+      a.tradeDate < b.tradeDate ? -1
+        : a.tradeDate > b.tradeDate ? 1
+          : String(a.id ?? '').localeCompare(String(b.id ?? ''))
+    ))
+
+  const balanceBefore = new Map()
+  const byAccount = new Map()
+
+  for (const row of ordered) {
+    const account = row.accountId
+    const running = byAccount.get(account) ?? 0
+    balanceBefore.set(row.id, running)
+
+    // Only a row denominated in the tracked currency moves it.
+    if (String(row.currency ?? '').toUpperCase() !== wanted) continue
+    const amount = magnitude(row.amountMinor)
+    byAccount.set(account, CASH_OUTFLOW.has(row.action) ? running - amount : running + amount)
+  }
+
+  return { balanceBefore, closing: byAccount }
+}
+
+/**
+ * What the trade cost, and what the broker debited to fund it.
+ *
+ * The two legs have to come off the row itself. `amountMinor` is what left the
+ * account, stated in the row's own currency; quantity times unit price is what
+ * the security cost in its own. When those two currencies differ, the ratio
+ * between them is the rate the broker actually used — the same derivation the
+ * explicit path makes from two paired rows, read from one.
+ *
+ * Returns null when either leg is missing. A trade whose CAD side cannot be
+ * established has no measurable spread, and inventing one from the reference
+ * rate would report a zero-cost conversion, which is worse than reporting none.
+ */
+function tradeLegs(row) {
+  const rowCurrency = String(row?.currency ?? '').toUpperCase()
+  const debitedMinor = magnitude(row?.amountMinor)
+  const quantity = magnitude(row?.quantity)
+  const priceMinor = magnitude(row?.priceMinor)
+  if (!(debitedMinor > 0) || !(quantity > 0) || !(priceMinor > 0)) return null
+
+  // The security's own cost, in the currency it is priced in.
+  const securityCostMinor = Math.round(quantity * priceMinor)
+  if (!(securityCostMinor > 0)) return null
+
+  // Same currency on both sides means nothing was converted to make this trade.
+  if (rowCurrency === 'USD') return null
+  if (rowCurrency !== 'CAD') return null
+
+  return { debitedMinor, usdCostMinor: securityCostMinor, brokerRate: debitedMinor / securityCostMinor }
+}
+
+/**
+ * Conversions the ledger implies rather than states.
+ *
+ * @param historyStarts accountId -> the date that account's history begins.
+ *   Required: without it the balance before a trade cannot be established, and
+ *   an unknown opening balance is refused rather than assumed to be zero.
+ */
+export function tradeEmbeddedConversions({ transactions = [], historyStarts = {}, explicitEvents = [] } = {}) {
+  const { balanceBefore } = runningCashBalances(transactions, 'USD')
+
+  // A trade already accounted for by an explicit conversion on the same day in
+  // the same account is not converted twice.
+  const explicitKeys = new Set(explicitEvents.map((event) => `${event.accountId}|${event.tradeDate}`))
+
+  const events = []
+  const unpriced = []
+
+  for (const row of transactions) {
+    if (row?.action !== 'BUY' || !row.tradeDate) continue
+
+    const legs = tradeLegs(row)
+    if (!legs) continue
+
+    if (explicitKeys.has(`${row.accountId}|${row.tradeDate}`)) continue
+
+    // Without a history boundary the balance is unknowable, and a trade that
+    // predates the boundary has an opening balance this cannot see.
+    const startsAt = historyStarts[row.accountId]
+    if (!startsAt || row.tradeDate <= startsAt) {
+      unpriced.push({ transactionId: row.id ?? null, reason: 'insufficient-history' })
+      continue
+    }
+
+    const midRate = Number(row.fxRate)
+    if (!(midRate > 0)) {
+      unpriced.push({ transactionId: row.id ?? null, reason: 'no-reference-rate' })
+      continue
+    }
+
+    // A USD balance the ledger never saw is treated as absent, not negative.
+    const available = Math.max(balanceBefore.get(row.id) ?? 0, 0)
+    const shortfallMinor = legs.usdCostMinor - available
+    // Funded out of USD already held: nothing was converted.
+    if (shortfallMinor <= 0) continue
+
+    events.push({
+      tradeDate: row.tradeDate,
+      accountId: row.accountId,
+      transactionId: row.id ?? null,
+      symbol: row.symbol ?? null,
+      fromCurrency: 'CAD',
+      // Only the converted part is priced. A trade half-funded from existing
+      // cash converted half as much, and charging the spread on the whole
+      // purchase would overstate what the broker actually took.
+      fromAmountMinor: Math.round(shortfallMinor * legs.brokerRate),
+      toCurrency: 'USD',
+      toAmountMinor: shortfallMinor,
+      midRate,
+      // So a screen can say which of the two kinds of evidence this rests on.
+      source: 'trade-embedded',
+      usdCostMinor: legs.usdCostMinor,
+      usdAvailableMinor: available,
+    })
+  }
+
+  return { events, unpriced }
 }
