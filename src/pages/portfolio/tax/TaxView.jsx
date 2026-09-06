@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import AccountIcon from '../AccountIcons'
+import TaxDataDialog from './TaxDataDialog'
 import { projectWithholding } from '../../../utils/withholdingTax'
 import { summarizeFundFees } from '../../../utils/fundFees'
 import { toMinorUnits } from '../../../utils/money'
@@ -20,6 +21,7 @@ const formatConversionDate = (iso) => {
 }
 
 const SectionHeading = ({ title, subtitle, aside }) => <div className="tax-section-heading"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>{aside}</div>
+const countLabel = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`
 const Badge = ({ children }) => <span className="tax-badge">{children}</span>
 
 export function TaxOverviewPointer({ accounts, settings, onOpen }) {
@@ -58,7 +60,7 @@ function WithholdingSimulator({ accounts, settings, currency, reference = {} }) 
   const difference = comparable ? Math.abs(projections[0].annualWithheldMinor - projections[1].annualWithheldMinor) * years : null
   return <section className="tax-card tax-simulator" id="tax-simulator">
     <SectionHeading title="Compare account types" subtitle="See how the same holding is treated in two accounts." />
-    {!holding || typedAccounts.length < 2 ? <div className="tax-empty"><AccountIcon name="bank" size={24} /><h3>A comparison needs two accounts</h3><p>Add registration types in Summary to compare holdings in {currency}.</p></div> : <>
+    {!holding || typedAccounts.length < 2 ? <div className="tax-empty"><AccountIcon name="bank" size={24} /><h3>A comparison needs two accounts</h3><p>Add registration types in Accounts to compare holdings in {currency}.</p></div> : <>
       <Field label="Holding"><select value={holding.key} onChange={(e) => setHoldingKey(e.target.value)}>{eligible.map((h) => <option key={h.key} value={h.key}>{h.row.SYMBOL} · {h.account.accountNumber}</option>)}</select></Field>
       <div className="tax-comparison">
         {[left, right].map((account, index) => <div className="tax-comparison-option" key={index}>
@@ -74,8 +76,7 @@ function WithholdingSimulator({ accounts, settings, currency, reference = {} }) 
   </section>
 }
 
-function ContributionCard({ type, record, disabled, onSave, accounts, workspace }) {
-  const [editing, setEditing] = useState(false)
+function ContributionCard({ type, record, disabled, onSave, accounts, workspace, editing, onEdit, onCancel }) {
   const [draft, setDraft] = useState({ amount: '', asOf: '' })
   const [planned, setPlanned] = useState('')
   const today = localTaxDate()
@@ -83,14 +84,14 @@ function ContributionCard({ type, record, disabled, onSave, accounts, workspace 
   const room = view.result
   const unavailable = workspace.ledger.loading || workspace.ledger.error || workspace.ledger.limited || view.missingFx
   const current = room && !room.stale && !unavailable
-  const startEdit = () => { setDraft({ amount: Number.isFinite(record?.limitMinor) ? record.limitMinor / 100 : record?.room ?? '', asOf: record?.asOf || today }); setEditing(true) }
-  const submit = async (e) => { e.preventDefault(); if (await onSave({ limitMinor: toMinorUnits(draft.amount), asOf: draft.asOf })) setEditing(false) }
+  const startEdit = () => { setDraft({ amount: Number.isFinite(record?.limitMinor) ? record.limitMinor / 100 : record?.room ?? '', asOf: record?.asOf || today }); onEdit() }
+  const submit = async (e) => { e.preventDefault(); if (await onSave({ limitMinor: toMinorUnits(draft.amount), asOf: draft.asOf })) onCancel() }
   return <div className="tax-room-card">
     <div className="tax-room-title"><h3>{type}</h3><button type="button" className="tax-text-button" disabled={disabled} onClick={startEdit}>{record ? 'Edit figures' : 'Add room'} <AccountIcon name="plus" size={13} /></button></div>
     {editing ? <form onSubmit={submit} className="tax-room-form">
       <Field label={`${type} available room (CAD)`} hint="Room available on this date, before deposits made on or after it."><input type="number" min="0" step="0.01" required value={draft.amount} onChange={(e) => setDraft({ ...draft, amount: e.target.value })} /></Field>
       <Field label="Accurate as of"><input type="date" required max={today} value={draft.asOf} onChange={(e) => setDraft({ ...draft, asOf: e.target.value })} /></Field>
-      <div className="tax-actions"><button className="tax-button" disabled={disabled} type="submit">{disabled ? 'Saving…' : 'Save figures'}</button><button className="tax-text-button" type="button" onClick={() => setEditing(false)}>Cancel</button></div>
+      <div className="tax-actions"><button className="tax-button" disabled={disabled} type="submit">{disabled ? 'Saving…' : 'Save figures'}</button><button className="tax-text-button" type="button" onClick={onCancel}>Cancel</button></div>
     </form> : <>
       <strong className={`tax-room-amount ${!record ? 'tax-room-amount-empty' : ''} ${current && room.remainingMinor < 0 ? 'tax-negative' : ''}`}>{current ? money(room.remainingMinor) : room?.stale || view.needsMigration ? 'Needs an update' : record ? 'Not available' : 'Not set'} <small>{current ? 'CAD remaining' : ''}</small></strong>
       <p>{current ? `Your room as of ${room.asOf}, less ${money(room.depositedMinor)} in recorded deposits across your ${type} accounts.` : room?.stale ? `Your last figure is from ${room.asOf}. Enter this year’s room before checking a contribution.` : view.needsMigration ? 'Confirm your saved room and date. Deposits now come from transaction history; the old manually entered contribution total is not deducted again.' : view.missingFx ? 'A deposit needs its historical exchange rate before room can be checked.' : record && unavailable ? 'Complete transaction history is needed to check this figure.' : `Enter the available room from your ${type === 'TFSA' ? 'CRA account' : 'notice of assessment'}.`}</p>
@@ -102,55 +103,46 @@ function ContributionCard({ type, record, disabled, onSave, accounts, workspace 
 
 function ContributionSection({ workspace, accounts }) {
   const { settings, update, loading, saving, loadFailed } = workspace
+  const [editingType, setEditingType] = useState(null)
   return <section className="tax-card" id="tax-room"><SectionHeading title="Contribution room" subtitle="Across your TFSA and RRSP accounts." aside={<Badge>CAD</Badge>} />
-    {['TFSA', 'RRSP'].map((type) => <ContributionCard key={type} type={type} record={settings.room?.[type]} disabled={loading || saving || loadFailed} accounts={accounts} workspace={workspace}
-      onSave={(record) => update({ room: { ...settings.room, [type]: record } })} />)}
+    <div className="tax-room-grid">{['TFSA', 'RRSP'].map((type) => <ContributionCard editing={editingType === type} onEdit={() => setEditingType(type)} onCancel={() => setEditingType((current) => current === type ? null : current)} key={type} type={type} record={settings.room?.[type]} disabled={loading || saving || loadFailed} accounts={accounts} workspace={workspace}
+      onSave={(record) => update({ room: { ...settings.room, [type]: record } })} />)}</div>
     <details className="tax-details"><summary>How room is calculated</summary><p className="tax-footnote">Based on your entered room and the available ledger. Incoming transfers are counted as deposits; review transfers between registered accounts and contributions outside this app against your records. New-year room is not added automatically.</p>
     <div className="tax-source-links"><a href={CRA_TFSA} target="_blank" rel="noreferrer">TFSA rules ↗</a><a href={CRA_RRSP} target="_blank" rel="noreferrer">RRSP room ↗</a></div></details>
   </section>
 }
 
-function ConversionSection({ transactions = [], historyStarts = {}, year, hasUsdActivity }) {
-  // Not a calculator any more. The question this answers is what past
-  // conversions actually cost, so every figure comes off the ledger and a
-  // conversion that cannot be priced is left out rather than estimated.
-  const measured = measureConversionCost({ transactions, historyStarts, year })
+function ConversionSection({ measured, accounts, year, hasUsdActivity }) {
   const conversions = measured?.conversions ?? []
-
+  const accountLabel = (id) => {
+    const account = accounts.find((a) => a.accountNumber === id || a.positions?.some((r) => r.__plaidAccountId === id))
+    return account?.accountNumber || (id ? `Account ${String(id).slice(-8)}` : 'Account unavailable')
+  }
   return <section className="tax-card" id="tax-conversion" aria-label="Currency conversion">
-    <SectionHeading title="Currency conversion" subtitle={`What your ${year} conversions cost.`} aside={<Badge>Measured</Badge>} />
+    <SectionHeading title="Currency conversion" subtitle={`Your ${year} activity, compared with the daily reference rate.`} aside={<Badge>Measured · CAD</Badge>} />
     {conversions.length > 0 ? <>
-      <div className="tax-fee-total">
-        <span>Total FX cost<small>{conversions.length} measured conversion{conversions.length === 1 ? '' : 's'}{measured.complete ? '' : ` · ${measured.unpricedCount} not priced`}</small></span>
-        <strong>{money(measured.totalCostMinor, 'CAD')} <small>CAD</small></strong>
+      <div className="tax-fx-total">
+        <div><span>{measured.totalCostMinor < 0 ? 'Below daily reference' : 'FX cost vs daily reference'}</span><strong>{money(measured.totalCostMinor, 'CAD')} <small>CAD</small></strong></div>
+        <p>{countLabel(conversions.length, 'measured conversion')}<span>{money(measured.totalConvertedMinor, 'CAD')} CAD converted</span></p>
       </div>
-      {/* Newest first: the most recent conversion is the one a person can still
-          check against a statement they have not filed yet. */}
       <ul className="tax-conversion-list">
-        {conversions.map((c) => <li key={c.transactionId ?? `${c.tradeDate}:${c.toAmountMinor}`} className="tax-conversion">
-          <div className="tax-conversion-head">
-            <strong>{formatConversionDate(c.tradeDate)}{c.symbol ? ` · ${c.symbol}` : ''}</strong>
-            <strong className="tax-numeric">{money(c.costMinor, 'CAD')} <small>CAD</small></strong>
-          </div>
-          {/* Only the fields the event actually carries. An explicit ledger
-              conversion has no symbol, and inventing one would attach a real
-              cost to a trade that did not incur it. */}
-          <dl className="tax-conversion-detail">
-            <div><dt>CAD converted</dt><dd>{money(c.fromAmountMinor, 'CAD')}</dd></div>
-            <div><dt>USD used</dt><dd>{money(c.toAmountMinor, 'USD')}</dd></div>
-            {Number.isFinite(c.midRate) && <div><dt>Reference rate</dt><dd>{c.midRate.toFixed(4)}</dd></div>}
-            {Number.isFinite(c.chargedRate) && <div><dt>Effective broker rate</dt><dd>{c.chargedRate.toFixed(4)}</dd></div>}
-          </dl>
-        </li>)}
+        {conversions.map((c, index) => <li key={`${c.accountId}:${c.transactionId ?? index}`} className="tax-conversion"><details>
+          <summary className="tax-conversion-head">
+            <span className="tax-conversion-icon" aria-hidden="true">↔</span>
+            <span className="tax-conversion-identity"><strong>{c.symbol ? `${c.symbol} · Currency conversion` : 'Currency conversion'}</strong><small>{formatConversionDate(c.tradeDate)} · {accountLabel(c.accountId)}</small></span>
+            <span className="tax-conversion-value"><strong>{money(c.costMinor, 'CAD')} <small>CAD</small></strong><small>{c.costMinor < 0 ? 'Below reference' : c.costMinor > 0 ? 'Above reference' : 'At reference'}</small></span>
+            <AccountIcon name="chevron" size={14} />
+          </summary>
+          <div className="tax-conversion-body"><dl className="tax-conversion-detail">
+            <div><dt>CAD amount</dt><dd>{money(c.fromAmountMinor, 'CAD')}</dd></div>
+            <div><dt>USD amount</dt><dd>{money(c.toAmountMinor, 'USD')}</dd></div>
+            <div><dt>Daily reference rate</dt><dd>{c.midRate.toFixed(4)}</dd></div>
+            <div><dt>Effective broker rate</dt><dd>{c.chargedRate.toFixed(4)}</dd></div>
+          </dl><p className="tax-footnote">Rates are CAD per USD. {c.source === 'trade-embedded' ? 'Derived from the trade’s verified currency amounts and recorded USD balance; assumes no cash before the available history.' : 'Based on paired CAD and USD FX records in this account on the same date.'} This comparison uses a daily reference, not an intraday execution quote.</p></div>
+        </details></li>)}
       </ul>
-      {!measured.complete && <p className="tax-notice">Conversions without enough information to price are excluded from the total rather than estimated.</p>}
-    </> : <div className="tax-empty">
-      <h3>No measured FX conversions yet</h3>
-      {/* Only claim USD activity exists when it does. */}
-      <p>{hasUsdActivity
-        ? 'We found USD activity, but do not have enough information to determine the actual currency conversion cost.'
-        : 'No conversions recorded.'}</p>
-    </div>}
+    </> : <div className="tax-empty"><span className="tax-empty-symbol" aria-hidden="true">↔</span><h3>No measured FX conversions yet</h3><p>{measured?.unpricedCount ? 'Some transactions need currency details before their FX cost can be measured.' : hasUsdActivity ? 'We found USD activity, but do not have enough information to determine the actual currency conversion cost.' : 'No conversions recorded.'}</p></div>}
+    {measured?.unpricedCount > 0 && <details className="tax-details tax-fx-incomplete"><summary>{countLabel(measured.unpricedCount, 'record')} not priced</summary><p>Excluded from the total. A conversion needs both currency amounts and a reference rate.</p>{measured.unpriced?.length > 0 && <ul>{measured.unpriced.map((row, index) => <li key={`${row.accountId}:${row.transactionId}:${index}`}><strong>{row.symbol || 'Transaction'}</strong> · {formatConversionDate(row.tradeDate)} · {accountLabel(row.accountId)}<span>{row.reason === 'unverified-price-currency' ? 'Unit-price currency is unverified; a USD amount cannot be established.' : row.reason === 'insufficient-history' ? 'Earlier cash history is needed.' : 'Daily reference rate is missing.'}</span></li>)}</ul>}</details>}
   </section>
 }
 
@@ -193,7 +185,7 @@ function SalesSection({ ledger, prices = {} }) {
 const TAX_VIEWS = [['summary', 'Summary'], ['planning', 'Planning'], ['sales', 'Sales']]
 
 export default function TaxView({ accounts, workspace, onAddAccount }) {
-  const { settings, loading, saving, error, loadFailed, update, ledger, data = {}, prices, referenceLoading, syncState = {} } = workspace
+  const { settings, loading, error, ledger, data = {}, prices, referenceLoading, syncState = {} } = workspace
   const currencies = [...new Set(accounts.flatMap((a) => [a.currency, ...(a.positions || []).map((r) => r['ACCOUNT CURRENCY'])]).filter(Boolean))].sort()
   const [chosenCurrency, setCurrency] = useState('CAD')
   const currency = currencies.includes(chosenCurrency) ? chosenCurrency : currencies[0] || 'CAD'
@@ -204,25 +196,15 @@ export default function TaxView({ accounts, workspace, onAddAccount }) {
   const feeGapCount = new Set([...unresolvedFees, ...(fees?.missingFeeData || [])]).size
   const [view, setView] = useState('summary')
   const [tool, setTool] = useState('accounts')
-  // The same call ConversionSection makes. One FX pricing path, read twice.
-  // One year for both the Summary card and the Planning report, so the two
-  // totals are the same number rather than two aggregations that can drift.
+  // Summary and report share the same period and measurement.
   const taxYear = Number(localTaxDate().slice(0, 4))
   const fx = useMemo(
     () => measureConversionCost({ transactions: data.transactions, historyStarts: data.historyStarts, year: taxYear }),
     [data.transactions, data.historyStarts, taxYear],
   )
-  const fxAvoidableMinor = (fx?.conversions ?? [])
-    .map((c) => c.couldHaveSavedMinor)
-    .filter((value) => Number.isFinite(value) && value > 0)
-    .reduce((sum, value) => sum + value, 0)
-  // Only claim USD purchases exist when they do: a ledger with none at all gets
-  // the plainer line rather than an explanation of something that never
-  // happened.
   const hasUsdActivity = (data.transactions ?? []).some((t) => String(t?.currency ?? '').toUpperCase() === 'USD')
-    || (fx?.unpricedCount ?? 0) > 0
   const [feesOpen, setFeesOpen] = useState(false)
-  const [yieldDraft, setYieldDraft] = useState(null)
+  const [dataOpen, setDataOpen] = useState(false)
   const changeViewWithKeys = (event) => {
     const index = TAX_VIEWS.findIndex(([id]) => id === view)
     const next = event.key === 'ArrowRight' ? (index + 1) % TAX_VIEWS.length : event.key === 'ArrowLeft' ? (index + TAX_VIEWS.length - 1) % TAX_VIEWS.length : event.key === 'Home' ? 0 : event.key === 'End' ? TAX_VIEWS.length - 1 : null
@@ -249,59 +231,45 @@ export default function TaxView({ accounts, workspace, onAddAccount }) {
     {syncState.result && <p className="tax-notice" role="status">{syncState.result.written} transactions synced.{syncState.result.skipped > 0 ? ` ${syncState.result.skipped} records skipped.` : ''}</p>}
 
     <div id="tax-panel-summary" role="tabpanel" aria-labelledby="tax-tab-summary" hidden={view !== 'summary'}>
-      {/* The removed "By account" card held the only prompt an account-less
-          user got here. Three cards of dashes and no way forward is worse than
-          the table was. */}
       {accounts.length === 0 && <div className="tax-empty"><AccountIcon name="bank" size={24} /><h3>Add your first account</h3><p>See what withholding, fund fees and currency conversion actually cost you.</p>{onAddAccount && <button type="button" className="tax-button" onClick={onAddAccount}>Add an account</button>}</div>}
       <div className="tax-at-a-glance">
-        <section className="tax-hero" aria-label="Portfolio withholding summary">
+        <section className="tax-metric tax-hero" aria-label="Portfolio withholding summary">
           <div className="tax-hero-label">Dividend withholding <Badge>{summary.basis === 'measured' ? 'Recorded · 12 months' : 'Annual estimate'}</Badge></div>
-          <div className={`tax-hero-amount ${!summary.covered ? 'tax-amount-empty' : ''}`}>{loading || referenceLoading ? '—' : summary.covered ? money(summary.annualMinor, currency) : 'Not estimated'}{summary.covered > 0 && <span>{currency} / year</span>}</div>
-          <p>{summary.covered ? `${summary.covered} holdings · ${summary.assumedYield ? 'Includes assumed yields' : 'Based on resolved dividend yields'}` : 'Account types and listing details are needed.'}{summary.gaps.length > 0 && <span className="tax-inline-gap">{summary.gaps.length} holdings not included</span>}</p>
-          <div className="tax-metric-footer"><span>Potential foreign tax credit</span><strong>{summary.covered ? money(summary.creditMinor, currency) : '—'} <small>{currency}</small></strong></div>
+          <div className={`tax-hero-amount ${!summary.covered ? 'tax-amount-empty' : ''}`}>{loading || referenceLoading ? '—' : summary.covered ? money(summary.annualMinor, currency) : 'Not estimated'}</div>
+          <span className="tax-metric-unit">{currency} / year</span>
+          <p>{summary.covered ? `${countLabel(summary.covered, 'holding')} · ${summary.assumedYield ? 'Includes assumed yields' : 'Resolved dividend yields'}` : 'Account types and listing details are needed.'}{summary.gaps.length > 0 && <span className="tax-inline-gap">{countLabel(summary.gaps.length, 'holding')} not included</span>}</p>
+          <div className="tax-metric-note">Potential foreign tax credit <strong>{summary.covered ? money(summary.creditMinor, currency) : '—'} {currency}</strong></div>
+          <div className="tax-metric-footer"><button type="button" className="tax-text-button" onClick={() => setDataOpen(true)}>Review estimate <AccountIcon name="arrow" size={14} /></button></div>
         </section>
-        <section className="tax-fee-metric" aria-label="Annual fund fee summary">
+        <section className="tax-metric" aria-label="Annual fund fee summary">
           <div className="tax-hero-label">Fund expenses <Badge>Annual estimate</Badge></div>
-          <div className={`tax-hero-amount ${!fees?.holdings.length ? 'tax-amount-empty' : ''}`}>{referenceLoading ? '—' : fees?.holdings.length ? money(fees.annualFeeMinor, currency) : fees || unresolvedFees.length ? 'Not estimated' : 'No funds identified'}{fees?.holdings.length > 0 && <span>{currency} / year</span>}</div>
-          <p>{fees?.weightedMerPct != null ? `${fees.weightedMerPct.toFixed(3)}% weighted expense ratio · priced funds only` : 'Expense ratios apply to funds, not individual stocks.'}{feeGapCount > 0 && <span className="tax-inline-gap">{feeGapCount} holdings need fee data</span>}</p>
-          <div className="tax-metric-footer"><span>Deducted within your funds</span><button type="button" className="tax-text-button" aria-expanded={feesOpen} aria-controls="tax-fee-breakdown" onClick={() => setFeesOpen(!feesOpen)}>{feesOpen ? 'Hide breakdown' : 'View breakdown'}<AccountIcon name="chevron" size={13} /></button></div>
+          <div className={`tax-hero-amount ${!fees?.holdings.length ? 'tax-amount-empty' : ''}`}>{referenceLoading ? '—' : fees?.holdings.length ? money(fees.annualFeeMinor, currency) : fees || unresolvedFees.length ? 'Not estimated' : 'No funds identified'}</div>
+          <span className="tax-metric-unit">{currency} / year</span>
+          <p>{fees?.weightedMerPct != null ? `${fees.weightedMerPct.toFixed(3)}% weighted expense ratio · priced funds only` : 'Expense ratios apply to funds, not individual stocks.'}{feeGapCount > 0 && <span className="tax-inline-gap">{countLabel(feeGapCount, 'holding')} {feeGapCount === 1 ? 'needs' : 'need'} fee data</span>}</p>
+          <div className="tax-metric-note">Deducted within your funds</div>
+          <div className="tax-metric-footer"><button type="button" className="tax-text-button" aria-expanded={feesOpen} aria-controls="tax-fee-breakdown" onClick={() => setFeesOpen(!feesOpen)}>{feesOpen ? 'Hide breakdown' : 'View breakdown'}<AccountIcon name="chevron" size={14} /></button></div>
         </section>
-        {/* Measured, never estimated: this reports only conversions the ledger
-            can prove happened, which is a different kind of number from the two
-            beside it and is badged as one. */}
-        <section className="tax-fx-metric" aria-label="FX conversion cost summary" id="tax-fx-summary">
+        <section className="tax-metric" aria-label="FX conversion cost summary" id="tax-fx-summary">
           <div className="tax-hero-label">FX conversion costs <Badge>Measured</Badge></div>
-          <div className={`tax-hero-amount ${!fx?.conversions.length ? 'tax-amount-empty' : ''}`}>{fx?.conversions.length ? money(fx.totalCostMinor, 'CAD') : 'No measured conversions yet'}</div>
-          <p>{fx?.conversions.length
-            ? `Measured from ${fx.conversions.length} conversion${fx.conversions.length === 1 ? '' : 's'} in ${taxYear}${fx.complete ? '' : ` · ${fx.unpricedCount} not priced`}`
-            : hasUsdActivity
-              ? 'We found USD purchases, but do not have enough information to determine the currency conversion cost.'
-              : 'No conversions recorded.'}</p>
-          {fxAvoidableMinor > 0 && <div className="tax-metric-footer"><span>Potential avoidable cost</span><strong>{money(fxAvoidableMinor, 'CAD')} <small>CAD</small></strong></div>}
-          {fx?.conversions.length > 0 && <div className="tax-metric-footer"><button type="button" className="tax-text-button" onClick={() => { setView('planning'); setTool('currency') }}>View conversions →</button></div>}
+          <div className={`tax-hero-amount ${!fx?.conversions.length ? 'tax-amount-empty' : ''}`}>{fx?.conversions.length ? money(fx.totalCostMinor, 'CAD') : 'Not measured'}</div>
+          <span className="tax-metric-unit">CAD · {taxYear} to date</span>
+          <p>{fx?.conversions.length ? `${countLabel(fx.conversions.length, 'measured conversion')}${fx.complete ? '' : ` · ${fx.unpricedCount} records not priced`}` : fx?.unpricedCount ? 'Currency details needed to measure these transactions.' : hasUsdActivity ? 'USD activity found; conversion amounts are unavailable.' : 'No conversions recorded.'}</p>
+          <div className="tax-metric-note">{fx?.totalCostMinor < 0 ? 'Below the daily reference rate' : 'Compared with the daily reference rate'}</div>
+          <div className="tax-metric-footer"><button type="button" className="tax-text-button" onClick={() => { setView('planning'); setTool('currency') }}>View conversions <AccountIcon name="arrow" size={14} /></button></div>
         </section>
       </div>
       <div id="tax-fee-breakdown" hidden={!feesOpen}><FeesSection accounts={accounts} reference={data.reference} loading={referenceLoading} /></div>
-      {/* Carried over from the removed "By account" card. These explain the
-          withholding figure above rather than the table they sat beside, and
-          the yield form is the only control for the fallback rate. */}
-      <div className="tax-summary-disclosures">
-          {summary.gaps.length > 0 && <details className="tax-details tax-coverage"><summary>Missing details · {summary.gaps.length} holdings</summary><ul>{summary.gaps.map(({ row, reason }, i) => <li key={`${row.SYMBOL}:${i}`}><span>{row.SYMBOL}</span><span>{reason}</span></li>)}</ul></details>}
-          <details className="tax-details tax-assumptions"><summary>Sources & assumptions</summary>
-            <p>Estimates use resolved listings and dividend yields. The fallback applies only when a yield is unavailable. Fund-level estimates assume US-source dividends and treaty rates.</p>
-            <form className="tax-yield-form" onSubmit={async (e) => { e.preventDefault(); if (await update({ yieldPct: Number(yieldDraft ?? settings.yieldPct ?? 1.3) })) setYieldDraft(null) }}><label htmlFor="tax-yield">Fallback yield</label><input id="tax-yield" type="number" min="0" max="100" step="0.1" required value={yieldDraft ?? settings.yieldPct ?? 1.3} onChange={(e) => setYieldDraft(e.target.value)} /><span>%</span><button type="submit" className="tax-text-button" disabled={loading || saving || loadFailed || yieldDraft === null}>Apply</button></form>
-            <ul>{summary.rows.flatMap(({ account, holdings }) => holdings.map(({ row, projection }, i) => <li key={`${account.accountNumber}:${row.SYMBOL}:${i}`}>{row.SYMBOL} · {account.accountNumber}: {projection.workings.yieldPct}% {projection.provenance.yieldBasis === 'assumed' ? 'assumed yield' : 'trailing dividend yield'} · {projection.provenance.exchange} · reference {projection.provenance.resolvedAt?.slice(0, 10) || 'date unavailable'}{projection.treatment === 'IN_FUND' ? ' · fund-level approximation; US-source dividend mix is assumed' : ''}.</li>))}</ul>
-          </details>
-      </div>
+      <div className="tax-data-status"><span><span className="tax-status-dot" aria-hidden="true" />{summary.gaps.length || feeGapCount ? 'Some holdings need more data' : 'Your estimates, explained'}<small>{summary.gaps.length ? `${countLabel(summary.gaps.length, 'holding')} excluded from withholding. ` : ''}Sources and assumptions are available for review.</small></span><button type="button" className="tax-text-button" onClick={() => setDataOpen(true)}>Data & assumptions <AccountIcon name="arrow" size={14} /></button></div>
+      <TaxDataDialog open={dataOpen} onClose={() => setDataOpen(false)} summary={summary} workspace={workspace} />
       <div className="tax-summary-grid">
         <ContributionSection workspace={workspace} accounts={accounts} />
       </div>
     </div>
 
     <div id="tax-panel-planning" role="tabpanel" aria-labelledby="tax-tab-planning" hidden={view !== 'planning'}>
-      <div className="tax-planning-intro"><div><h2>Plan a change</h2><p>Compare accounts or currency conversion costs.</p></div><div className="tax-tool-switch" role="group" aria-label="Planning tool"><button type="button" aria-pressed={tool === 'accounts'} onClick={() => setTool('accounts')}>Account comparison</button><button type="button" aria-pressed={tool === 'currency'} onClick={() => setTool('currency')}>Currency conversion</button></div></div>
+      <div className="tax-planning-intro"><div><h2>Explore your options</h2><p>Compare account types or review past currency conversions.</p></div><div className="tax-tool-switch" role="group" aria-label="Planning tool"><button type="button" aria-pressed={tool === 'accounts'} onClick={() => setTool('accounts')}>Account comparison</button><button type="button" aria-pressed={tool === 'currency'} onClick={() => setTool('currency')}>Currency conversion</button></div></div>
       <div className="tax-tool-panel" hidden={tool !== 'accounts'}><WithholdingSimulator accounts={accounts} settings={settings} currency={currency} reference={data.reference} /></div>
-      <div className="tax-tool-panel" hidden={tool !== 'currency'}><ConversionSection transactions={data.transactions} historyStarts={data.historyStarts} year={taxYear} hasUsdActivity={hasUsdActivity} /></div>
+      <div className="tax-tool-panel" hidden={tool !== 'currency'}><ConversionSection measured={fx} accounts={accounts} year={taxYear} hasUsdActivity={hasUsdActivity} /></div>
     </div>
     <div id="tax-panel-sales" role="tabpanel" aria-labelledby="tax-tab-sales" hidden={view !== 'sales'}><SalesSection ledger={ledger} prices={prices} /></div>
     <footer className="tax-footer"><span>Estimates, not a tax return.</span><div><button type="button" onClick={workspace.retry}>Refresh data</button><a href={TREATY} target="_blank" rel="noreferrer">Canada–US treaty ↗</a></div></footer>

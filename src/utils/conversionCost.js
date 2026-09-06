@@ -40,6 +40,20 @@ const SAME_DAY = (a, b) => a.tradeDate === b.tradeDate
 
 const magnitude = (value) => Math.abs(Number(value) || 0)
 
+// Deduplicate only stable identities. Equal dates/amounts can be real trades
+// in different accounts and must never be merged on appearance alone.
+const uniqueTransactions = (transactions) => {
+  const seen = new Set()
+  return transactions.filter((row) => {
+    const id = row?.id || row?.sourceId
+    if (!id) return true
+    const key = `${row.accountId}:${id}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 /**
  * Pair raw FX ledger rows into conversion events.
  *
@@ -55,7 +69,7 @@ const magnitude = (value) => Math.abs(Number(value) || 0)
  * be trusted while this part is still being confirmed against real records.
  */
 export function conversionEventsFromLedger(transactions = []) {
-  const fx = transactions
+  const fx = uniqueTransactions(transactions)
     .filter((t) => t?.action === 'FX' && t.tradeDate && magnitude(t.amountMinor) > 0)
     .sort((a, b) => (a.tradeDate < b.tradeDate ? -1 : a.tradeDate > b.tradeDate ? 1 : 0))
 
@@ -70,7 +84,8 @@ export function conversionEventsFromLedger(transactions = []) {
     const partnerIndex = fx.findIndex((right, j) => (
       j > i && !used.has(j) && SAME_DAY(left, right)
       && right.accountId === left.accountId
-      && String(right.currency ?? '') !== String(left.currency ?? '')
+      && new Set([left.currency, right.currency].map((c) => String(c).toUpperCase())).size === 2
+      && [left.currency, right.currency].every((c) => ['CAD', 'USD'].includes(String(c).toUpperCase()))
     ))
 
     if (partnerIndex === -1) { unpairable.push(left); continue }
@@ -84,6 +99,7 @@ export function conversionEventsFromLedger(transactions = []) {
     const domestic = foreign === left ? right : left
 
     events.push({
+      transactionId: `${left.id || left.sourceId || i}:${right.id || right.sourceId || partnerIndex}`,
       tradeDate: left.tradeDate,
       accountId: left.accountId,
       fromCurrency: String(domestic.currency ?? '').toUpperCase(),
@@ -146,6 +162,7 @@ export function measureConversion(event, { sourceId } = {}) {
  * as the whole picture.
  */
 export function measureConversionCost({ transactions = [], sourceId = null, historyStarts = {}, year = null } = {}) {
+  transactions = uniqueTransactions(transactions)
   const { events, unpairable } = conversionEventsFromLedger(transactions)
   // Both kinds of evidence, priced by the same formula and merged into one
   // list, so a caller never has to know which sort of record a conversion came
@@ -183,6 +200,7 @@ export function measureConversionCost({ transactions = [], sourceId = null, hist
       ? Number(((totalCostMinor / totalConvertedMinor) * 100).toFixed(3))
       : null,
     unpricedCount,
+    unpriced: embedded.unpriced.filter(inYear),
     complete: unpricedCount === 0,
     year: year ?? null,
     currency: 'CAD',
@@ -282,6 +300,7 @@ function tradeLegs(row) {
   // Same currency on both sides means nothing was converted to make this trade.
   if (rowCurrency === 'USD') return null
   if (rowCurrency !== 'CAD') return null
+  if (String(row.priceCurrency || '').toUpperCase() !== 'USD') return null
 
   return { debitedMinor, usdCostMinor: securityCostMinor, brokerRate: debitedMinor / securityCostMinor }
 }
@@ -294,6 +313,7 @@ function tradeLegs(row) {
  *   an unknown opening balance is refused rather than assumed to be zero.
  */
 export function tradeEmbeddedConversions({ transactions = [], historyStarts = {}, explicitEvents = [] } = {}) {
+  transactions = uniqueTransactions(transactions)
   const { balanceBefore } = runningCashBalances(transactions, 'USD')
 
   // A trade already accounted for by an explicit conversion on the same day in
@@ -306,22 +326,29 @@ export function tradeEmbeddedConversions({ transactions = [], historyStarts = {}
   for (const row of transactions) {
     if (row?.action !== 'BUY' || !row.tradeDate) continue
 
+    if (explicitKeys.has(`${row.accountId}|${row.tradeDate}`)) continue
+    // The ledger's currency labels its amount, not an independently verified
+    // USD unit price. In particular, a CAD amount equal to quantity × price
+    // cannot prove a 1:1 CAD/USD conversion. Legacy records need evidence from
+    // their source before the embedded path can price them.
+    if (String(row.currency).toUpperCase() === 'CAD' && !row.priceCurrency && magnitude(row.priceMinor) > 0 && magnitude(row.quantity) > 0) {
+      unpriced.push({ transactionId: row.id ?? null, tradeDate: row.tradeDate, accountId: row.accountId, symbol: row.symbol, reason: 'unverified-price-currency' })
+      continue
+    }
     const legs = tradeLegs(row)
     if (!legs) continue
-
-    if (explicitKeys.has(`${row.accountId}|${row.tradeDate}`)) continue
 
     // Without a history boundary the balance is unknowable, and a trade that
     // predates the boundary has an opening balance this cannot see.
     const startsAt = historyStarts[row.accountId]
     if (!startsAt || row.tradeDate <= startsAt) {
-      unpriced.push({ transactionId: row.id ?? null, tradeDate: row.tradeDate, reason: 'insufficient-history' })
+      unpriced.push({ transactionId: row.id ?? null, tradeDate: row.tradeDate, accountId: row.accountId, symbol: row.symbol, reason: 'insufficient-history' })
       continue
     }
 
     const midRate = Number(row.fxRate)
     if (!(midRate > 0)) {
-      unpriced.push({ transactionId: row.id ?? null, tradeDate: row.tradeDate, reason: 'no-reference-rate' })
+      unpriced.push({ transactionId: row.id ?? null, tradeDate: row.tradeDate, accountId: row.accountId, symbol: row.symbol, reason: 'no-reference-rate' })
       continue
     }
 

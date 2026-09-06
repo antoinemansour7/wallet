@@ -169,6 +169,7 @@ const RKLB = (overrides = {}) => ({
   tradeDate: '2026-08-12',
   symbol: 'RKLB',
   quantity: 8,
+  priceCurrency: 'USD', // Independently established trade-price currency.
   priceMinor: 11482,      // 8 x $114.82 = $918.56 USD
   amountMinor: 131740,    // $1,317.40 CAD actually debited
   currency: 'CAD',
@@ -336,5 +337,47 @@ describe('measureConversionCost — both kinds of evidence', () => {
 
   it('still reports nothing when the ledger holds neither', () => {
     expect(measureConversionCost({ transactions: [usdInflow(100000)], historyStarts: HISTORY })).toBeNull()
+  })
+})
+
+describe('FX evidence and record identity', () => {
+  it('refuses an unverified unit-price currency instead of inventing a 1:1 conversion', () => {
+    const trade = RKLB({ symbol: 'NVDA', quantity: 1, amountMinor: 24611, priceMinor: 24611, priceCurrency: undefined, fxRate: 1.393 })
+    const result = measureConversionCost({ transactions: [trade], historyStarts: { [trade.accountId]: '2026-01-01' } })
+    expect(result.conversions).toEqual([])
+    expect(result.unpricedCount).toBe(1)
+    expect(result.complete).toBe(false)
+    expect(result.unpriced[0]).toMatchObject({ symbol: 'NVDA', reason: 'unverified-price-currency' })
+  })
+
+  it('does not count a verified CAD-priced CAD trade as a currency conversion', () => {
+    expect(measureConversionCost({ transactions: [RKLB({ priceCurrency: 'CAD' })] })).toBeNull()
+  })
+
+  it('counts repeated stable identities once, retaining equal amounts in different accounts', () => {
+    const first = [CAD_OUT, USD_IN]
+    const second = first.map((row) => ({ ...row, accountId: 'cash-2' }))
+    const result = measureConversionCost({ transactions: [...first, ...first, ...second] })
+    expect(result.conversions).toHaveLength(2)
+    expect(result.totalCostMinor).toBe(91575 * 2)
+    expect(new Set(result.conversions.map((row) => row.accountId)).size).toBe(2)
+  })
+
+  it('retains separate same-day conversions with equal amounts and different identities', () => {
+    const second = [CAD_OUT, USD_IN].map((row) => ({ ...row, id: `${row.id}-second` }))
+    const result = measureConversionCost({ transactions: [CAD_OUT, USD_IN, ...second] })
+    expect(result.conversions).toHaveLength(2)
+    expect(new Set(result.conversions.map((row) => row.transactionId)).size).toBe(2)
+  })
+
+  it('does not relabel unsupported currencies as CAD/USD', () => {
+    const result = conversionEventsFromLedger([leg({ currency: 'EUR' }), leg({ currency: 'JPY' })])
+    expect(result.events).toHaveLength(0)
+    expect(result.unpairable).toHaveLength(2)
+  })
+
+  it('preserves a verified below-reference result rather than clamping it to zero', () => {
+    const result = measureConversionCost({ transactions: [leg({ amountMinor: 138000 }), leg({ currency: 'USD', amountMinor: 100000, fxRate: 1.39 })] })
+    expect(result.totalCostMinor).toBe(-1000)
   })
 })

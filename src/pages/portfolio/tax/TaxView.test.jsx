@@ -167,7 +167,7 @@ describe('FX conversion costs card (#139)', () => {
 
   it('counts a single conversion in the singular', () => {
     render(<TaxView accounts={accounts} workspace={withLedger(conversion(7, 500000, 366300))} />)
-    expect(card()).toHaveTextContent('Measured from 1 conversion in 2026')
+    expect(card()).toHaveTextContent('1 measured conversion')
     expect(card()).not.toHaveTextContent('1 conversions')
   })
 
@@ -175,7 +175,7 @@ describe('FX conversion costs card (#139)', () => {
     render(<TaxView accounts={accounts} workspace={withLedger([
       ...conversion(5, 500000, 366300), ...conversion(6, 400000, 295000), ...conversion(7, 300000, 221000),
     ])} />)
-    expect(card()).toHaveTextContent('Measured from 3 conversions in 2026')
+    expect(card()).toHaveTextContent('3 measured conversions')
   })
 
   it('says nothing was recorded when the ledger holds no USD activity at all', () => {
@@ -183,14 +183,14 @@ describe('FX conversion costs card (#139)', () => {
     // happened.
     render(<TaxView accounts={accounts} workspace={withLedger([])} />)
     expect(card()).toHaveTextContent('No conversions recorded')
-    expect(card()).not.toHaveTextContent('We found USD purchases')
+    expect(card()).not.toHaveTextContent('USD activity found')
   })
 
   it('explains the gap when USD activity exists but cannot be priced', () => {
     render(<TaxView accounts={accounts} workspace={withLedger([
       { id: 'buy', accountId: 'a1', action: 'BUY', tradeDate: '2026-07-01', amountMinor: 91856, currency: 'USD', quantity: 8, priceMinor: 11482, symbol: 'MSFT' },
     ])} />)
-    expect(card()).toHaveTextContent('We found USD purchases')
+    expect(card()).toHaveTextContent('USD activity found')
   })
 
   it('offers a route to the conversions rather than only a number', () => {
@@ -232,9 +232,9 @@ describe('Planning → Currency is a historical report (#138)', () => {
     expect(items).toHaveLength(2)
     expect(items[0]).toHaveTextContent('Aug 12')
     expect(items[1]).toHaveTextContent('Jul 28')
-    expect(items[0]).toHaveTextContent('CAD converted')
-    expect(items[0]).toHaveTextContent('USD used')
-    expect(items[0]).toHaveTextContent('Reference rate')
+    expect(items[0]).toHaveTextContent('CAD amount')
+    expect(items[0]).toHaveTextContent('USD amount')
+    expect(items[0]).toHaveTextContent('Daily reference rate')
     expect(items[0]).toHaveTextContent('Effective broker rate')
   })
 
@@ -287,5 +287,48 @@ describe('Planning → Currency is a historical report (#138)', () => {
 
     expect(panel).toHaveTextContent('No conversions recorded')
     expect(panel).not.toHaveTextContent('We found USD activity')
+  })
+})
+
+describe('Tax detail hierarchy', () => {
+  it('keeps references out of Summary and presents rounded yields in the dialog', async () => {
+    const state = workspace({ data: { reference: { MSFT: { ...reference.MSFT, yieldPct: 0.04004805766920305, resolvedAt: '2026-09-06T00:00:00Z' } } } })
+    render(<TaxView accounts={accounts} workspace={state} />)
+    expect(screen.queryByRole('table', { name: /Holding/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Data & assumptions/ }))
+    const dialog = screen.getByRole('dialog', { name: 'Data & assumptions' })
+    expect(within(dialog).getAllByText('0.04%')).toHaveLength(2)
+    expect(dialog).not.toHaveTextContent('0.040048057')
+    expect(dialog).toHaveTextContent('Nasdaq · 2026-09-06')
+    fireEvent.change(within(dialog).getByLabelText('Fallback yield (%)'), { target: { value: '2' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Apply' }))
+    await waitFor(() => expect(state.update).toHaveBeenCalledWith({ yieldPct: 2 }))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('opens only one contribution editor at a time', () => {
+    render(<TaxView accounts={accounts} workspace={workspace()} />)
+    fireEvent.click(screen.getAllByRole('button', { name: /Add room/ })[0])
+    expect(screen.getByLabelText(/TFSA available room/)).toBeVisible()
+    fireEvent.click(screen.getAllByRole('button', { name: /Add room/ })[1])
+    expect(screen.queryByLabelText(/TFSA available room/)).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/RRSP available room/)).toBeVisible()
+    expect(screen.getAllByRole('button', { name: 'Save figures' })).toHaveLength(1)
+  })
+
+  it('shows unverified NVDA records as missing evidence instead of negative FX charges', () => {
+    const transactions = ['68BB39Q', '68BB39W'].map((accountId) => ({ id: `nvda-${accountId}`, accountId, action: 'BUY', symbol: 'NVDA', tradeDate: `${localTaxDate().slice(0, 4)}-08-12`, amountMinor: 24611, priceMinor: 24611, quantity: 1, currency: 'CAD', fxRate: 1.393 }))
+    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions } })} />)
+    expect(screen.getByRole('region', { name: 'FX conversion cost summary' })).toHaveTextContent('Not measured')
+    fireEvent.click(screen.getByRole('button', { name: /View conversions/ }))
+    const report = screen.getByRole('region', { name: 'Currency conversion' })
+    expect(report).toHaveTextContent('2 records not priced')
+    expect(report).not.toHaveTextContent('$193.44')
+    expect(report).not.toHaveTextContent('1.0000')
+    fireEvent.click(within(report).getByText('2 records not priced'))
+    expect(within(report).getAllByText(/Unit-price currency is unverified/)).toHaveLength(2)
+    expect(report).toHaveTextContent('68BB39Q')
+    expect(report).toHaveTextContent('68BB39W')
   })
 })
