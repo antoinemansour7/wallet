@@ -1,5 +1,5 @@
 import { collection, doc, getDocs, orderBy, query, setDoc, limit } from 'firebase/firestore'
-import { db } from '../firebase/config'
+import { db } from '../firebase/config.js'
 
 const LOCAL_KEY = 'wallai:portfolio-history'
 const MAX_DAYS = 365

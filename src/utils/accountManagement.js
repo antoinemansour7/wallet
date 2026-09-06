@@ -1,4 +1,4 @@
-import { accountSources, aggregateRowsBySymbol, knownAccountsIn, PLAID_ACCOUNT_KEY, plaidItemIdFor, positionSource, removeAccount, removeSource } from './accountMerge'
+import { accountSources, aggregateRowsBySymbol, knownAccountsIn, PLAID_ACCOUNT_KEY, plaidItemIdFor, positionSource, removeAccount, removeSource } from './accountMerge.js'
 
 // Aggregate a security only within the account that owns it.
 export function prepareImportRows(rows = []) {

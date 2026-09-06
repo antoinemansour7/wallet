@@ -33,7 +33,7 @@
  * codebase refuses everywhere a tax figure is involved.
  */
 
-import { conversionComparison } from './currencyConversion'
+import { conversionComparison } from './currencyConversion.js'
 
 /** Both legs of a conversion land on the same day, in opposite directions. */
 const SAME_DAY = (a, b) => a.tradeDate === b.tradeDate
