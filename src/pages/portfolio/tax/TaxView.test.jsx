@@ -167,15 +167,15 @@ describe('FX conversion costs card (#139)', () => {
 
   it('counts a single conversion in the singular', () => {
     render(<TaxView accounts={accounts} workspace={withLedger(conversion(7, 500000, 366300))} />)
-    expect(card()).toHaveTextContent('1 measured conversion')
-    expect(card()).not.toHaveTextContent('1 measured conversions')
+    expect(card()).toHaveTextContent('Measured from 1 conversion in 2026')
+    expect(card()).not.toHaveTextContent('1 conversions')
   })
 
   it('counts several', () => {
     render(<TaxView accounts={accounts} workspace={withLedger([
       ...conversion(5, 500000, 366300), ...conversion(6, 400000, 295000), ...conversion(7, 300000, 221000),
     ])} />)
-    expect(card()).toHaveTextContent('3 measured conversions')
+    expect(card()).toHaveTextContent('Measured from 3 conversions in 2026')
   })
 
   it('says nothing was recorded when the ledger holds no USD activity at all', () => {
@@ -197,5 +197,95 @@ describe('FX conversion costs card (#139)', () => {
     render(<TaxView accounts={accounts} workspace={withLedger(conversion(7, 500000, 366300))} />)
     fireEvent.click(within(card()).getByRole('button', { name: /View conversions/ }))
     expect(screen.getByRole('heading', { name: 'Currency conversion' })).toBeVisible()
+  })
+})
+
+describe('Planning → Currency is a historical report (#138)', () => {
+  const conversion = (month, day, cad, usd, rate = 1.34, year = 2026) => ([
+    { id: `fx-cad-${year}${month}${day}`, accountId: 'a1', action: 'FX', tradeDate: `${year}-${month}-${day}`, amountMinor: cad, currency: 'CAD', quantity: 0 },
+    { id: `fx-usd-${year}${month}${day}`, accountId: 'a1', action: 'FX', tradeDate: `${year}-${month}-${day}`, amountMinor: usd, currency: 'USD', quantity: 0, fxRate: rate },
+  ])
+  const withLedger = (transactions) => workspace({ data: { reference, transactions } })
+  const openCurrency = () => {
+    fireEvent.click(screen.getByRole('tab', { name: 'Planning' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Currency conversion' }))
+    return screen.getByRole('region', { name: /Currency conversion/ })
+  }
+
+  it('no longer offers a hypothetical calculator', () => {
+    // The page answers what past conversions cost, not what a future one might.
+    render(<TaxView accounts={accounts} workspace={withLedger(conversion('08', '12', 131740, 91856))} />)
+    openCurrency()
+    expect(screen.queryByLabelText(/Amount to convert/)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/Broker FX spread/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Difference under these assumptions/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/How this comparison works/)).not.toBeInTheDocument()
+  })
+
+  it('lists every conversion newest first, with the figures the event carries', () => {
+    render(<TaxView accounts={accounts} workspace={withLedger([
+      ...conversion('07', '28', 100000, 73000),
+      ...conversion('08', '12', 131740, 91856),
+    ])} />)
+    const items = within(openCurrency()).getAllByRole('listitem')
+
+    expect(items).toHaveLength(2)
+    expect(items[0]).toHaveTextContent('Aug 12')
+    expect(items[1]).toHaveTextContent('Jul 28')
+    expect(items[0]).toHaveTextContent('CAD converted')
+    expect(items[0]).toHaveTextContent('USD used')
+    expect(items[0]).toHaveTextContent('Reference rate')
+    expect(items[0]).toHaveTextContent('Effective broker rate')
+  })
+
+  it('totals only the selected year', () => {
+    // A conversion from last year is a different year's cost.
+    render(<TaxView accounts={accounts} workspace={withLedger([
+      ...conversion('08', '12', 131740, 91856),
+      ...conversion('08', '12', 500000, 366300, 1.34, 2025),
+    ])} />)
+    const panel = openCurrency()
+
+    expect(within(panel).getAllByRole('listitem')).toHaveLength(1)
+    expect(panel).toHaveTextContent('1 measured conversion')
+  })
+
+  it('agrees with the Summary card exactly', () => {
+    // Two aggregations over the same data are two chances to disagree, so both
+    // read one call with one year.
+    render(<TaxView accounts={accounts} workspace={withLedger([
+      ...conversion('07', '28', 100000, 73000),
+      ...conversion('08', '12', 131740, 91856),
+    ])} />)
+    const summaryTotal = screen.getByRole('region', { name: 'FX conversion cost summary' }).textContent.match(/\$[\d,]+\.\d\d/)[0]
+    const planningTotal = openCurrency().textContent.match(/\$[\d,]+\.\d\d/)[0]
+
+    expect(planningTotal).toBe(summaryTotal)
+  })
+
+  it('never prices a USD purchase funded from USD cash already held', () => {
+    // The refusal lives in the pricing layer; this guards it through the UI.
+    render(<TaxView accounts={accounts} workspace={withLedger([
+      { id: 'in', accountId: 'a1', action: 'SELL', tradeDate: '2026-08-01', amountMinor: 200000, currency: 'USD', quantity: 1, fxRate: 1.39 },
+      { id: 'buy', accountId: 'a1', action: 'BUY', tradeDate: '2026-08-12', amountMinor: 131740, currency: 'CAD', quantity: 8, priceMinor: 11482, symbol: 'RKLB', fxRate: 1.393 },
+    ])} />)
+
+    expect(openCurrency()).toHaveTextContent('No measured FX conversions yet')
+  })
+
+  it('explains the gap when USD activity exists but cannot be priced', () => {
+    render(<TaxView accounts={accounts} workspace={withLedger([
+      { id: 'buy', accountId: 'a1', action: 'BUY', tradeDate: '2026-08-12', amountMinor: 91856, currency: 'USD', quantity: 8, priceMinor: 11482, symbol: 'RKLB' },
+    ])} />)
+
+    expect(openCurrency()).toHaveTextContent('We found USD activity')
+  })
+
+  it('says plainly that nothing is recorded when there is no USD activity at all', () => {
+    render(<TaxView accounts={accounts} workspace={withLedger([])} />)
+    const panel = openCurrency()
+
+    expect(panel).toHaveTextContent('No conversions recorded')
+    expect(panel).not.toHaveTextContent('We found USD activity')
   })
 })
