@@ -13,7 +13,25 @@ import {
   buildMacroContextBlock,
   prepareResearchSignals,
   summarizeSignalsForPrompt,
+  FOCUS_THEMES,
+  SECTOR_ETF_MAP,
 } from './researchEngine'
+
+// Sector depth by default (issue #96): the focus list must reuse the existing
+// taxonomy, never invent a second one.
+describe('FOCUS_THEMES', () => {
+  it('is a strict, non-empty subset of SECTOR_ETF_MAP keys', () => {
+    const keys = new Set(Object.keys(SECTOR_ETF_MAP))
+    expect(FOCUS_THEMES.length).toBeGreaterThan(0)
+    for (const theme of FOCUS_THEMES) expect(keys.has(theme)).toBe(true)
+    // strict subset: the map carries themes beyond the focus set
+    expect(FOCUS_THEMES.length).toBeLessThan(keys.size)
+  })
+
+  it('has no duplicates', () => {
+    expect(new Set(FOCUS_THEMES).size).toBe(FOCUS_THEMES.length)
+  })
+})
 
 // fetchAllYahooNews tests
 describe('fetchAllYahooNews', () => {

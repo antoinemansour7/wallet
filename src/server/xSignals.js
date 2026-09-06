@@ -137,6 +137,23 @@ const BASE_SEARCH_QUERIES = [
     query: '(space OR satellite OR launch OR rocket OR aerospace OR defense OR drone OR missile) lang:en -is:retweet',
     weight: 0.98,
   },
+  // Focus-sector queries that run every night regardless of the adaptive seed
+  // (issue #96). Theme-less like the other base queries — themes come from the
+  // tweet text, so nothing here force-tags a sector onto a stray mention.
+  {
+    id: 'ai-compute',
+    type: 'theme',
+    label: 'AI and compute',
+    query: '(#AIstocks OR "artificial intelligence" OR GPU OR GPUs OR semiconductor OR semis OR datacenter OR "AI infrastructure" OR inference) lang:en -is:retweet',
+    weight: 1.05,
+  },
+  {
+    id: 'software',
+    type: 'theme',
+    label: 'Software and cloud',
+    query: '(SaaS OR "software stock" OR cloud OR cybersecurity OR "enterprise software" OR devops) lang:en -is:retweet',
+    weight: 0.98,
+  },
 ]
 
 const THEME_LIBRARY = {
