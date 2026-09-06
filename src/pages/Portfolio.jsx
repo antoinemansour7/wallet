@@ -9,7 +9,8 @@ import ErrorBoundary, { PanelFallback } from '../components/ErrorBoundary'
 import { buildAccountPortfolio, cashEntryAmount, flattenAccountRows, getAccountEntries, hasAccountPortfolio } from '../utils/accountPortfolio'
 import { PLAID_ACCOUNT_KEY, PLAID_ITEM_KEY, applyMerge, applyMergeByAccount, previewMerge, sourceIdFor } from '../utils/accountMerge'
 import { importAccountSummary, planAccountRemoval, prepareImportRows } from '../utils/accountManagement'
-import { computeStats } from '../utils/portfolioStats'
+import { computeStats, fmtCurrency } from '../utils/portfolioStats'
+import { portfolioWithholding } from './portfolio/accountPresentation'
 import { AUTO_PRICE_REFRESH_MS } from './portfolio/constants'
 import TabNav from './portfolio/TabNav'
 import StatRail from './portfolio/StatRail'
@@ -51,6 +52,7 @@ export default function Portfolio() {
       stats: computeStats(account.positions, { cashValue: account.cash, realizedPnl: account.realizedPnl }),
     }))
   ), [accounts])
+  const portfolioDrag = useMemo(() => portfolioWithholding(accountEntries), [accountEntries])
   const totalCashValue = useMemo(() => accountEntries.reduce((sum, account) => sum + account.cash, 0), [accountEntries])
   const totalRealizedPnl = useMemo(() => accountEntries.reduce((sum, account) => sum + account.realizedPnl, 0), [accountEntries])
   const hasData     = rows.length > 0 || hasAccountPortfolio(accounts)
@@ -480,6 +482,16 @@ export default function Portfolio() {
               <PerformanceChart hero stats={stats} rows={rows} />
               <StatRail rows={rows} stats={stats} accounts={accountEntries} onCashOverride={handleCashOverride} />
               <CompositionPanel rows={rows} accounts={accountEntries} />
+              {/* One quiet line, deliberately not a stat tile: this is a tax
+                  fact sitting among performance numbers, and a dollar figure
+                  styled like a metric reads as an alarm. */}
+              {portfolioDrag && (
+                <p className="mt-6 text-[13px] leading-[1.7] text-ink/45">
+                  About {fmtCurrency(portfolioDrag.annualWithheldMinor / 100)}
+                  {portfolioDrag.basis === 'projected' ? ' a year is withheld' : ' was withheld over the last 12 months'}
+                  {' '}on US dividends across {portfolioDrag.accountCount === 1 ? 'one account' : `${portfolioDrag.accountCount} accounts`}. Open an account to see the detail.
+                </p>
+              )}
             </>
           )}
           {visibleView === 'overview' && !stats && <EmptyState onUploadClick={() => openAdd()} />}

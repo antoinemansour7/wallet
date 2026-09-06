@@ -30,6 +30,13 @@ export const ACTIONS = {
   FEE: 'FEE',
   SPLIT: 'SPLIT',
   TRANSFER: 'TRANSFER',
+  // Tax withheld at source, which arrives as its own record rather than as a
+  // reduction of the dividend beside it. Without this action those records
+  // failed to classify and were dropped, so the ledger held the gross dividend
+  // and no trace of the withholding — which is precisely the figure #17 stage 2
+  // exists to measure. A tax record is not a fee: a fee is a cost of trading,
+  // this is a cost of the account the security is held in.
+  TAX: 'TAX',
 }
 
 // Actions whose quantity is a disposition and is therefore stored negative,
@@ -46,6 +53,9 @@ const PLAID_ACTIONS = new Map([
   ['fee', ACTIONS.FEE],
   ['transfer', ACTIONS.TRANSFER],
   ['split', ACTIONS.SPLIT],
+  // Plaid spells withholding both ways depending on the institution.
+  ['tax', ACTIONS.TAX],
+  ['tax withholding', ACTIONS.TAX],
 ])
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
