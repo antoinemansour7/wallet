@@ -21,7 +21,7 @@ describe('Tax navigation and context', () => {
     const onAdd = vi.fn()
     render(<><TabNav activeView="tax" hasData={false} onChange={vi.fn()} /><TaxView accounts={[]} workspace={workspace()} onAddAccount={onAdd} /></>)
     expect(screen.getByRole('button', { name: 'Tax', exact: true })).toBeEnabled()
-    expect(screen.getByRole('heading', { name: 'Room to contribute' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Contribution room' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Add an account' }))
     expect(onAdd).toHaveBeenCalledOnce()
   })
@@ -35,13 +35,22 @@ describe('Tax navigation and context', () => {
 })
 
 describe('Tax page interactions', () => {
-  it('shows all sections and updates the comparison period', () => {
+  it('starts with a focused summary and opens one planning tool at a time', () => {
     render(<TaxView accounts={accounts} workspace={workspace()} />)
-    for (const name of ['Where withholding happens', 'Same holding. Different account.', 'Room to contribute', 'What does converting cost?', 'The cost of your funds', 'After a sale']) expect(screen.getByRole('heading', { name })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'By account' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Contribution room' })).toBeVisible()
+    expect(screen.queryByRole('heading', { name: 'Compare account types' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'After a sale' })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Portfolio withholding summary' })).toHaveTextContent('$19.50')
+    fireEvent.click(screen.getByRole('tab', { name: 'Planning' }))
+    expect(screen.getByRole('heading', { name: 'Compare account types' })).toBeVisible()
     fireEvent.change(screen.getByLabelText(/Illustration over/), { target: { value: '20' } })
-    expect(screen.getByText('$390.00')).toBeInTheDocument()
-    expect(screen.getByText('No funds identified')).toBeInTheDocument()
+    expect(screen.getByText('$390.00')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Currency conversion', exact: true }))
+    expect(screen.getByRole('heading', { name: 'Currency conversion' })).toBeVisible()
+    expect(screen.queryByRole('heading', { name: 'Compare account types' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Account comparison' }))
+    expect(screen.getByRole('slider')).toHaveValue('20')
   })
   it('does not label a zero-yield TFSA as treaty exempt', () => {
     render(<TaxView accounts={[accounts[0]]} workspace={workspace({ settings: { yieldPct: 0 } })} />)
@@ -76,6 +85,10 @@ describe('Tax page interactions', () => {
       { ...accounts[0].positions[0], SYMBOL: 'OTHER', 'MARKET VALUE': 5000 },
     ] }]
     render(<TaxView accounts={funds} workspace={workspace({ data: { reference: { VTI: { exchange: 'PCX', isFund: true, expenseRatioPct: 0.03 }, OTHER: { exchange: 'PCX', isFund: true } } } })} />)
+    expect(screen.getByRole('region', { name: 'Annual fund fee summary' })).toHaveTextContent('$3.00')
+    expect(screen.queryByRole('heading', { name: 'Fund fee breakdown' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'View breakdown' }))
+    expect(screen.getByRole('heading', { name: 'Fund fee breakdown' })).toBeVisible()
     expect(document.querySelector('#tax-fees')).toHaveTextContent('$3.00')
     expect(document.querySelector('#tax-fees')).toHaveTextContent('Expense ratio unavailable: OTHER')
   })
@@ -99,6 +112,8 @@ describe('Tax page interactions', () => {
       { ...base, id: 'sell', action: 'SELL', quantity: -10, amountMinor: 100000, tradeDate: '2026-01-01' },
     ], historyStarts: { plaid: '2024-01-01' }, loading: false }, prices: { quotes: { MSFT: { price: 110, currency: 'USD' } }, usdCadRate: 1.5 } })
     const { rerender } = render(<TaxView accounts={accounts} workspace={state} />)
+    fireEvent.click(screen.getByRole('tab', { name: 'Sales' }))
+    expect(screen.getByRole('heading', { name: 'After a sale' })).toBeVisible()
     expect(document.querySelector('#tax-sales')).toHaveTextContent('$1,650.00')
     expect(document.querySelector('#tax-sales')).toHaveTextContent('Holding would be worth more')
     expect(document.querySelector('#tax-sales')).toHaveTextContent('derived from the transaction pool')
@@ -106,4 +121,20 @@ describe('Tax page interactions', () => {
     rerender(<TaxView accounts={accounts} workspace={{ ...state, prices: { quotes: { MSFT: { price: 50, currency: 'USD' } }, usdCadRate: 1.5 } }} />)
     expect(document.querySelector('#tax-sales')).toHaveTextContent('Selling was worth more')
   })
+  it('supports keyboard navigation and preserves a contribution draft between views', () => {
+    render(<TaxView accounts={accounts} workspace={workspace()} />)
+    fireEvent.click(screen.getAllByRole('button', { name: /Add room/ })[0])
+    fireEvent.change(screen.getByLabelText(/TFSA available room \(CAD\)/), { target: { value: '7300' } })
+    const summary = screen.getByRole('tab', { name: 'Summary' })
+    summary.focus()
+    fireEvent.keyDown(summary, { key: 'ArrowRight' })
+    expect(screen.getByRole('tab', { name: 'Planning' })).toHaveFocus()
+    expect(screen.getByRole('tab', { name: 'Planning' })).toHaveAttribute('aria-selected', 'true')
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Planning' }), { key: 'End' })
+    expect(screen.getByRole('tab', { name: 'Sales' })).toHaveFocus()
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Sales' }), { key: 'Home' })
+    expect(summary).toHaveFocus()
+    expect(screen.getByLabelText(/TFSA available room \(CAD\)/)).toHaveValue(7300)
+  })
+
 })

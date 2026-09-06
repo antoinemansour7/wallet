@@ -2,6 +2,16 @@
 
 Issue #124 connects the Tax workspace preserved in commit `287da25` to the engines merged under epic #16. Navigation remains **Overview · Charts · Holdings · Tax · Accounts**. Overview contains a quiet pointer; the account sheet retains its contextual withholding section.
 
+## Simplified workspace
+
+The default **Summary** shows annual withholding and fund expenses together, followed by a compact account table and contribution room. Fund fee details expand from the summary figure. Reference sources, the editable fallback yield and contribution methodology use disclosure controls; estimated/measured labels, incomplete coverage and re-contribution exclusions remain beside the affected figures.
+
+**Planning** presents one tool at a time: account comparison or currency conversion (including recorded conversion costs). **Sales** has its own focused view. Switching views preserves contribution drafts, comparison selections and scenario inputs. The tab bar supports arrow keys, Home and End; hidden views are removed from the accessibility tree and tab order. Animations respect reduced-motion preferences.
+
+The presentation uses fewer framed panels, larger supporting text, aligned amounts, quiet registration badges and shared light/dark colors. The summary and tools stack at narrow widths. The sync action remains in the header, with failures shown prominently.
+
+Redesign validation: 872 tests across 72 files passed. Browser checks covered Summary, Planning, Sales, both planning tools and fee expansion at 1440px and 390px in light/dark themes, with no runtime errors or horizontal overflow. The representative populated desktop summary is about 1,200px tall, compared with the previous 2,773px full page. Browser data was mocked; these checks make no claim about production balances.
+
 ## Page and data flow
 
 | Section | Source and calculation | Qualifications displayed |
