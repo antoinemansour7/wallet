@@ -1,61 +1,48 @@
 # Portfolio Tax page
 
-Implemented 2026-09-06. Portfolio navigation is **Overview · Charts · Holdings · Tax · Accounts**.
+Issue #124 connects the Tax workspace preserved in commit `287da25` to the engines merged under epic #16. Navigation remains **Overview · Charts · Holdings · Tax · Accounts**. Overview contains a quiet pointer; the account sheet retains its contextual withholding section.
 
-The Tax tab is the home for the cross-account picture. Overview contains a single pointer into it. The account sheet retains a withholding section immediately below its holdings, calculated with the same model and with a link to the full page.
+## Page and data flow
 
-## Page layout
-
-1. Annual withholding illustration, split by currency, with coverage and potential foreign tax credits.
-2. Account table with editable registration types and an expandable explanation of excluded holdings.
-3. Side-by-side account comparison for a selected holding, with a 1–30 year illustration at constant value/yield.
-4. TFSA and RRSP room, editable as-of dates, contributions entered since those dates, and a planned-contribution check.
-5. CAD-to-USD conversion cost comparison using editable spread, commission and bid–ask assumptions.
-6. Recorded trading commissions and account fees from the transaction ledger.
-7. Actual SELL records with a price-only hold-versus-sell scenario. Both positive and negative differences receive the same presentation.
-
-The page supports light/dark themes, reduced motion, keyboard controls and narrow screens. Mobile account rows keep annual withholding visible without a horizontal table scroll.
-
-## Feature placement in epic #16
-
-| Feature | Main home | Context retained elsewhere |
+| Section | Source and calculation | Qualifications displayed |
 | --- | --- | --- |
-| Withholding / account comparison (#17) | Tax: accounts and comparison | Account sheet: withholding on its own holdings; Overview: pointer |
-| Currency conversion (#18) | Tax: Currency section | Future cash/conversion flow may link to the section |
-| Realised-sale counterfactuals (#20) | Tax: After a sale | Charts remains the portfolio benchmark home |
-| Fee breakdown (#21) | Tax: Fees section | Original transactions remain in the ledger |
-| Contribution room (#22) | Tax: Contribution room | Future contribution execution flows can use the same room check |
+| Across accounts | `accountTypeOf` reads imported `ACCOUNT TYPE`; `accountWithholding` and `projectWithholding` use `securityReference` | Listing, resolved dividend yield or explicit fallback, reference date, treatment and named gaps |
+| Side-by-side comparison | Same holding and reference passed to `projectWithholding` for two existing accounts | Withholding only, constant value/yield, no compounding; fund-level treatment stays unavoidable |
+| Contribution room | Entered starting room/date plus ledger deposits passed to `roomStatus` and `checkContribution` | Stale room suppresses numbers and warnings; `excludesTfsaRecontribution` stays beside the figure |
+| Currency conversion | Editable spread, commissions and bid–ask scenario | Assumptions, not a broker quote; settlement and exchange-rate changes excluded |
+| Fund fees | `summarizeFundFees` reads `securityReference` expense ratios | Annual estimate at current values; weighted across priced funds only; missing MER named; stocks excluded |
+| After a sale | `poolCostBase` disposals feed `saleCounterfactuals` and `summarizeCounterfactuals` | CAD after FX conversion; pool provenance and security-match basis; `excludesReinvestment` travels with the figures |
 
-These are code/documentation placement decisions; the GitHub issues themselves have not been edited.
+## Shared reads and joins
 
-## Data and persistence
+`useTaxWorkspace` owns reference data, ledger and account-history metadata for both the page and account sheet. It uses `fetchSecurityReference`, `loadTransactions` and `loadHistoryStarts`; there is no second Firestore ledger reader. Market requests are bounded to the endpoint's 200-symbol limit, including the FX symbol for sale quotes. Vite delegates reference requests to the production handler so local and deployed behavior match.
 
-- Holdings/account currencies come from the existing portfolio. CAD and USD are never summed without conversion.
-- Registration is taken from an unambiguous imported account type or a user-confirmed override. Account numbers and statement filenames do not establish registration.
-- A CAD valuation does not establish a Canadian listing. If the listing currency is missing, the holding is excluded and explained.
-- User-entered tax settings are stored at `users/{uid}/portfolio/tax`, separate from holdings, with the existing owner-scoped Firestore rules. Failed loads cannot overwrite previous figures, and failed saves retain the editable draft.
-- The Tax tab reads `users/{uid}/transactions`. It does not write to the transaction ledger or create sales from account/import removals. Reads are paginated, bounded to the latest 5,000 records and disclose truncation.
-- Preview mode bypasses tax persistence and ledger reads; preview edits do not enter a real account.
+The Tax page's `taxModel.js` contains presentation adapters, not alternate tax rules. `taxStorage.js` persists only settings at `users/{uid}/portfolio/tax`. Failed settings reads prevent writes; failed saves retain the last saved values and editable drafts. User changes invalidate in-flight reads.
 
-## What the figures mean
+Imported registration takes precedence over a manual fallback, including Plaid's `Non-Registered` spelling. An unknown registration can still be entered manually. A reference exchange establishes listing location independently of the currency in which holdings are valued. An explicit CDR remains a Canadian wrapper. Canadian funds with unresolved composition stay unknown even if a legacy hardcoded list names them. Chart metadata identifies funds even when a fund-profile request fails.
 
-**Withholding is an illustration.** It assumes US-source dividends, treaty eligibility and an editable dividend yield (initially 1.3%). It uses the existing withholding rule module. Actual dividend distributions are not present in the holdings snapshot. Fund-level withholding is explicitly excluded because the underlying allocation and distributions are needed. The comparison covers dividend withholding, not total after-tax returns, RRSP deductions or withdrawal taxes. It does not compound the annual difference.
+Ledger IDs join through each holding's `__plaidAccountId`, rather than the display account number. Measured annual withholding requires a full twelve-month window for every represented feed and the selected currency. Otherwise the figure remains an explicitly labeled projection. CAD and USD valuation totals stay separate. Mixed portfolio totals containing a projection are labeled estimates; each account retains its own basis.
 
-**Contribution room is user-maintained.** The user enters available room and contributions since its as-of date across all accounts of the same registration type. The page checks a proposed amount before the user acts. It does not infer contributions from buys, cash balances or ambiguous transfers. A previous-year figure becomes stale; annual room is never silently added. TFSA withdrawal add-backs are not automated. Automatic deposit classification and warnings inside a real contribution execution flow remain work for #22.
+## Contribution records
 
-**Fees are recorded charges.** Trading fees and explicit FEE transactions are deduplicated and kept in their original currencies. Fund expenses and embedded FX spreads are excluded. Missing history is a data gap, not a zero fee.
+Room is saved as `{ limitMinor, asOf }` by registration. The adapter groups account IDs and converts USD deposits to CAD using their stored historical FX rates before invoking the shared engine. A missing rate prevents a room check. Current-year room and planned checks are withheld while ledger reads are loading, failed or capped.
 
-**Sale comparisons use an explicit input price.** They are based only on genuine SELL records. They do not claim to be priced to today and exclude distributions, splits, tax, fees and reinvested proceeds. Corporate-action-aware current valuation is still needed for #20's automatic “held today” outcome; the page provides its presentation home and a usable manual price scenario now.
+Old `{ room, contributed, asOf }` records require confirmation. The old room amount is offered for editing; its manually entered contribution total is never deducted a second time alongside the ledger.
 
-**Conversion figures are scenarios.** All cost assumptions are editable; defaults are examples from the existing generic conversion model, not current broker quotes. Broker-specific instructions, verified current rates and execution integration remain in #18. A negative difference is shown rather than suppressed. Costs are compared in CAD, so no invented FX rate is needed.
+The shared engine counts incoming transfers as deposits. Transfers between registered accounts, missing brokerage history and contributions outside this app require reconciliation with the user's records. It does not model TFSA withdrawal add-backs or add new annual limits. These limitations remain visible in the section.
 
-## Sources checked
+## Ledger and sync
 
-- [Canada–US treaty, Articles X and XXI](https://www.canada.ca/en/department-finance/programs/tax-policy/tax-treaties/country/united-states-america-convention-consolidated-1980-1983-1984-1995-1997-2007.html)
-- [CRA: before contributing to a TFSA](https://www.canada.ca/en/revenue-agency/services/tax/individuals/topics/tax-free-savings-account/contributing/before.html)
-- [CRA: TFSA withdrawals and next-year room](https://www.canada.ca/en/revenue-agency/services/tax/individuals/topics/tax-free-savings-account/withdraw.html)
-- [CRA: RRSP contributions](https://www.canada.ca/en/revenue-agency/services/tax/individuals/topics/rrsps-related-plans/contributing-a-rrsp-prpp.html)
+The browser reads the shared store's newest 2,000 transactions and their account history starts. Reaching that bound is disclosed and suppresses contribution and sale calculations rather than treating a truncated ledger as complete. Strict read errors appear separately from empty-history states. Fund-fee estimates remain available without a ledger.
 
-## Validation
+**Sync transactions** calls the existing authenticated `sync-transactions` action through `callPlaid`. The server derives the user from the Firebase ID token. Partial connection failures are shown even when the endpoint returns HTTP 200; successful results refresh the shared reads. No browser code writes ledger records or creates sales from deleted imports/accounts. Scheduled sync remains at 23:00 UTC weekdays.
 
-Tax model and UI tests cover currency separation, unknown identities, account treatment, zero yield, stale/future room, planned excess, fee deduplication, both sale-comparison directions, tab/pointer navigation and account context. Persistence tests cover delayed responses across user changes and failures on reads/writes. Playwright checks exercise the real page at desktop and 390-pixel mobile widths in light/dark themes.
+Only disposals emitted by the shared taxable-account cost-base engine are compared. Incomplete pools expose their reasons. Missing prices, explicitly stale quotes, unsupported quote currencies and missing USD/CAD rates do not produce a comparison. Current stock prices are compared with net historical proceeds in CAD. Both outcomes receive equal presentation. Dividends, subsequent corporate actions, Canadian tax and reinvestment remain excluded; the output is not an after-tax performance claim.
+
+## Validation and operational handoff
+
+Unit and integration tests cover imported registration, CAD-valued US listings, reference and composition gaps, Plaid ID joins, incomplete history, fund fees with an empty ledger, currency conversion, stale room, legacy settings migration, both sale outcomes, attached limitations, capped reads, account-switch races and partial sync failures.
+
+The one-time production sync has **not run** in this development session. Automatic approval review rejected exporting production configuration to a local file. Run **Tax → Sync transactions** in an authenticated deployed session, or explicitly authorize that production-configuration access for a scoped operational run. A successful build/test run does not establish that the production ledger has been populated.
+
+Verified locally: 847 tests passed across 70 files; ESLint and production build passed (the existing bundle-size warning remains). Playwright checked empty and populated withholding states with mocked reference responses at 1440px and 390px in light/dark themes: no page errors or horizontal overflow. Live production reference availability and transaction counts were not verified.

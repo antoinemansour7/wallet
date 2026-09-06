@@ -81,7 +81,7 @@ function baseSymbol(symbol) {
 
 /** Mirrors the detection in livePrices.js: the description is the only signal. */
 function isCdr(row) {
-  return /\bCDR\b/i.test(String(row?.DESCRIPTION ?? ''))
+  return row?.__isCdr === true || /\bCDR\b/i.test(String(row?.DESCRIPTION ?? ''))
 }
 
 function hasCanadianSuffix(symbol) {
@@ -109,7 +109,7 @@ function looksLikeFund(row) {
  * still exercises the hardcoded-list fallback below — deliberately, so the
  * rule engine's logic stays provable without network access.
  */
-export function classifyHolding(row, { fundExposureHint } = {}) {
+export function classifyHolding(row, { fundExposureHint, securityReference } = {}) {
   const symbol = symbolOf(row)
   if (!symbol) return { listing: LISTING.UNKNOWN, treatment: TREATMENT.UNKNOWN }
 
@@ -120,6 +120,22 @@ export function classifyHolding(row, { fundExposureHint } = {}) {
   // happens and no registered account escapes it, so it behaves like a fund
   // for this purpose even though it holds a single company.
   if (isCdr(row)) return { listing: LISTING.CA, treatment: TREATMENT.IN_FUND, wrapper: 'CDR' }
+
+  // Reference exchange describes the listing; ACCOUNT CURRENCY describes
+  // stored amounts. In particular, a US stock valued in CAD remains US-listed.
+  const exchange = String(securityReference?.exchange || '').toUpperCase()
+  const canadianExchange = ['TOR', 'VAN', 'NEO', 'CNQ', 'XTSE', 'XTSX'].includes(exchange)
+  const usExchange = ['NYQ', 'NMS', 'NGM', 'NCM', 'ASE', 'PCX', 'BTS', 'PNK', 'XNAS', 'XNYS', 'ARCX', 'XASE'].includes(exchange)
+  if (securityReference && (canadianExchange || usExchange)) {
+    if (usExchange) return { listing: LISTING.US, treatment: TREATMENT.TREATY, wrapper: securityReference.isFund ? 'FUND' : 'DIRECT' }
+    if (securityReference.isFund) {
+      if (typeof securityReference.holdsForeignEquities !== 'boolean') return { listing: LISTING.CA, treatment: TREATMENT.UNKNOWN, wrapper: 'FUND' }
+      return { listing: LISTING.CA, treatment: securityReference.holdsForeignEquities ? TREATMENT.IN_FUND : TREATMENT.NONE, wrapper: 'FUND' }
+    }
+    return { listing: LISTING.CA, treatment: TREATMENT.NONE, wrapper: 'DIRECT' }
+  }
+  // A resolved foreign listing outside the experiment is not inferred US.
+  if (securityReference?.exchange) return { listing: LISTING.UNKNOWN, treatment: TREATMENT.UNKNOWN }
 
   const canadianListed = hasCanadianSuffix(symbol) || currency === 'CAD'
 
@@ -160,9 +176,9 @@ function normalizeAccountType(accountType) {
   return String(accountType ?? '').trim().toUpperCase() || 'NON_REGISTERED'
 }
 
-export function projectWithholding({ row, accountType, assumptions = {}, fundExposureHint } = {}) {
-  const merged = { ...DEFAULT_ASSUMPTIONS, ...assumptions }
-  const classification = classifyHolding(row, { fundExposureHint })
+export function projectWithholding({ row, accountType, assumptions = {}, fundExposureHint, securityReference } = {}) {
+  const merged = { ...DEFAULT_ASSUMPTIONS, ...assumptions, ...(Number.isFinite(securityReference?.yieldPct) ? { yieldPct: securityReference.yieldPct } : {}) }
+  const classification = classifyHolding(row, { fundExposureHint, securityReference })
 
   // Nothing to say is a valid and common answer.
   if (classification.treatment === TREATMENT.NONE) return null
@@ -195,6 +211,7 @@ export function projectWithholding({ row, accountType, assumptions = {}, fundExp
     avoidable: !inFund && !exempt && !recoverable,
     annualWithheldMinor,
     basis: 'projected',
+    provenance: { source: securityReference ? 'security-reference' : 'assumption', resolvedAt: securityReference?.resolvedAt || null, yieldBasis: Number.isFinite(securityReference?.yieldPct) ? 'trailing-dividends' : 'assumed', exchange: securityReference?.exchange || null },
     assumptions: merged,
     workings: {
       marketValueMinor,
@@ -204,9 +221,9 @@ export function projectWithholding({ row, accountType, assumptions = {}, fundExp
   }
 }
 
-export function compareAccountTypes({ row, currentAccountType, availableAccountTypes = [], assumptions = {}, fundExposureHint } = {}) {
+export function compareAccountTypes({ row, currentAccountType, availableAccountTypes = [], assumptions = {}, fundExposureHint, securityReference } = {}) {
   const current = normalizeAccountType(currentAccountType)
-  const projection = projectWithholding({ row, accountType: current, assumptions, fundExposureHint })
+  const projection = projectWithholding({ row, accountType: current, assumptions, fundExposureHint, securityReference })
   if (!projection) return null
 
   // An unavoidable cost has nothing to compare. Showing a table of identical
@@ -216,7 +233,7 @@ export function compareAccountTypes({ row, currentAccountType, availableAccountT
   const types = [...new Set(availableAccountTypes.map(normalizeAccountType))]
   const options = types
     .map((accountType) => {
-      const option = projectWithholding({ row, accountType, assumptions, fundExposureHint })
+      const option = projectWithholding({ row, accountType, assumptions, fundExposureHint, securityReference })
       return option && { accountType, annualWithheldMinor: option.annualWithheldMinor, exempt: option.exempt, recoverable: option.recoverable }
     })
     .filter(Boolean)
@@ -354,8 +371,8 @@ export function measureAccountWithholding({ transactions = [], accountId, now = 
  * account. A screen that renders them identically invites someone to file the
  * first as though it were the second.
  */
-export function resolveWithholding({ row, accountType, transactions = [], accountId, assumptions = {}, fundExposureHint, now = Date.now(), historyStartsAt = null } = {}) {
-  const projected = projectWithholding({ row, accountType, assumptions, fundExposureHint })
+export function resolveWithholding({ row, accountType, transactions = [], accountId, assumptions = {}, fundExposureHint, securityReference, now = Date.now(), historyStartsAt = null } = {}) {
+  const projected = projectWithholding({ row, accountType, assumptions, fundExposureHint, securityReference })
 
   // Tax withheld inside a fund never appears as a record against the account —
   // it is taken before the distribution is paid — so the ledger cannot measure

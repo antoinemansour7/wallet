@@ -62,7 +62,7 @@ export default function Portfolio() {
       : null
   ), [hasData, rows, totalCashValue, totalRealizedPnl])
   const visibleView = hasData || activeView === 'tax' ? activeView : 'add'
-  const taxWorkspace = useTaxWorkspace(uid, visibleView === 'tax')
+  const taxWorkspace = useTaxWorkspace(uid, visibleView === 'tax', accountEntries)
 
   const applyPortfolioRows = useCallback((nextRows, {
     previousAccounts = accounts,
@@ -544,6 +544,7 @@ export default function Portfolio() {
 
       <AccountDetailModal
         taxSettings={taxWorkspace.settings}
+        taxData={taxWorkspace.data}
         onOpenTax={() => { setOpenAccount(null); setActiveView('tax') }}
         open={Boolean(openAccount)}
         account={openAccount ? (accountEntries.find((a) => a.accountNumber === openAccount.accountNumber) ?? null) : null}

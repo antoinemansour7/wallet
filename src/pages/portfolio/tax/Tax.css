@@ -88,3 +88,9 @@
   .tax-account-table .tax-numeric::before { display: block; content: 'Annual withholding'; font-size: 9px; color: var(--tax-muted); margin-bottom: 6px; }
   .tax-account-table .tax-numeric + td { align-self: end; }
 }
+
+.tax-sync-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 0 0 24px; }
+.tax-sync-row > span { margin-right: auto; color: var(--tax-muted); font-size: 13px; }
+.tax-sale-record + .tax-sale-record { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--tax-border); }
+.tax-sale-record h3 { font-size: 16px; }
+.tax-sale-record h3 small { font-size: 12px; font-weight: 400; color: var(--tax-muted); }

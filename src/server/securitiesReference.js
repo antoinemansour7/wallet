@@ -284,7 +284,7 @@ export async function resolveSecurityReference(symbol, { fetchImpl = fetch, cach
     holdsForeignEquities: composition ? composition.holdsForeignEquities : null,
     foreignPct: composition ? composition.foreignPct : null,
     expenseRatioPct: expenseRatioFrom(fundProfile),
-    isFund: Boolean(holdings),
+    isFund: ['ETF', 'MUTUALFUND'].includes(chart?.meta?.instrumentType) || Boolean(holdings) || expenseRatioFrom(fundProfile) !== null,
     resolvedAt: new Date(now).toISOString(),
   }
 

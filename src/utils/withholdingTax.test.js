@@ -426,3 +426,17 @@ describe('resolveWithholding', () => {
       .not.toMatch(/\b(move|switch|transfer|should|consider|recommend|buy|sell)\b/i)
   })
 })
+
+describe('resolved security listings', () => {
+  it('does not confuse a CAD valuation with a Canadian listing', () => {
+    const result = projectWithholding({ row: holding({ SYMBOL: 'MSFT', 'ACCOUNT CURRENCY': 'CAD' }), accountType: 'TFSA', securityReference: { exchange: 'NMS', yieldPct: 2 } })
+    expect(result).toMatchObject({ listing: LISTING.US, annualWithheldMinor: 15000, provenance: { yieldBasis: 'trailing-dividends' } })
+  })
+  it('keeps an unresolved fund composition unknown even for a legacy known ticker', () => {
+    expect(classifyHolding(holding({ SYMBOL: 'VFV.TO' }), { securityReference: { exchange: 'TOR', isFund: true } }).treatment).toBe(TREATMENT.UNKNOWN)
+    expect(classifyHolding(holding({ SYMBOL: 'VFV.TO' }), { securityReference: { exchange: 'TOR', isFund: true, holdsForeignEquities: true } }).treatment).toBe(TREATMENT.IN_FUND)
+  })
+  it('does not mistake a CDR for the US company sharing its symbol', () => {
+    expect(classifyHolding(holding({ SYMBOL: 'MSFT', __isCdr: true }), { securityReference: { exchange: 'NMS' } })).toMatchObject({ listing: LISTING.CA, treatment: TREATMENT.IN_FUND, wrapper: 'CDR' })
+  })
+})

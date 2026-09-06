@@ -28,6 +28,7 @@ export async function callPlaid(body) {
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(30000),
+    // Initial transaction imports can use the route’s full five-minute budget.
+    signal: AbortSignal.timeout(body.action === 'sync-transactions' ? 300000 : 30000),
   })
 }
