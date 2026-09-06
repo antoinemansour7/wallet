@@ -74,4 +74,61 @@ describe('tax workspace persistence', () => {
     expect(result.current.data.transactions).toEqual([])
   })
 
+
+  it('surfaces what the server actually said instead of a generic retry message', async () => {
+    // The route returns Plaid's own error_message. Replacing it with "please
+    // try again" throws away the only thing that says whether a retry is even
+    // the fix.
+    loadTaxSettings.mockResolvedValue({})
+    callPlaid.mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({ error: 'the login details of this item have changed', code: 'ITEM_LOGIN_REQUIRED', type: 'ITEM_ERROR' }),
+    })
+    const { result } = renderHook(() => useTaxWorkspace('u1', false))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await act(async () => { await result.current.sync() })
+
+    expect(result.current.syncState.error).toContain('the login details of this item have changed')
+    expect(result.current.syncState.code).toBe('ITEM_LOGIN_REQUIRED')
+  })
+
+  it('does not tell someone to retry a connection that needs reconnecting', async () => {
+    loadTaxSettings.mockResolvedValue({})
+    callPlaid.mockResolvedValue({
+      ok: false, status: 500,
+      json: async () => ({ error: 'reconnect required', code: 'ITEM_LOGIN_REQUIRED' }),
+    })
+    const { result } = renderHook(() => useTaxWorkspace('u1', false))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await act(async () => { await result.current.sync() })
+
+    expect(result.current.syncState.error).toContain('reconnected on Accounts')
+    expect(result.current.syncState.error).not.toContain('Re-running is safe')
+  })
+
+  it('says a retry is safe when the failure is transient', async () => {
+    loadTaxSettings.mockResolvedValue({})
+    callPlaid.mockResolvedValue({
+      ok: false, status: 500,
+      json: async () => ({ error: 'PRODUCT_NOT_READY', code: 'PRODUCT_NOT_READY' }),
+    })
+    const { result } = renderHook(() => useTaxWorkspace('u1', false))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await act(async () => { await result.current.sync() })
+
+    expect(result.current.syncState.error).toContain('Re-running is safe')
+  })
+
+  it('still reports a failure whose body is not JSON at all', async () => {
+    // A gateway timeout returns HTML. That is a different failure from one the
+    // server described, and it must not surface as a parse crash.
+    loadTaxSettings.mockResolvedValue({})
+    callPlaid.mockResolvedValue({ ok: false, status: 504, json: async () => { throw new Error('not json') } })
+    const { result } = renderHook(() => useTaxWorkspace('u1', false))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await act(async () => { await result.current.sync() })
+
+    expect(result.current.syncState.error).toContain('504')
+  })
 })

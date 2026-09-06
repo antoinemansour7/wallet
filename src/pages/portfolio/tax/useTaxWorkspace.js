@@ -80,14 +80,36 @@ export default function useTaxWorkspace(uid, active, accounts = []) {
     setSync({ uid, loading: true })
     try {
       const response = await callPlaid({ action: 'sync-transactions' })
-      const result = await response.json()
-      if (!response.ok) throw new Error('Sync failed')
+      // Parsing can fail on its own — a gateway timeout returns HTML, not JSON —
+      // and that is a different failure from one the server described.
+      const result = await response.json().catch(() => null)
+      if (!response.ok) {
+        // The server says exactly what Plaid said: error_message, error_code
+        // and error_type. Replacing that with "please try again" throws away
+        // the only thing that tells someone whether retrying is even the fix —
+        // a connection needing re-authentication never succeeds on a retry.
+        throw Object.assign(new Error(result?.error || `Sync failed (${response.status})`), { code: result?.code ?? null })
+      }
       if (currentUid.current === uid) {
-        setSync({ uid, loading: false, result, error: result.errors?.length ? `${result.errors.length} connection(s) could not sync. Reconnect them on Accounts and retry.` : '' })
+        setSync({ uid, loading: false, result, error: result?.errors?.length ? `${result.errors.length} connection(s) could not sync. Reconnect them on Accounts and retry.` : '' })
         refresh((value) => value + 1)
       }
-    } catch {
-      if (currentUid.current === uid) setSync({ uid, loading: false, error: 'Sync couldn’t finish. Please try again; imported transactions are safe to sync again.' })
+    } catch (err) {
+      // Re-running is harmless: ledger ids are derived from the transaction, so
+      // a repeat import writes the same documents. That is worth saying, but
+      // after the reason rather than instead of it.
+      const reason = err?.message || 'Sync could not finish'
+      const retryable = err?.code !== 'ITEM_LOGIN_REQUIRED'
+      if (currentUid.current === uid) {
+        setSync({
+          uid,
+          loading: false,
+          code: err?.code ?? null,
+          error: retryable
+            ? `${reason} Re-running is safe: already-imported transactions are not duplicated.`
+            : `${reason} This connection needs to be reconnected on Accounts before it can sync.`,
+        })
+      }
     } finally { syncing.current = false }
   }, [uid])
   const visibleLedger = ledger.uid === uid ? ledger : EMPTY_LEDGER
