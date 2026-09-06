@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { conversionEventsFromLedger, measureConversion, measureConversionCost } from './conversionCost'
+import { conversionEventsFromLedger, measureConversion, measureConversionCost, tradeEmbeddedConversions, runningCashBalances } from './conversionCost'
 
 /** One leg of a conversion, as the ledger stores it. */
 const leg = (overrides = {}) => ({
@@ -146,5 +146,195 @@ describe('measureConversionCost', () => {
   it('says nothing when the ledger holds no conversions', () => {
     expect(measureConversionCost({ transactions: [leg({ action: 'BUY' })] })).toBeNull()
     expect(measureConversionCost({ transactions: [] })).toBeNull()
+  })
+})
+
+// ─── Conversions bundled into a trade (#137) ──────────────────────────────────
+
+/**
+ * The RKLB purchase from the spec: $918.56 of stock, $1,317.40 debited in CAD,
+ * Bank of Canada reference 1.393 for that day.
+ *
+ * Note on the spec's own figures: it quotes a 2.94% spread and $38.10 of cost.
+ * Reusing measureConversion — which the issue requires — gives 2.958% and
+ * $37.85. The 2.94% follows from dividing by the *rounded* effective rate
+ * (1.434 / 1.393) rather than the real one, and $38.10 implies a reference of
+ * 1.39272 rather than 1.393. The shared formula is the thing worth preserving,
+ * so these assert what it produces.
+ */
+const RKLB = (overrides = {}) => ({
+  id: 'buy-rklb',
+  accountId: 'cash-1',
+  action: 'BUY',
+  tradeDate: '2026-08-12',
+  symbol: 'RKLB',
+  quantity: 8,
+  priceMinor: 11482,      // 8 x $114.82 = $918.56 USD
+  amountMinor: 131740,    // $1,317.40 CAD actually debited
+  currency: 'CAD',
+  fxRate: 1.393,
+  ...overrides,
+})
+
+const usdInflow = (amountMinor, overrides = {}) => ({
+  id: `in-${amountMinor}`,
+  accountId: 'cash-1',
+  action: 'SELL',
+  tradeDate: '2026-08-01',
+  quantity: 1,
+  amountMinor,
+  currency: 'USD',
+  fxRate: 1.39,
+  ...overrides,
+})
+
+const HISTORY = { 'cash-1': '2026-01-01' }
+
+describe('runningCashBalances', () => {
+  it('tracks the balance immediately before each row, per account', () => {
+    const { balanceBefore } = runningCashBalances([
+      usdInflow(100000),
+      { ...RKLB(), currency: 'USD', amountMinor: 91856 },
+    ], 'USD')
+
+    expect(balanceBefore.get('in-100000')).toBe(0)
+    expect(balanceBefore.get('buy-rklb')).toBe(100000)
+  })
+
+  it('keeps accounts separate and ignores other currencies', () => {
+    const { closing } = runningCashBalances([
+      usdInflow(100000),
+      usdInflow(50000, { id: 'other', accountId: 'cash-2' }),
+      usdInflow(9900, { id: 'cad', currency: 'CAD' }),
+    ], 'USD')
+
+    expect(closing.get('cash-1')).toBe(100000)
+    expect(closing.get('cash-2')).toBe(50000)
+  })
+})
+
+describe('tradeEmbeddedConversions', () => {
+  it('produces no event when existing USD cash covers the purchase', () => {
+    // A USD buy is not evidence of a conversion. An account holding the cash
+    // pays out of it and converts nothing.
+    const { events } = tradeEmbeddedConversions({
+      transactions: [usdInflow(100000), RKLB()],
+      historyStarts: HISTORY,
+    })
+
+    expect(events).toEqual([])
+  })
+
+  it('prices a purchase with no USD cash behind it, at the spec’s numbers', () => {
+    const { events } = tradeEmbeddedConversions({ transactions: [RKLB()], historyStarts: HISTORY })
+    const [priced] = events.map((event) => measureConversion(event))
+
+    expect(priced.toAmountMinor).toBe(91856)     // USD used      $918.56
+    expect(priced.fromAmountMinor).toBe(131740)  // CAD debited $1,317.40
+    expect(priced.chargedRate).toBe(1.434201)    // effective rate    1.434
+    expect(priced.midRate).toBe(1.393)           // reference rate    1.393
+    expect(priced.spreadPct).toBe(2.958)
+    expect(priced.costMinor).toBe(3785)
+    expect(priced.source).toBe('trade-embedded')
+  })
+
+  it('sizes the conversion at the shortfall, not the whole purchase', () => {
+    // Half-funded from existing cash converted half as much. Charging the
+    // spread on the full purchase would overstate what the broker took.
+    const { events } = tradeEmbeddedConversions({
+      transactions: [usdInflow(50000), RKLB()],
+      historyStarts: HISTORY,
+    })
+    const [priced] = events.map((event) => measureConversion(event))
+
+    expect(priced.toAmountMinor).toBe(41856)
+    expect(priced.fromAmountMinor).toBe(60030)
+    expect(priced.costMinor).toBe(1725)
+    // The rate is the broker's either way — only the amount converted changes.
+    expect(priced.spreadPct).toBe(2.958)
+  })
+
+  it('excludes a trade whose prior balance cannot be established', () => {
+    // Not zero and not "fully converted": cash held before the ledger begins is
+    // invisible, and guessing either way invents or erases a real cost.
+    const noHistory = tradeEmbeddedConversions({ transactions: [RKLB()], historyStarts: {} })
+    const startsAfter = tradeEmbeddedConversions({
+      transactions: [RKLB()], historyStarts: { 'cash-1': '2026-09-01' },
+    })
+
+    expect(noHistory.events).toEqual([])
+    expect(noHistory.unpriced[0].reason).toBe('insufficient-history')
+    expect(startsAfter.events).toEqual([])
+  })
+
+  it('refuses a trade with no reference rate rather than defaulting one', () => {
+    const { events, unpriced } = tradeEmbeddedConversions({
+      transactions: [RKLB({ fxRate: null })], historyStarts: HISTORY,
+    })
+
+    expect(events).toEqual([])
+    expect(unpriced[0].reason).toBe('no-reference-rate')
+  })
+
+  it('ignores a purchase settled in its own currency', () => {
+    // Currency mismatch is not the evidence, but a trade debited in the same
+    // currency it was priced in has no CAD leg to measure a spread against.
+    const { events } = tradeEmbeddedConversions({
+      transactions: [RKLB({ currency: 'USD', amountMinor: 91856 })], historyStarts: HISTORY,
+    })
+
+    expect(events).toEqual([])
+  })
+})
+
+describe('measureConversionCost — both kinds of evidence', () => {
+  // Deliberately small: a conversion large enough to fund the later purchase
+  // would leave nothing for the trade to convert, and the merge would have
+  // nothing to merge. The engine is right to report one conversion then — this
+  // fixture exists to exercise two.
+  const explicitPair = [
+    { id: 'fx-cad', accountId: 'cash-1', action: 'FX', tradeDate: '2026-07-01', amountMinor: 13400, currency: 'CAD', quantity: 0 },
+    { id: 'fx-usd', accountId: 'cash-1', action: 'FX', tradeDate: '2026-07-01', amountMinor: 10000, currency: 'USD', quantity: 0, fxRate: 1.34 },
+  ]
+
+  it('merges explicit rows and trade-embedded conversions into one total', () => {
+    const summary = measureConversionCost({
+      transactions: [...explicitPair, RKLB()], historyStarts: HISTORY,
+    })
+
+    expect(summary.conversions).toHaveLength(2)
+    expect(summary.conversions.map((c) => c.source).sort()).toEqual(['ledger-fx', 'trade-embedded'])
+    expect(summary.totalCostMinor).toBe(
+      summary.conversions.reduce((sum, c) => sum + c.costMinor, 0),
+    )
+  })
+
+  it('does not count one real conversion twice', () => {
+    // A broker that reports both an FX row and the trade it funded describes a
+    // single conversion. The explicit row wins; the trade is not re-priced.
+    const sameDayFx = explicitPair.map((row) => ({ ...row, tradeDate: '2026-08-12' }))
+    const summary = measureConversionCost({
+      transactions: [...sameDayFx, RKLB()], historyStarts: HISTORY,
+    })
+
+    expect(summary.conversions).toHaveLength(1)
+    expect(summary.conversions[0].source).toBe('ledger-fx')
+  })
+
+  it('reports one conversion when an earlier one already funded the trade', () => {
+    // $3,663 bought in July covers a $918.56 purchase in August. The purchase
+    // converted nothing, and counting it would invent a second conversion.
+    const large = [
+      { id: 'fx-cad', accountId: 'cash-1', action: 'FX', tradeDate: '2026-07-01', amountMinor: 500000, currency: 'CAD', quantity: 0 },
+      { id: 'fx-usd', accountId: 'cash-1', action: 'FX', tradeDate: '2026-07-01', amountMinor: 366300, currency: 'USD', quantity: 0, fxRate: 1.34 },
+    ]
+    const summary = measureConversionCost({ transactions: [...large, RKLB()], historyStarts: HISTORY })
+
+    expect(summary.conversions).toHaveLength(1)
+    expect(summary.conversions[0].source).toBe('ledger-fx')
+  })
+
+  it('still reports nothing when the ledger holds neither', () => {
+    expect(measureConversionCost({ transactions: [usdInflow(100000)], historyStarts: HISTORY })).toBeNull()
   })
 })
