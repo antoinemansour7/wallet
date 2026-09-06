@@ -1,6 +1,7 @@
 import { accountSources, plaidItemIdFor, sourceLabel } from '../../utils/accountMerge'
 import { analyticsScopes } from './chartAnalytics'
 import { projectWithholding, measureAccountWithholding, TREATMENT, DEFAULT_ASSUMPTIONS } from '../../utils/withholdingTax'
+import { toMinorUnits } from '../../utils/money'
 
 export function accountTitle(account) {
   const type = account.positions?.find((row) => row['ACCOUNT TYPE'])?.['ACCOUNT TYPE']
@@ -46,15 +47,30 @@ export function accountTypeOf(account) {
   return account?.positions?.find((row) => row['ACCOUNT TYPE'])?.['ACCOUNT TYPE'] ?? null
 }
 
-export function accountWithholding(account, { accounts = [], transactions = [], now = Date.now() } = {}) {
+export function accountWithholding(account, { accounts = [], transactions = [], reference = {}, historyStarts = {}, now = Date.now() } = {}) {
   const accountType = accountTypeOf(account)
   if (!accountType) return null
 
+  // Real yield and real fund composition where the lookup resolved them, the
+  // hardcoded fallbacks where it did not. `yieldIsReal` travels with the
+  // figure so a screen can say which of the two it is showing — a projection
+  // on a measured yield is a different claim from one on an assumed 1.3%.
+  const refFor = (row) => reference[String(row?.SYMBOL ?? '').trim().toUpperCase()] ?? null
+  const optionsFor = (row) => {
+    const ref = refFor(row)
+    return {
+      ...(Number.isFinite(ref?.yieldPct) ? { assumptions: { yieldPct: ref.yieldPct } } : {}),
+      ...(typeof ref?.holdsForeignEquities === 'boolean' ? { fundExposureHint: { holdsForeignEquities: ref.holdsForeignEquities } } : {}),
+    }
+  }
+
   const rows = account?.positions ?? []
   const projections = rows
-    .map((row) => ({ row, projection: projectWithholding({ row, accountType }) }))
+    .map((row) => ({ row, projection: projectWithholding({ row, accountType, ...optionsFor(row) }) }))
     .filter((entry) => entry.projection)
   if (projections.length === 0) return null
+
+  const yieldIsReal = projections.every(({ row }) => Number.isFinite(refFor(row)?.yieldPct))
 
   const projectedMinor = projections.reduce((sum, { projection }) => sum + projection.annualWithheldMinor, 0)
   const contributors = projections
@@ -66,7 +82,12 @@ export function accountWithholding(account, { accounts = [], transactions = [], 
   const anyInFund = projections.some(({ projection }) => projection.treatment === TREATMENT.IN_FUND)
   const measured = anyInFund
     ? null
-    : measureAccountWithholding({ transactions, accountId: account?.accountNumber, now })
+    : measureAccountWithholding({
+      transactions,
+      accountId: account?.accountNumber,
+      now,
+      historyStartsAt: historyStarts[account?.accountNumber] ?? null,
+    })
 
   const total = measured?.annualWithheldMinor ?? projectedMinor
   const basis = measured ? 'measured' : 'projected'
@@ -79,7 +100,7 @@ export function accountWithholding(account, { accounts = [], transactions = [], 
     .map((type) => ({
       accountType: type,
       annualWithheldMinor: projections.reduce(
-        (sum, { row }) => sum + (projectWithholding({ row, accountType: type })?.annualWithheldMinor ?? 0),
+        (sum, { row }) => sum + (projectWithholding({ row, accountType: type, ...optionsFor(row) })?.annualWithheldMinor ?? 0),
         0,
       ),
     }))
@@ -94,10 +115,19 @@ export function accountWithholding(account, { accounts = [], transactions = [], 
     unavoidable: anyInFund,
     recoverable: projections.every(({ projection }) => projection.recoverable),
     contributors,
+    yieldIsReal,
     comparison: options.length > 0 ? options : null,
     workings: measured
       ? measured.workings
-      : { marketValueMinor, yieldPct: DEFAULT_ASSUMPTIONS.yieldPct, withholdingRatePct: 15 },
+      : {
+        marketValueMinor,
+        // The blended rate actually used, which is the assumed one only when
+        // no holding resolved a real yield.
+        yieldPct: yieldIsReal
+          ? Number(((projections.reduce((sum, { row }) => sum + (refFor(row)?.yieldPct ?? 0) * (toMinorUnits(row['MARKET VALUE']) ?? 0), 0) / (marketValueMinor || 1))).toFixed(3))
+          : DEFAULT_ASSUMPTIONS.yieldPct,
+        withholdingRatePct: 15,
+      },
   }
 }
 

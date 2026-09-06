@@ -8,7 +8,7 @@ import { accountCurrency, accountTitle, currencyTotals, accountWithholding } fro
 import AccountIcon from './AccountIcons'
 import './Accounts.css'
 
-export default function AccountDetailModal({ open, account, accounts = [], onClose, onRemoveSource, onRemoveAccount, busy, error }) {
+export default function AccountDetailModal({ open, account, accounts = [], reference = {}, transactions = [], historyStarts = {}, onClose, onRemoveSource, onRemoveAccount, busy, error }) {
   const [confirmation, setConfirmation] = useState(null)
   const [showAll, setShowAll] = useState(false)
   const lastAccount = useRef(null)
@@ -18,7 +18,7 @@ export default function AccountDetailModal({ open, account, accounts = [], onClo
   useEffect(() => { setConfirmation(null); setShowAll(false) }, [open, displayed?.accountNumber])
   useEffect(() => { if (open) headingRef.current?.focus() }, [confirmation, open])
   if (!displayed) return null
-  const withholding = accountWithholding(displayed, { accounts })
+  const withholding = accountWithholding(displayed, { accounts, reference, transactions, historyStarts })
 
   const positions = displayed.positions || []
   const feeds = accountSources(displayed)
