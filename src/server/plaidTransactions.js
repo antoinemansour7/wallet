@@ -178,6 +178,64 @@ export function buildLedgerRecords({ transactions, securities, accounts, enabled
 }
 
 /**
+ * Claim each real account for a single Plaid item.
+ *
+ * Two items linked to the same brokerage login report the same real accounts
+ * under different Plaid account ids (the mask is identical). Left alone, each
+ * item syncs its own copy and every transaction is written once per item — the
+ * duplication that put three trades into the ledger as six. An account is
+ * identified by (institution, mask, subtype); the smallest account id wins, so
+ * the choice is deterministic and a re-sync always keeps the same side.
+ *
+ * `items`: [{ itemId, institution, accounts: [{ id, mask, subtype }],
+ * enabledAccountIds }]. Returns Map<itemId, enabledAccountIds[]> — the enabled
+ * ids with cross-item duplicates removed.
+ */
+export function dedupeEnabledAccounts(items = []) {
+  const identify = (institution, acct) => [
+    String(institution ?? '').trim().toLowerCase(),
+    String(acct.mask || acct.officialName || acct.name || acct.id).trim().toLowerCase(),
+    String(acct.subtype ?? '').trim().toLowerCase(),
+  ].join('|')
+
+  const enabledIds = (item) => new Set(item.enabledAccountIds || (item.accounts || []).map((a) => a.id))
+
+  // Deterministic winner per real account across every item (smallest id).
+  const winner = new Map()
+  for (const item of items) {
+    const enabled = enabledIds(item)
+    for (const acct of item.accounts || []) {
+      if (!enabled.has(acct.id)) continue
+      const key = identify(item.institution, acct)
+      const current = winner.get(key)
+      if (current === undefined || acct.id < current) winner.set(key, acct.id)
+    }
+  }
+
+  // Ids to drop: identified and enabled, but not the winner for their identity.
+  const drop = new Set()
+  for (const item of items) {
+    const enabled = enabledIds(item)
+    for (const acct of item.accounts || []) {
+      if (!enabled.has(acct.id)) continue
+      if (winner.get(identify(item.institution, acct)) !== acct.id) drop.add(acct.id)
+    }
+  }
+
+  // Only rewrite an item that actually owns a dropped duplicate; everything
+  // else keeps its original selection, so `null` ("all accounts") and untouched
+  // items pass through unchanged.
+  const result = new Map()
+  for (const item of items) {
+    const original = item.enabledAccountIds ?? null
+    const enabled = [...enabledIds(item)]
+    const droppedHere = enabled.some((id) => drop.has(id))
+    result.set(item.itemId, droppedHere ? enabled.filter((id) => !drop.has(id)) : original)
+  }
+  return result
+}
+
+/**
  * The earliest date each account has history for.
  *
  * Anything a user held before this has no cost base the ledger can derive, and
