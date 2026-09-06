@@ -18,6 +18,30 @@ const SQUEEZE_URL = `https://finviz.com/screener.ashx?v=111&f=cap_smallover,sh_a
 // Breakout: small-cap+, avg vol >300k, new 50d high, above SMA20 + SMA50, not overbought (RSI <70), monthly perf under 50%
 const BREAKOUT_URL = `https://finviz.com/screener.ashx?v=111&f=cap_smallover,sh_avgvol_o300,ta_highlow50d_nh,ta_perf_4w_u50,ta_rsi_nos70,ta_sma20_pa,ta_sma50_pa&ft=4&${SORT}`
 
+// Sector-scoped discovery (issue #96). The broad screens are paginated and
+// sorted by relative volume, so a strong name in a focus sector can sit below
+// the page cutoff; re-running the same technical screens constrained to a
+// sector surfaces it. Finviz takes one sector OR industry code per query.
+// Codes verified live 2026-09-05 — the spec's `ind_semiconductorsbroadline` has
+// drifted (Finviz now ignores it and returns the whole market), so the current
+// `ind_semiconductors` is used instead.
+export const FOCUS_SECTOR_FILTERS = [
+  'sec_technology',
+  'ind_semiconductors',
+  'ind_aerospacedefense',
+  'ind_softwareinfrastructure',
+  'ind_softwareapplication',
+]
+
+// Sector result sets are small, so they need far fewer pages than the
+// market-wide runs.
+const SECTOR_SCREEN_PAGES = 2
+
+// Insert a sector/industry code into a screener URL's filter list.
+export function withSectorFilter(baseUrl, sectorCode) {
+  return baseUrl.replace('&f=', `&f=${sectorCode},`)
+}
+
 function getRedis() {
   return new Redis({
     url: process.env.UPSTASH_REDIS_REST_URL,
@@ -59,11 +83,11 @@ async function fetchFinvizPage(url) {
   return { tickers: parseFinvizTickers(html), total: totalMatches(html) }
 }
 
-async function fetchFinvizScreener(baseUrl) {
+async function fetchFinvizScreener(baseUrl, maxPages = MAX_PAGES) {
   const all = []
   const seen = new Set()
 
-  for (let page = 0; page < MAX_PAGES; page += 1) {
+  for (let page = 0; page < maxPages; page += 1) {
     const offset = page * RESULTS_PER_PAGE + 1
     const { tickers, total } = await fetchFinvizPage(`${baseUrl}&r=${offset}`)
     if (tickers.length === 0) break
@@ -97,16 +121,23 @@ export async function fetchBreakoutCandidates() {
 
   console.log('[technicalScreener] fetching from Finviz...')
 
-  const [squeezeTickers, breakoutTickers] = await Promise.all([
-    fetchFinvizScreener(SQUEEZE_URL).catch((err) => {
-      console.error('[technicalScreener] squeeze fetch failed:', err.message)
-      return []
-    }),
-    fetchFinvizScreener(BREAKOUT_URL).catch((err) => {
-      console.error('[technicalScreener] breakout fetch failed:', err.message)
-      return []
-    }),
+  // One market-wide run plus a sector-scoped run per focus sector, on both
+  // screens. Each screen is independent and non-fatal: a failure (or a drifted
+  // Finviz code) degrades to no extra candidates, never an error.
+  const screen = (url, maxPages, label) => fetchFinvizScreener(url, maxPages).catch((err) => {
+    console.error(`[technicalScreener] ${label} fetch failed:`, err.message)
+    return []
+  })
+  const sectorScreens = (baseUrl, label) =>
+    FOCUS_SECTOR_FILTERS.map((sec) => screen(withSectorFilter(baseUrl, sec), SECTOR_SCREEN_PAGES, `${label}/${sec}`))
+
+  const [squeezeLists, breakoutLists] = await Promise.all([
+    Promise.all([screen(SQUEEZE_URL, MAX_PAGES, 'squeeze'), ...sectorScreens(SQUEEZE_URL, 'squeeze')]),
+    Promise.all([screen(BREAKOUT_URL, MAX_PAGES, 'breakout'), ...sectorScreens(BREAKOUT_URL, 'breakout')]),
   ])
+
+  const squeezeTickers = [...new Set(squeezeLists.flat())]
+  const breakoutTickers = [...new Set(breakoutLists.flat())]
 
   const squeezSet = new Set(squeezeTickers)
   const breakoutSet = new Set(breakoutTickers)
