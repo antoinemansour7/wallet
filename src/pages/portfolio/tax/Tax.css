@@ -1,6 +1,6 @@
 .tax-page, .tax-account-section, .tax-pointer {
   --tax-ink: rgb(var(--color-ink));
-  --tax-muted: rgb(var(--color-ink) / .56);
+  --tax-muted: rgb(var(--color-ink) / .62);
   --tax-border: rgb(var(--color-ink) / .10);
   --tax-soft: rgb(var(--color-ink) / .025);
   --tax-surface: rgb(var(--color-wall-surface));
@@ -9,96 +9,222 @@
   font-variant-numeric: tabular-nums;
 }
 .dark .tax-page, .dark .tax-account-section, .dark .tax-pointer { --tax-accent: #a3c6b3; }
-.tax-page { animation: tax-enter 300ms ease both; }
-@keyframes tax-enter { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
-.tax-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 3px 0 28px; }
-.tax-overline { font-size: 9px; font-weight: 600; letter-spacing: 1.5px; color: var(--tax-muted); }
-.tax-header h1 { font-size: clamp(30px, 3.3vw, 40px); font-weight: 500; letter-spacing: -1.5px; line-height: 1.25; margin: 9px 0; }
-.tax-header p { font-size: 13px; color: var(--tax-muted); }
-.tax-currency-control { display: flex; gap: 3px; padding: 4px; background: var(--tax-soft); border: 1px solid var(--tax-border); border-radius: 9px; }
-.tax-currency-control button { padding: 7px 13px; border-radius: 6px; font-size: 11px; color: var(--tax-muted); transition: background 160ms, color 160ms; }
-.tax-currency-control button[aria-pressed='true'] { background: var(--tax-surface); color: var(--tax-ink); box-shadow: 0 1px 5px rgb(0 0 0 / .07); }
-.tax-hero { display: grid; grid-template-columns: 1.2fr 1fr; gap: 36px; border: 1px solid var(--tax-border); border-radius: 18px; padding: 32px; background: linear-gradient(115deg, rgb(var(--color-wall-surface)), rgb(var(--color-brand-accent) / .035)); }
-.tax-hero-label { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--tax-muted); }
-.tax-badge { display: inline-flex; padding: 3px 7px; border: 1px solid var(--tax-border); border-radius: 5px; font-size: 9px; font-weight: 400; line-height: 1.5; color: var(--tax-muted); white-space: nowrap; }
-.tax-hero-amount { margin-top: 17px; font-size: clamp(26px, 3.5vw, 45px); letter-spacing: -1.7px; line-height: 1.15; font-weight: 500; }
-.tax-hero-amount > span { display: inline-block; font-size: 11px; font-weight: 400; color: var(--tax-muted); letter-spacing: 0; }
-.tax-hero-main > p { margin-top: 13px; font-size: 11px; line-height: 1.7; color: var(--tax-muted); }
-.tax-hero-details { padding-left: 35px; border-left: 1px solid var(--tax-border); display: flex; flex-direction: column; justify-content: center; gap: 19px; }
-.tax-hero-details > div { display: flex; align-items: baseline; justify-content: space-between; gap: 15px; }
-.tax-hero-details > div > span { font-size: 11px; color: var(--tax-muted); }.tax-hero-details strong { font-size: 16px; font-weight: 500; white-space: nowrap; }
-.tax-hero-details small { font-size: 9px; font-weight: 400; color: var(--tax-muted); margin-left: 4px; }
-.tax-assumption-line { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 13px 2px 25px; font-size: 10px; line-height: 1.65; color: var(--tax-muted); }
-.tax-assumption-line > span { max-width: 62%; }.tax-assumption-line form { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
-.tax-assumption-line input { width: 51px; padding: 4px 3px 4px 7px; border: 1px solid var(--tax-border); border-radius: 5px; background: var(--tax-surface); color: var(--tax-ink); }
-.tax-assumption-line button { padding: 4px 5px; color: var(--tax-accent); font-weight: 500; }.tax-assumption-line button:disabled { opacity: .4; }
-.tax-section-nav { display: flex; flex-wrap: wrap; gap: 6px 23px; margin: 0 0 23px; padding: 0 2px; }
-.tax-section-nav a { font-size: 11px; color: var(--tax-muted); text-decoration: none; border-bottom: 1px solid transparent; padding: 5px 0; }.tax-section-nav a:hover { color: var(--tax-ink); border-color: var(--tax-accent); }
-.tax-card { min-width: 0; padding: 26px; border: 1px solid var(--tax-border); border-radius: 16px; background: var(--tax-surface); scroll-margin-top: 90px; }
-.tax-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 23px; }
-.tax-section-heading h2 { font-size: 20px; font-weight: 500; letter-spacing: -.55px; margin-top: 9px; line-height: 1.3; }
-.tax-section-heading p { color: var(--tax-muted); font-size: 11px; line-height: 1.75; margin-top: 8px; }
-.tax-accounts { margin-bottom: 20px; padding-bottom: 14px; }.tax-table-wrap { overflow-x: auto; }
+.tax-page [hidden] { display: none !important; }
+.tax-page { padding-top: 8px; }
+.tax-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 30px; }
+.tax-header h1 { display: flex; align-items: center; gap: 14px; font-size: clamp(28px, 3vw, 36px); font-weight: 500; letter-spacing: -1.3px; line-height: 1.3; }
+.tax-year { color: var(--tax-muted); border: 1px solid var(--tax-border); padding: 4px 8px; border-radius: 6px; font-size: 11px; letter-spacing: 0; font-weight: 400; }
+.tax-header p { font-size: 13px; color: var(--tax-muted); margin-top: 9px; line-height: 1.65; }
+.tax-sync-button { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--tax-border); border-radius: 9px; padding: 10px 14px; min-height: 42px; background: var(--tax-surface); font-size: 12px; white-space: nowrap; transition: border-color 160ms, background 160ms; }
+.tax-sync-button:hover { border-color: var(--tax-accent); background: var(--tax-soft); }
+.tax-sync-button:disabled { opacity: .5; }
+.tax-navigation { display: flex; justify-content: space-between; align-items: center; gap: 16px; border-bottom: 1px solid var(--tax-border); margin-bottom: 28px; }
+.tax-view-tabs { display: flex; gap: 30px; }
+.tax-view-tabs button { position: relative; min-height: 50px; padding: 12px 0 16px; font-size: 13px; color: var(--tax-muted); transition: color 160ms; }
+.tax-view-tabs button::after { position: absolute; content: ''; height: 2px; border-radius: 2px; background: var(--tax-accent); left: 0; right: 0; bottom: -1px; transform: scaleX(0); transition: transform 180ms; }
+.tax-view-tabs button[aria-selected='true'] { color: var(--tax-ink); font-weight: 500; }
+.tax-view-tabs button[aria-selected='true']::after { transform: scaleX(1); }
+.tax-view-tabs button:hover { color: var(--tax-ink); }
+.tax-currency-control, .tax-tool-switch { display: inline-flex; padding: 3px; gap: 2px; border: 1px solid var(--tax-border); border-radius: 8px; background: var(--tax-soft); }
+.tax-currency-control { margin-bottom: 9px; }
+.tax-currency-control button, .tax-tool-switch button { min-height: 32px; padding: 6px 11px; border-radius: 5px; font-size: 11px; color: var(--tax-muted); transition: background 160ms, color 160ms; }
+.tax-currency-control button[aria-pressed='true'], .tax-tool-switch button[aria-pressed='true'] { background: var(--tax-surface); color: var(--tax-ink); box-shadow: 0 1px 4px rgb(0 0 0 / .06); }
+.tax-page [role='tabpanel']:not([hidden]) { animation: tax-enter 200ms ease both; }
+@keyframes tax-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.tax-at-a-glance { display: grid; grid-template-columns: 1.15fr 1fr; border: 1px solid var(--tax-border); border-radius: 18px; background: var(--tax-surface); overflow: hidden; }
+.tax-hero, .tax-fee-metric { min-width: 0; padding: 27px 30px 0; display: flex; flex-direction: column; }
+.tax-hero { background: linear-gradient(130deg, rgb(var(--color-brand-accent) / .045), transparent); }
+.tax-fee-metric { border-left: 1px solid var(--tax-border); }
+.tax-hero-label { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 13px; }
+.tax-badge { display: inline-flex; padding: 3px 7px; border-radius: 5px; font-size: 10px; font-weight: 400; line-height: 1.5; color: var(--tax-muted); background: var(--tax-soft); white-space: nowrap; }
+.tax-hero-amount { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; margin-top: 20px; font-size: clamp(32px, 3.7vw, 48px); letter-spacing: -1.6px; line-height: 1.25; font-weight: 500; }
+.tax-hero-amount > span { font-size: 11px; font-weight: 400; color: var(--tax-muted); letter-spacing: 0; }
+.tax-amount-empty { font-size: 28px; letter-spacing: -.8px; min-height: 60px; align-items: center; color: var(--tax-muted); }
+.tax-hero > p, .tax-fee-metric > p { font-size: 11px; line-height: 1.75; color: var(--tax-muted); margin: 9px 0 22px; }
+.tax-inline-gap { display: block; }
+.tax-metric-footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--tax-border); padding: 13px 0; margin-top: auto; font-size: 11px; color: var(--tax-muted); min-height: 52px; }
+.tax-metric-footer strong { color: var(--tax-ink); font-weight: 500; font-size: 13px; }
+.tax-metric-footer small { font-size: 10px; color: var(--tax-muted); font-weight: 400; }
+.tax-summary-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 36px; margin-top: 32px; align-items: start; }
+.tax-card { min-width: 0; padding: 28px; border: 1px solid var(--tax-border); border-radius: 16px; background: var(--tax-surface); }
+.tax-accounts { padding: 8px 0 0; border: 0; background: transparent; }
+.tax-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+.tax-section-heading h2 { font-size: 19px; font-weight: 500; letter-spacing: -.45px; line-height: 1.35; }
+.tax-section-heading p { color: var(--tax-muted); font-size: 12px; line-height: 1.65; margin-top: 6px; }
+.tax-account-count { color: var(--tax-muted); font-size: 11px; white-space: nowrap; }
+.tax-table-wrap { width: 100%; }
 .tax-account-table { width: 100%; border-collapse: collapse; text-align: left; }
-.tax-account-table thead th { font-size: 9px; font-weight: 400; padding: 12px 13px; background: var(--tax-soft); color: var(--tax-muted); border-top: 1px solid var(--tax-border); border-bottom: 1px solid var(--tax-border); white-space: nowrap; }
-.tax-account-table thead th:nth-child(3) { text-align: right; }.tax-account-table tbody th, .tax-account-table td { padding: 19px 13px; border-bottom: 1px solid var(--tax-border); font-weight: 400; vertical-align: middle; }
-.tax-account-table tr:last-child > * { border-bottom: 0; }.tax-account-table tbody th { min-width: 145px; }.tax-account-table th button { text-align: left; font-size: 12px; font-weight: 500; }.tax-account-table th button > span { display: flex; align-items: center; gap: 9px; color: var(--tax-muted); font-size: 10px; font-weight: 400; margin-top: 5px; }
-.tax-account-table select { padding: 8px 26px 8px 9px; border: 1px solid var(--tax-border); border-radius: 7px; background: transparent; color: var(--tax-ink); font-size: 11px; max-width: 158px; }
-.tax-account-table small { display: block; font-size: 9px; color: var(--tax-muted); margin-top: 5px; }.tax-numeric { text-align: right; white-space: nowrap; }.tax-numeric strong { font-size: 13px; font-weight: 500; }
-.tax-treatment { display: inline-block; font-size: 10px; color: var(--tax-muted); }.tax-treatment-exempt { color: var(--tax-accent); }
-.tax-main-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 20px; align-items: start; margin-bottom: 20px; }
-.tax-field { display: block; min-width: 0; }.tax-field > span { display: block; font-size: 10px; margin-bottom: 8px; color: var(--tax-muted); }.tax-field input, .tax-field select { width: 100%; min-height: 39px; padding: 9px 11px; border: 1px solid var(--tax-border); border-radius: 7px; font-size: 12px; color: var(--tax-ink); background: var(--tax-surface); }
-.tax-field > small { display: block; color: var(--tax-muted); font-size: 9px; line-height: 1.6; margin-top: 6px; }.tax-field select { padding-right: 25px; text-overflow: ellipsis; }
-.tax-field input::placeholder { color: rgb(var(--color-ink) / .3); }.tax-page select option { color: var(--tax-ink); background: var(--tax-surface); }
-.tax-comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }.tax-comparison-option { min-width: 0; background: var(--tax-soft); border: 1px solid var(--tax-border); padding: 14px; border-radius: 10px; }
-.tax-comparison-option > small { display: block; font-size: 10px; color: var(--tax-muted); margin-top: 24px; }.tax-comparison-option > strong { display: block; font-size: 28px; line-height: 1.4; letter-spacing: -.7px; font-weight: 500; margin-top: 3px; }.tax-comparison-option > p { color: var(--tax-muted); font-size: 9px; line-height: 1.7; margin-top: 8px; }
-.tax-period { margin-top: 26px; }.tax-period label { display: block; color: var(--tax-muted); font-size: 11px; }.tax-period label strong { float: right; color: var(--tax-ink); font-weight: 500; }.tax-period input { width: 100%; accent-color: var(--tax-accent); margin: 14px 0 4px; cursor: pointer; }
-.tax-comparison-result { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 18px; border-top: 1px solid var(--tax-border); padding-top: 18px; }
-.tax-comparison-result > span { font-size: 11px; line-height: 1.8; }.tax-comparison-result > strong { font-size: 22px; font-weight: 500; letter-spacing: -.5px; white-space: nowrap; color: var(--tax-accent); }.tax-comparison-result small { font-size: 9px; color: var(--tax-muted); font-weight: 400; letter-spacing: 0; }
-.tax-footnote { color: var(--tax-muted); font-size: 10px; line-height: 1.8; margin-top: 19px; }
-.tax-room-card + .tax-room-card { padding-top: 24px; border-top: 1px solid var(--tax-border); margin-top: 24px; }.tax-room-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.tax-room-title h3 { font-weight: 500; font-size: 13px; }
-.tax-text-button { display: inline-flex; align-items: center; gap: 7px; font-size: 10px; color: var(--tax-accent); padding: 5px 0; }.tax-text-button:disabled { opacity: .45; cursor: not-allowed; }
-.tax-room-amount { display: block; font-size: 24px; font-weight: 500; letter-spacing: -.7px; margin-top: 14px; }.tax-room-amount small { font-size: 10px; letter-spacing: 0; color: var(--tax-muted); font-weight: 400; }.tax-room-card > p { font-size: 10px; line-height: 1.8; color: var(--tax-muted); margin-top: 8px; }.tax-room-card > .tax-field { margin-top: 15px; }
-.tax-room-form { display: grid; gap: 13px; margin-top: 17px; }.tax-actions { display: flex; gap: 18px; align-items: center; }.tax-button { padding: 9px 14px; border-radius: 7px; background: var(--tax-ink); color: rgb(var(--color-wall-surface)); font-size: 11px; font-weight: 500; }.tax-button:disabled { opacity: .5; }
-.tax-source-links { display: flex; gap: 17px; margin-top: 13px; font-size: 10px; color: var(--tax-accent); }.tax-source-links a:hover, .tax-footer a:hover { text-decoration: underline; }
-.tax-input-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 17px; margin-bottom: 22px; }.tax-cost-row { display: flex; justify-content: space-between; align-items: center; gap: 15px; padding: 13px 0; border-bottom: 1px solid var(--tax-border); font-size: 11px; }.tax-cost-row strong { font-weight: 500; font-size: 13px; }.tax-cost-row > span:first-child { color: var(--tax-muted); }.tax-cost-row > span small { display: block; margin-top: 5px; font-size: 9px; color: var(--tax-muted); }.tax-cost-row > strong small { font-weight: 400; font-size: 9px; color: var(--tax-muted); }
-.tax-scenario-difference { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-radius: 7px; padding: 12px; background: rgb(var(--color-brand-accent) / .07); margin-top: 16px; font-size: 10px; }.tax-scenario-difference strong { font-size: 12px; font-weight: 500; color: var(--tax-accent); white-space: nowrap; }
-.tax-details { margin-top: 18px; color: var(--tax-muted); }.tax-details summary { cursor: pointer; font-size: 10px; padding: 8px 0; }.tax-details p { font-size: 10px; line-height: 1.85; margin-top: 8px; }.tax-coverage { margin-top: 1px; }.tax-coverage ul { margin: 5px 0 12px; }.tax-coverage li { display: flex; justify-content: space-between; gap: 15px; padding: 6px 0; font-size: 10px; }.tax-coverage li > span:first-child { color: var(--tax-ink); }
-.tax-empty { padding: 31px 12px 25px; text-align: center; border: 1px dashed var(--tax-border); border-radius: 10px; background: var(--tax-soft); }.tax-empty > svg { margin: 0 auto 14px; color: var(--tax-muted); }.tax-empty h3 { font-weight: 500; font-size: 12px; }.tax-empty p { font-size: 11px; line-height: 1.85; color: var(--tax-muted); max-width: 360px; margin: 8px auto 0; }.tax-empty-wide { display: flex; align-items: flex-start; gap: 17px; padding: 23px; text-align: left; }.tax-empty-wide > svg { margin: 2px 0 0; flex-shrink: 0; }.tax-empty-wide p { max-width: 650px; }
-.tax-fee-currency + .tax-fee-currency { margin-top: 28px; }.tax-fee-total { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 7px; }.tax-fee-total > span { font-size: 10px; color: var(--tax-muted); }.tax-fee-total > strong { font-weight: 500; font-size: 29px; letter-spacing: -.9px; }
-.tax-sale-comparison { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; background: var(--tax-soft); border: 1px solid var(--tax-border); padding: 21px; border-radius: 10px; }.tax-sale-comparison > div > span { display: block; color: var(--tax-muted); font-size: 10px; }.tax-sale-comparison strong { display: block; font-size: 25px; font-weight: 500; letter-spacing: -.6px; margin: 13px 0 8px; }.tax-sale-comparison small { color: var(--tax-muted); font-size: 10px; }
-.tax-footer { display: flex; justify-content: space-between; gap: 20px; margin-top: 22px; padding: 0 3px 20px; font-size: 9px; line-height: 1.8; color: var(--tax-muted); }.tax-footer a { flex-shrink: 0; }
-.tax-error, .tax-notice { padding: 11px 13px; margin: 12px 0; font-size: 11px; line-height: 1.7; border-radius: 7px; background: var(--tax-soft); border: 1px solid var(--tax-border); }.tax-error { color: rgb(var(--color-loss)); }.tax-negative { color: rgb(var(--color-loss)) !important; }.tax-loading { font-size: 11px; color: var(--tax-muted); padding: 20px 0; }
-.tax-pointer { display: flex; align-items: center; width: 100%; gap: 12px; padding: 19px 3px; margin: 12px 0; border-bottom: 1px solid var(--tax-border); text-align: left; font-size: 12px; }.tax-pointer > svg { color: var(--tax-accent); flex-shrink: 0; }.tax-pointer > span:nth-child(2) { flex: 1; }.tax-pointer > span:nth-child(2) > span { margin-left: 14px; font-size: 11px; color: var(--tax-muted); }.tax-pointer-cta { display: flex; align-items: center; gap: 8px; color: var(--tax-accent); white-space: nowrap; font-size: 11px; }.tax-pointer:hover .tax-pointer-cta { text-decoration: underline; }
-.tax-account-section { margin-top: 24px; border: 1px solid var(--tax-border); padding: 17px; border-radius: 11px; background: var(--tax-soft); }.tax-account-section > div { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 11px; }.tax-account-section .tax-account-amount { font-size: 22px; letter-spacing: -.5px; font-weight: 500; margin: 10px 0 8px; }.tax-account-amount > span { display: block; }.tax-account-amount small { font-size: 10px; color: var(--tax-muted); font-weight: 400; letter-spacing: 0; }.tax-account-section > p:not(.tax-account-amount) { font-size: 11px; line-height: 1.8; color: var(--tax-muted); }.tax-account-section > button { margin-top: 9px; }
-.tax-page :is(button, input, select, summary, a):focus-visible, .tax-pointer:focus-visible, .tax-account-section button:focus-visible { outline: 2px solid var(--tax-accent); outline-offset: 4px; }.tax-page button, .tax-pointer { touch-action: manipulation; }.tax-page button:not(:disabled), .tax-page select { cursor: pointer; }
-@media (max-width: 850px) { .tax-main-grid { grid-template-columns: 1fr; }.tax-hero { gap: 22px; padding: 25px; }.tax-hero-details { padding-left: 22px; }.tax-assumption-line { align-items: flex-start; }.tax-account-table { min-width: 650px; }.tax-footer { flex-direction: column; gap: 5px; }.tax-pointer > span:nth-child(2) > span { display: block; margin: 5px 0 0; line-height: 1.7; } }
-@media (max-width: 540px) { .tax-header { align-items: flex-start; padding-bottom: 23px; }.tax-header h1 { font-size: 31px; }.tax-header p { font-size: 11px; }.tax-header .tax-overline { font-size: 8px; }.tax-currency-control { margin-top: 27px; }.tax-currency-control button { padding: 6px 9px; font-size: 10px; }.tax-hero { grid-template-columns: 1fr; padding: 23px; gap: 24px; }.tax-hero-amount { font-size: 37px; }.tax-hero-details { padding: 18px 0 0; border-left: 0; border-top: 1px solid var(--tax-border); gap: 14px; }.tax-hero-details strong { font-size: 14px; }.tax-assumption-line { display: block; }.tax-assumption-line > span { display: block; max-width: none; }.tax-assumption-line form { margin-top: 11px; }.tax-section-nav { gap: 4px 18px; }.tax-card { padding: 20px; }.tax-section-heading h2 { font-size: 19px; }.tax-section-heading { align-items: flex-start; }.tax-comparison { gap: 9px; }.tax-comparison-option { padding: 10px; }.tax-comparison-option strong { font-size: 23px; }.tax-comparison-option select { padding: 7px; font-size: 10px; }.tax-comparison-result > strong { font-size: 20px; }.tax-sale-comparison { grid-template-columns: 1fr; gap: 20px; }.tax-sale-comparison > div + div { padding-top: 18px; border-top: 1px solid var(--tax-border); }.tax-sale-comparison strong { margin: 6px 0; }.tax-pointer-cta { font-size: 0; }.tax-pointer-cta svg { width: 19px; height: 19px; }.tax-scenario-difference { align-items: flex-start; flex-direction: column; gap: 5px; } }
-@media (prefers-reduced-motion: reduce) { .tax-page { animation: none; }.tax-page * { transition: none !important; scroll-behavior: auto !important; } }
-/* Keep the amount visible beside account context on a phone. */
-@media (max-width: 540px) {
-  .tax-account-table { min-width: 0; display: block; }
-  .tax-account-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .tax-account-table tbody { display: block; }
-  .tax-account-table tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 17px 13px; padding: 20px 0; border-bottom: 1px solid var(--tax-border); }
-  .tax-account-table tbody tr:last-child { border-bottom: 0; padding-bottom: 8px; }
-  .tax-account-table tbody th, .tax-account-table tbody td { display: block; min-width: 0; padding: 0; border: 0; }
-  .tax-account-table select { width: 100%; max-width: none; font-size: 10px; }
-  .tax-account-table .tax-numeric { text-align: left; }
-  .tax-account-table .tax-numeric::before { display: block; content: 'Annual withholding'; font-size: 9px; color: var(--tax-muted); margin-bottom: 6px; }
-  .tax-account-table .tax-numeric + td { align-self: end; }
-}
-
-.tax-sync-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 0 0 24px; }
-.tax-sync-row > span { margin-right: auto; color: var(--tax-muted); font-size: 13px; }
+.tax-account-table thead th { font-size: 10px; font-weight: 400; padding: 0 10px 12px; color: var(--tax-muted); border-bottom: 1px solid var(--tax-border); }
+.tax-account-table thead th:first-child, .tax-account-table tbody th { padding-left: 0; }
+.tax-account-table thead th:last-child { text-align: right; padding-right: 0; }
+.tax-account-table tbody th, .tax-account-table td { padding: 19px 10px; border-bottom: 1px solid var(--tax-border); font-weight: 400; vertical-align: top; }
+.tax-account-table td:last-child { padding-right: 0; }
+.tax-account-table th button { text-align: left; font-size: 13px; font-weight: 500; }
+.tax-account-table th button > span { display: flex; align-items: center; gap: 8px; color: var(--tax-muted); font-size: 11px; font-weight: 400; margin-top: 5px; }
+.tax-account-table small { display: block; font-size: 10px; color: var(--tax-muted); margin-top: 6px; line-height: 1.6; }
+.tax-account-table .tax-account-treatment { margin-top: 8px; font-size: 10px; }
+.tax-account-table select { padding: 7px; border: 1px solid var(--tax-border); border-radius: 6px; background: var(--tax-surface); color: var(--tax-ink); font-size: 11px; max-width: 125px; min-height: 36px; }
+.tax-numeric { text-align: right; white-space: nowrap; }
+.tax-numeric strong { font-size: 15px; font-weight: 500; }
+.tax-field { display: block; min-width: 0; }
+.tax-field > span { display: block; font-size: 12px; margin-bottom: 8px; color: var(--tax-muted); }
+.tax-field input, .tax-field select { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--tax-border); border-radius: 8px; font-size: 13px; color: var(--tax-ink); background: var(--tax-surface); }
+.tax-field > small { display: block; color: var(--tax-muted); font-size: 11px; line-height: 1.65; margin-top: 6px; }
+.tax-field select { padding-right: 25px; text-overflow: ellipsis; }
+.tax-field input::placeholder { color: rgb(var(--color-ink) / .4); }
+.tax-page select option { color: var(--tax-ink); background: var(--tax-surface); }
+.tax-footnote { color: var(--tax-muted); font-size: 11px; line-height: 1.75; margin-top: 18px; }
+.tax-room-card + .tax-room-card { padding-top: 22px; border-top: 1px solid var(--tax-border); margin-top: 22px; }
+.tax-room-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tax-room-title h3 { font-weight: 500; font-size: 13px; }
+.tax-text-button { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; color: var(--tax-accent); padding: 6px 0; min-height: 30px; }
+.tax-text-button:hover { text-decoration: underline; text-underline-offset: 3px; }
+.tax-text-button:disabled { opacity: .45; cursor: not-allowed; }
+.tax-room-amount { display: block; font-size: 24px; font-weight: 500; letter-spacing: -.65px; margin-top: 10px; }
+.tax-room-amount-empty { color: var(--tax-muted); font-size: 21px; }
+.tax-room-amount small { font-size: 10px; letter-spacing: 0; color: var(--tax-muted); font-weight: 400; }
+.tax-room-card > p { font-size: 11px; line-height: 1.75; color: var(--tax-muted); margin-top: 8px; }
+.tax-room-card > .tax-field { margin-top: 16px; }
+.tax-room-form { display: grid; gap: 14px; margin-top: 18px; }
+.tax-actions { display: flex; gap: 18px; align-items: center; }
+.tax-button { min-height: 40px; padding: 10px 15px; border-radius: 8px; background: var(--tax-ink); color: var(--tax-surface); font-size: 12px; font-weight: 500; }
+.tax-button:disabled { opacity: .5; }
+.tax-source-links { display: flex; gap: 17px; margin-top: 14px; font-size: 11px; color: var(--tax-accent); }
+.tax-source-links a:hover, .tax-footer a:hover { text-decoration: underline; }
+.tax-details { margin-top: 14px; color: var(--tax-muted); }
+.tax-details summary { cursor: pointer; font-size: 11px; padding: 10px 0; min-height: 36px; }
+.tax-details p { font-size: 11px; line-height: 1.8; margin-top: 8px; }
+.tax-details ul { font-size: 11px; line-height: 1.8; margin: 8px 0; }
+.tax-details li + li { margin-top: 7px; }
+.tax-coverage li { display: flex; justify-content: space-between; gap: 16px; }
+.tax-coverage li > span:first-child { color: var(--tax-ink); }
+.tax-assumptions { margin-top: 0; }
+.tax-yield-form { display: flex; align-items: center; gap: 10px; margin: 18px 0; font-size: 11px; }
+.tax-yield-form input { width: 66px; padding: 9px; min-height: 40px; border: 1px solid var(--tax-border); border-radius: 7px; color: var(--tax-ink); background: var(--tax-surface); }
+.tax-empty { padding: 28px 12px; text-align: center; border-radius: 10px; background: var(--tax-soft); }
+.tax-empty > svg { margin: 0 auto 14px; color: var(--tax-muted); }
+.tax-empty h3 { font-weight: 500; font-size: 14px; }
+.tax-empty p { font-size: 12px; line-height: 1.8; color: var(--tax-muted); max-width: 400px; margin: 8px auto 0; }
+.tax-empty-wide { display: flex; align-items: flex-start; gap: 17px; padding: 28px; text-align: left; }
+.tax-empty-wide > svg { margin: 2px 0 0; flex-shrink: 0; }
+.tax-empty-wide p { max-width: 650px; }
+#tax-fee-breakdown:not([hidden]) { margin-top: 18px; animation: tax-enter 180ms ease both; }
+.tax-fee-currency + .tax-fee-currency { margin-top: 28px; }
+.tax-fee-total { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.tax-fee-total > span { font-size: 12px; color: var(--tax-muted); }
+.tax-fee-total > strong { font-weight: 500; font-size: 28px; letter-spacing: -.7px; }
+.tax-cost-row { display: flex; justify-content: space-between; align-items: center; gap: 15px; padding: 16px 0; border-bottom: 1px solid var(--tax-border); font-size: 12px; }
+.tax-cost-row strong { font-weight: 500; font-size: 14px; }
+.tax-cost-row > span small { display: block; margin-top: 5px; font-size: 11px; color: var(--tax-muted); }
+.tax-cost-row > strong small { font-weight: 400; font-size: 10px; color: var(--tax-muted); }
+.tax-planning-intro { display: flex; justify-content: space-between; gap: 20px; align-items: center; margin: 34px 0 26px; }
+.tax-planning-intro h2 { font-size: 23px; font-weight: 500; letter-spacing: -.7px; }
+.tax-planning-intro p { font-size: 12px; color: var(--tax-muted); margin-top: 6px; }
+.tax-tool-panel { max-width: 780px; margin: 0 auto; }
+.tax-tool-panel:not([hidden]) { animation: tax-enter 180ms ease both; }
+.tax-comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 22px; }
+.tax-comparison-option { min-width: 0; background: var(--tax-soft); padding: 20px; border-radius: 12px; }
+.tax-comparison-option > small { display: block; font-size: 11px; color: var(--tax-muted); margin-top: 26px; }
+.tax-comparison-option > strong { display: block; font-size: 34px; line-height: 1.35; letter-spacing: -.9px; font-weight: 500; margin-top: 5px; }
+.tax-comparison-option > p { color: var(--tax-muted); font-size: 11px; line-height: 1.7; margin-top: 8px; }
+.tax-period { margin-top: 28px; }
+.tax-period label { display: block; color: var(--tax-muted); font-size: 12px; }
+.tax-period label strong { float: right; color: var(--tax-ink); font-weight: 500; }
+.tax-period input { width: 100%; accent-color: var(--tax-accent); margin: 14px 0 4px; cursor: pointer; }
+.tax-comparison-result { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; border-top: 1px solid var(--tax-border); padding-top: 22px; }
+.tax-comparison-result > span { font-size: 12px; line-height: 1.8; }
+.tax-comparison-result > strong { font-size: 26px; font-weight: 500; letter-spacing: -.7px; white-space: nowrap; color: var(--tax-accent); }
+.tax-comparison-result small { font-size: 11px; color: var(--tax-muted); font-weight: 400; letter-spacing: 0; }
+.tax-input-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-bottom: 24px; }
+.tax-scenario-difference { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-radius: 8px; padding: 16px; background: rgb(var(--color-brand-accent) / .07); margin-top: 20px; font-size: 12px; }
+.tax-scenario-difference strong { font-size: 15px; font-weight: 500; color: var(--tax-accent); white-space: nowrap; }
+.tax-measured-block { margin-bottom: 24px; padding-bottom: 18px; border-bottom: 1px solid var(--tax-border); }
+.tax-sale-comparison { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; background: var(--tax-soft); padding: 24px; border-radius: 10px; }
+.tax-sale-comparison > div > span { display: block; color: var(--tax-muted); font-size: 12px; }
+.tax-sale-comparison strong { display: block; font-size: 27px; font-weight: 500; letter-spacing: -.6px; margin: 13px 0 8px; }
+.tax-sale-comparison small { color: var(--tax-muted); font-size: 11px; }
 .tax-sale-record + .tax-sale-record { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--tax-border); }
-.tax-sale-record h3 { font-size: 16px; }
+.tax-sale-record h3 { font-size: 16px; margin-bottom: 16px; }
 .tax-sale-record h3 small { font-size: 12px; font-weight: 400; color: var(--tax-muted); }
-
-/* The measured conversion block sits above the scenario calculator: what was
-   actually paid outranks what a hypothetical would cost. */
-.tax-measured-block {
-  margin-bottom: 18px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+.tax-footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-top: 30px; border-top: 1px solid var(--tax-border); padding: 18px 0 12px; font-size: 10px; line-height: 1.8; color: var(--tax-muted); }
+.tax-footer > div { display: flex; flex-wrap: wrap; gap: 20px; }
+.tax-footer button:hover { color: var(--tax-ink); }
+.tax-error, .tax-notice { padding: 12px 15px; margin: 12px 0; font-size: 12px; line-height: 1.75; border-radius: 8px; background: var(--tax-soft); border: 1px solid var(--tax-border); }
+.tax-error, .tax-negative { color: rgb(var(--color-loss)) !important; }
+.tax-loading { font-size: 12px; color: var(--tax-muted); padding: 20px 0; }
+.tax-pointer { display: flex; align-items: center; width: 100%; gap: 12px; padding: 19px 3px; margin: 12px 0; border-bottom: 1px solid var(--tax-border); text-align: left; font-size: 12px; }
+.tax-pointer > svg { color: var(--tax-accent); flex-shrink: 0; }
+.tax-pointer > span:nth-child(2) { flex: 1; }
+.tax-pointer > span:nth-child(2) > span { margin-left: 14px; font-size: 11px; color: var(--tax-muted); }
+.tax-pointer-cta { display: flex; align-items: center; gap: 8px; color: var(--tax-accent); white-space: nowrap; font-size: 11px; }
+.tax-pointer:hover .tax-pointer-cta { text-decoration: underline; }
+.tax-account-section { margin-top: 24px; border: 1px solid var(--tax-border); padding: 17px; border-radius: 11px; background: var(--tax-soft); }
+.tax-account-section > div { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 11px; }
+.tax-account-section .tax-account-amount { font-size: 22px; letter-spacing: -.5px; font-weight: 500; margin: 10px 0 8px; }
+.tax-account-amount > span { display: block; }
+.tax-account-amount small { font-size: 10px; color: var(--tax-muted); font-weight: 400; letter-spacing: 0; }
+.tax-account-section > p:not(.tax-account-amount) { font-size: 11px; line-height: 1.8; color: var(--tax-muted); }
+.tax-account-section > button { margin-top: 9px; }
+.tax-page :is(button, input, select, summary, a):focus-visible, .tax-pointer:focus-visible, .tax-account-section button:focus-visible { outline: 2px solid var(--tax-accent); outline-offset: 4px; }
+.tax-page button, .tax-pointer { touch-action: manipulation; }
+.tax-page button:not(:disabled), .tax-page select { cursor: pointer; }
+@media (max-width: 1000px) {
+  .tax-summary-grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 24px; }
+  .tax-hero, .tax-fee-metric { padding: 24px 22px 0; }
+  .tax-summary-grid > #tax-room { padding: 22px; }
+}
+@media (max-width: 800px) {
+  .tax-summary-grid { grid-template-columns: 1fr; gap: 26px; }
+  .tax-planning-intro { flex-direction: column; align-items: flex-start; }
+  .tax-pointer > span:nth-child(2) > span { display: block; margin: 5px 0 0; line-height: 1.7; }
+}
+@media (max-width: 540px) {
+  .tax-page { padding-top: 2px; }
+  .tax-header { align-items: flex-start; flex-wrap: wrap; gap: 15px; margin-bottom: 16px; }
+  .tax-header h1 { font-size: 29px; }
+  .tax-header p { font-size: 12px; }
+  .tax-sync-button { padding: 8px 12px; min-height: 38px; font-size: 11px; }
+  .tax-view-tabs { gap: 23px; }
+  .tax-view-tabs button { font-size: 12px; }
+  .tax-currency-control button { padding: 5px 8px; min-height: 32px; font-size: 10px; }
+  .tax-navigation { gap: 10px; margin-bottom: 20px; }
+  .tax-at-a-glance { grid-template-columns: 1fr; }
+  .tax-fee-metric { border-left: 0; border-top: 1px solid var(--tax-border); }
+  .tax-hero, .tax-fee-metric { padding: 20px 20px 0; }
+  .tax-hero-amount { font-size: 37px; margin-top: 14px; }
+  .tax-amount-empty { font-size: 25px; min-height: 46px; }
+  .tax-hero > p, .tax-fee-metric > p { margin-bottom: 15px; }
+  .tax-summary-grid { margin-top: 24px; }
+  .tax-card { padding: 21px; }
+  .tax-accounts { padding: 0; }
+  .tax-section-heading h2 { font-size: 18px; }
+  .tax-account-count { font-size: 10px; }
+  .tax-account-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .tax-account-table, .tax-account-table tbody { display: block; }
+  .tax-account-table tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: 12px; padding: 18px 0; border-bottom: 1px solid var(--tax-border); }
+  .tax-account-table tbody th, .tax-account-table td { display: block; padding: 0; border: 0; min-width: 0; }
+  .tax-account-table tbody th { grid-column: 1; grid-row: 1; }
+  .tax-account-table td:nth-child(2) { grid-column: 1; grid-row: 2; }
+  .tax-account-table td:last-child { grid-column: 2; grid-row: 1 / 3; padding-top: 2px; }
+  .tax-account-table th button { font-size: 13px; }
+  .tax-account-table select { max-width: 160px; }
+  .tax-numeric strong { font-size: 17px; }
+  .tax-tool-switch { width: 100%; }
+  .tax-tool-switch button { flex: 1; min-height: 38px; }
+  .tax-comparison { gap: 10px; }
+  .tax-comparison-option { padding: 12px; }
+  .tax-comparison-option > strong { font-size: 27px; }
+  .tax-comparison-option select { padding: 8px; font-size: 11px; }
+  .tax-comparison-result { flex-wrap: wrap; }
+  .tax-input-grid { grid-template-columns: 1fr; gap: 18px; }
+  .tax-field input { font-size: 16px; }
+  .tax-sale-comparison { grid-template-columns: 1fr; gap: 18px; padding: 18px; }
+  .tax-sale-comparison > div + div { border-top: 1px solid var(--tax-border); padding-top: 18px; }
+  .tax-sale-comparison strong { margin: 6px 0; }
+  .tax-scenario-difference { align-items: flex-start; flex-direction: column; }
+  .tax-pointer-cta { font-size: 0; }
+  .tax-pointer-cta svg { width: 19px; height: 19px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tax-page, .tax-page * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
