@@ -41,6 +41,34 @@ export function defaultWindow(now = new Date()) {
 }
 
 /**
+ * How far back a scheduled re-sync reaches.
+ *
+ * Not simply "since the last sync": a trade can appear in Plaid days after it
+ * happened, and a window starting exactly where the last one ended would step
+ * straight over it. The overlap re-fetches a few days that were already
+ * imported, which is free — ids are derived from the transaction, so writing
+ * one twice is the same write.
+ *
+ * Falls back to the full window when there is no recorded sync, so a
+ * connection that has never run gets its whole available history.
+ */
+export const RESYNC_OVERLAP_DAYS = 5
+
+export function incrementalWindow(lastSyncedAt, now = new Date(), { overlapDays = RESYNC_OVERLAP_DAYS } = {}) {
+  const full = defaultWindow(now)
+  const last = lastSyncedAt ? new Date(lastSyncedAt) : null
+  if (!last || Number.isNaN(last.getTime())) return full
+
+  const start = new Date(last)
+  start.setDate(start.getDate() - overlapDays)
+  const startDate = isoDate(start)
+
+  // Never reach further back than the provider actually serves, and never
+  // forward past the full window's start on a first run.
+  return { startDate: startDate < full.startDate ? full.startDate : startDate, endDate: full.endDate }
+}
+
+/**
  * Walks every page rather than stopping at the first.
  *
  * `total_investment_transactions` is the count for the whole window, not the
@@ -227,9 +255,9 @@ export async function resolveFxForTransactions(transactions, resolveFxRates) {
  * only runs when `fxFor` was not already supplied.
  */
 export async function syncInvestmentTransactions({
-  client, accessToken, db, uid, enabledAccountIds, accountTypeFor, fxFor, resolveFxRates, now,
+  client, accessToken, db, uid, enabledAccountIds, accountTypeFor, fxFor, resolveFxRates, now, since = null,
 }) {
-  const { startDate, endDate } = defaultWindow(now)
+  const { startDate, endDate } = since ? incrementalWindow(since, now) : defaultWindow(now)
 
   const { transactions, securities, accounts, pages } = await fetchAllInvestmentTransactions({
     client, accessToken, startDate, endDate,
@@ -242,7 +270,14 @@ export async function syncInvestmentTransactions({
   })
 
   const accountIds = [...accounts.keys()].filter((id) => !enabledAccountIds || enabledAccountIds.includes(id))
-  const historyStartsAt = historyStartsAtFor({ accountIds, startDate })
+  // `historyStartsAt` is the date before which no transactions exist, and it is
+  // what makes a cost base resolve to "incomplete" rather than to a wrong
+  // number. Only a full sync knows it. An incremental re-sync starts a few
+  // days ago, so recording its start date would move that line *forward* —
+  // claiming a two-year history began last week, which turns a complete cost
+  // base into an incomplete one and a full year of withholding into a partial
+  // one. A re-sync therefore leaves the recorded start alone.
+  const historyStartsAt = since ? {} : historyStartsAtFor({ accountIds, startDate })
 
   const { written } = await writeLedgerRecords({ db, uid, records, historyStartsAt })
 
