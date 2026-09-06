@@ -94,3 +94,11 @@
 .tax-sale-record + .tax-sale-record { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--tax-border); }
 .tax-sale-record h3 { font-size: 16px; }
 .tax-sale-record h3 small { font-size: 12px; font-weight: 400; color: var(--tax-muted); }
+
+/* The measured conversion block sits above the scenario calculator: what was
+   actually paid outranks what a hypothetical would cost. */
+.tax-measured-block {
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}

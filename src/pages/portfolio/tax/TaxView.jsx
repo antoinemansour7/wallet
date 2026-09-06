@@ -5,6 +5,7 @@ import { projectWithholding } from '../../../utils/withholdingTax'
 import { summarizeFundFees } from '../../../utils/fundFees'
 import { toMinorUnits } from '../../../utils/money'
 import { conversionComparison } from '../../../utils/currencyConversion'
+import { measureConversionCost } from '../../../utils/conversionCost'
 import { ACCOUNT_TYPES, accountTypeLabel, contributionView, localTaxDate, money, saleReview, taxAccountType, taxOverview, validNumber } from './taxModel'
 import './Tax.css'
 
@@ -103,7 +104,11 @@ function ContributionSection({ workspace, accounts }) {
   </section>
 }
 
-function ConversionSection() {
+function ConversionSection({ transactions = [] }) {
+  // The measured half of #18. The scenario below prices a conversion someone
+  // types in; this prices the ones they actually made, from the rate implied by
+  // the two legs against the Bank of Canada mid rate already on each record.
+  const measured = measureConversionCost({ transactions })
   const [amount, setAmount] = useState('10000')
   const [spread, setSpread] = useState('1.5')
   const [commission, setCommission] = useState('9.95')
@@ -112,7 +117,13 @@ function ConversionSection() {
   const valid = base && [spread, commission, bidAsk].every((v) => validNumber(v) !== null) && Number(spread) <= 100 && Number(bidAsk) <= 100
   const brokerMinor = valid ? Math.round(Number(amount) * Number(spread)) : null
   const gambitMinor = valid ? Math.round(Number(amount) * Number(bidAsk)) + Math.round(Number(commission) * 100) * 2 : null
-  return <section className="tax-card" id="tax-conversion"><SectionHeading number="04 / CURRENCY" title="What does converting cost?" subtitle="Compare costs for a CAD-to-USD conversion." aside={<Badge>Scenario</Badge>} />
+  return <section className="tax-card" id="tax-conversion"><SectionHeading number="04 / CURRENCY" title="What does converting cost?" subtitle="Compare costs for a CAD-to-USD conversion." aside={<Badge>{measured ? 'Recorded' : 'Scenario'}</Badge>} />
+    {measured && <div className="tax-measured-block">
+      <div className="tax-cost-row"><span>What your conversions actually cost<small>{measured.conversions.length} recorded{measured.complete ? '' : ` · ${measured.unpricedCount} not priced`}</small></span><strong>{money(measured.totalCostMinor)} <small>CAD</small></strong></div>
+      {measured.averageSpreadPct !== null && <p className="tax-notice">An average spread of {measured.averageSpreadPct}% on {money(measured.totalConvertedMinor)} converted. This is the rate implied by the amounts on each conversion, against the Bank of Canada rate for that day.</p>}
+      {measured.conversions[0]?.couldHaveSavedMinor !== null && measured.conversions[0]?.couldHaveSavedMinor > 0 && <p className="tax-notice">The most recent, on {measured.conversions[0].tradeDate}, cost {money(measured.conversions[0].costMinor)} at {measured.conversions[0].spreadPct}%. Norbert’s Gambit would have cost about {money(measured.conversions[0].alternativeCostMinor)}.</p>}
+      {!measured.complete && <p className="tax-notice">Conversions this could not pair into two legs are excluded from the total rather than estimated.</p>}
+    </div>}
     <div className="tax-input-grid"><Field label="Amount to convert (CAD)"><input type="number" min="0" step="100" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field><Field label="Broker FX spread (%)"><input type="number" min="0" max="100" step="0.01" value={spread} onChange={(e) => setSpread(e.target.value)} /></Field><Field label="Commission per trade (CAD)"><input type="number" min="0" step="0.01" value={commission} onChange={(e) => setCommission(e.target.value)} /></Field><Field label="Combined bid–ask cost (%)"><input type="number" min="0" max="100" step="0.01" value={bidAsk} onChange={(e) => setBidAsk(e.target.value)} /></Field></div>
     <div className="tax-cost-row"><span>Broker conversion</span><strong>{money(brokerMinor)} <small>CAD</small></strong></div><div className="tax-cost-row"><span>Norbert’s Gambit <small>Two commissions + bid–ask cost</small></span><strong>{money(gambitMinor)} <small>CAD</small></strong></div>
     {valid ? <div className="tax-scenario-difference"><span>Difference under these assumptions</span><strong>{money(brokerMinor - gambitMinor)} CAD</strong></div> : <p className="tax-notice">{validNumber(amount) !== null && Number(amount) < 5000 ? 'Enter at least $5,000 CAD to compare this approach.' : 'Enter valid amounts and percentages to compare costs.'}</p>}
@@ -179,7 +190,7 @@ export default function TaxView({ accounts, workspace, onOpenAccount, onAddAccou
       {summary.covered > 0 && <details className="tax-details"><summary>Sources and assumptions for these figures</summary><ul>{summary.rows.flatMap(({ account, holdings }) => holdings.map(({ row, projection }, i) => <li key={`${account.accountNumber}:${row.SYMBOL}:${i}`}>{row.SYMBOL} · {account.accountNumber}: {projection.workings.yieldPct}% {projection.provenance.yieldBasis === 'assumed' ? 'assumed yield' : 'trailing dividend yield'} · {projection.provenance.exchange} · reference {projection.provenance.resolvedAt?.slice(0, 10) || 'date unavailable'}{projection.treatment === 'IN_FUND' ? ' · fund-level approximation; US-source dividend mix is assumed' : ''}.</li>))}</ul></details>}
       {summary.gaps.length > 0 && <details className="tax-details tax-coverage"><summary>What’s not included · {summary.gaps.length} holdings</summary><ul>{summary.gaps.map(({ row, reason }, i) => <li key={`${row.SYMBOL}:${i}`}><span>{row.SYMBOL}</span><span>{reason}</span></li>)}</ul></details>}
     </section>
-    <div className="tax-main-grid"><WithholdingSimulator accounts={accounts} settings={settings} currency={currency} reference={data.reference} /><ContributionSection workspace={workspace} accounts={accounts} /><ConversionSection /><FeesSection accounts={accounts} reference={data.reference} loading={referenceLoading} /></div>
+    <div className="tax-main-grid"><WithholdingSimulator accounts={accounts} settings={settings} currency={currency} reference={data.reference} /><ContributionSection workspace={workspace} accounts={accounts} /><ConversionSection transactions={data.transactions} /><FeesSection accounts={accounts} reference={data.reference} loading={referenceLoading} /></div>
     <SalesSection ledger={ledger} prices={prices} />
     <footer className="tax-footer"><span>Reference-based estimates and ledger-derived figures carry separate labels. This page is not a tax return.</span><a href={TREATY} target="_blank" rel="noreferrer">Canada–US treaty · Articles X & XXI ↗</a></footer>
   </div>
