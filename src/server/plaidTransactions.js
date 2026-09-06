@@ -200,6 +200,7 @@ export function dedupeEnabledAccounts(items = []) {
 
   const enabledIds = (item) => new Set(item.enabledAccountIds || (item.accounts || []).map((a) => a.id))
 
+  // Deterministic winner per real account across every item (smallest id).
   const winner = new Map()
   for (const item of items) {
     const enabled = enabledIds(item)
@@ -211,19 +212,25 @@ export function dedupeEnabledAccounts(items = []) {
     }
   }
 
+  // Ids to drop: identified and enabled, but not the winner for their identity.
+  const drop = new Set()
+  for (const item of items) {
+    const enabled = enabledIds(item)
+    for (const acct of item.accounts || []) {
+      if (!enabled.has(acct.id)) continue
+      if (winner.get(identify(item.institution, acct)) !== acct.id) drop.add(acct.id)
+    }
+  }
+
+  // Only rewrite an item that actually owns a dropped duplicate; everything
+  // else keeps its original selection, so `null` ("all accounts") and untouched
+  // items pass through unchanged.
   const result = new Map()
   for (const item of items) {
+    const original = item.enabledAccountIds ?? null
     const enabled = [...enabledIds(item)]
-    const byId = new Map((item.accounts || []).map((a) => [a.id, a]))
-    // Keep an id unless it is a positively-identified, non-winning duplicate.
-    // An id with no matching account object cannot be reasoned about, so it is
-    // kept rather than dropped — dedupe never loses an account it can't see.
-    const keep = enabled.filter((id) => {
-      const acct = byId.get(id)
-      if (!acct) return true
-      return winner.get(identify(item.institution, acct)) === id
-    })
-    result.set(item.itemId, keep)
+    const droppedHere = enabled.some((id) => drop.has(id))
+    result.set(item.itemId, droppedHere ? enabled.filter((id) => !drop.has(id)) : original)
   }
   return result
 }

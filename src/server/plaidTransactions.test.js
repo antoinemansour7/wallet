@@ -51,6 +51,14 @@ describe('dedupeEnabledAccounts', () => {
       item('i', 'X', [acct('a', 'M1'), acct('b', 'M2')], ['a']),
     ]).get('i')).toEqual(['a'])
   })
+
+  it('passes an untouched connection through unchanged, preserving null = "all accounts"', () => {
+    // An item with no account metadata and enabledAccountIds null means "all
+    // enabled"; dedupe must not rewrite that to an empty (none) selection.
+    expect(dedupeEnabledAccounts([
+      item('solo', 'Questrade', [], null),
+    ]).get('solo')).toBeNull()
+  })
 })
 
 const security = (overrides = {}) => ({
