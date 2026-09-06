@@ -496,7 +496,7 @@ async function handleHoldings(req, res) {
  * and a failure here reports as an error entry rather than losing every
  * other connection's import with it (#55).
  */
-async function syncTransactionsForItem({ client, db, uid, doc, resolveFxRates }) {
+async function syncTransactionsForItem({ client, db, uid, doc, resolveFxRates, since = null }) {
   const { enabledAccountIds } = doc.data()
 
   const accessToken = await readAccessToken({ db, uid, itemId: doc.id, legacyData: doc.data() })
@@ -510,6 +510,7 @@ async function syncTransactionsForItem({ client, db, uid, doc, resolveFxRates })
     enabledAccountIds,
     accountTypeFor: mapAccountType,
     resolveFxRates,
+    since,
   })
 }
 
@@ -644,6 +645,73 @@ async function handleDisconnect(req, res) {
   return res.status(200).json({ success: true })
 }
 
+
+// ─── Scheduled re-sync (#87) ──────────────────────────────────────────────────
+
+/**
+ * Keeps every connected item's ledger current, on a cron.
+ *
+ * Not a route of its own: this deployment is at its serverless-function
+ * ceiling, and the sync logic already lives here. It is reached at
+ * `/api/plaid?mode=scheduled-sync` and authorised by CRON_SECRET rather than a
+ * Firebase ID token, because a cron has no session — which is why the check
+ * below runs *before* verifyCaller rather than alongside it.
+ *
+ * Two properties the issue asks for, and one it implies:
+ *
+ *   · **Incremental.** The window is derived from each item's own
+ *     `lastSyncedAt`, with a few days of overlap, rather than re-pulling 24
+ *     months every night. Re-fetching the overlap is free — ledger ids are
+ *     derived from the transaction, so writing one twice is the same write.
+ *
+ *   · **A failure for one item does not abandon the others**, and is reported
+ *     rather than swallowed (#55). Every item is settled independently and the
+ *     response carries the per-item errors.
+ *
+ *   · `lastSyncedAt` is written **only after** that item succeeds. Advancing it
+ *     on failure would step the next run's window past the days that were
+ *     never imported, turning a transient outage into a permanent gap.
+ */
+async function handleScheduledSync(req, res) {
+  const db = getDb()
+  const client = getPlaidClient()
+  const resolveFxRates = (dates) => getRatesForDates(dates, { cache: historicalFxCache() })
+
+  // Every connection, across every user. The parent of a `plaid` document's
+  // parent collection is the user document, which is where the uid comes from.
+  const items = await db.collectionGroup('plaid').get()
+  if (items.empty) return res.status(200).json({ items: 0, written: 0, errors: [] })
+
+  const settled = await Promise.allSettled(items.docs.map(async (doc) => {
+    const uid = doc.ref.parent.parent?.id
+    if (!uid) throw new Error(`Plaid item ${doc.id} has no owning user`)
+
+    const result = await syncTransactionsForItem({
+      client, db, uid, doc, resolveFxRates, since: doc.data()?.lastSyncedAt ?? null,
+    })
+    await doc.ref.set({ lastSyncedAt: new Date().toISOString() }, { merge: true })
+    return { uid, itemId: doc.id, ...result }
+  }))
+
+  const errors = settled
+    .map((outcome, index) => (outcome.status === 'rejected'
+      ? { itemId: items.docs[index].id, error: outcome.reason?.message ?? String(outcome.reason) }
+      : null))
+    .filter(Boolean)
+
+  const written = settled.reduce((sum, outcome) => sum + (outcome.status === 'fulfilled' ? outcome.value.written : 0), 0)
+  const fetched = settled.reduce((sum, outcome) => sum + (outcome.status === 'fulfilled' ? outcome.value.fetched : 0), 0)
+
+  if (errors.length) console.error('[plaid:scheduled-sync] item failures:', errors)
+  console.log(`[plaid:scheduled-sync] ${items.size} items, ${written} written, ${fetched} fetched, ${errors.length} failed`)
+
+  // A run where every connection failed is not a success, and #55 established
+  // that a partial Plaid failure must not be reported as one either.
+  return res.status(errors.length === items.size ? 503 : 200).json({
+    items: items.size, written, fetched, errors,
+  })
+}
+
 // ─── Router ───────────────────────────────────────────────────────────────────
 
 const ACTIONS = {
@@ -683,6 +751,25 @@ async function verifyCaller(req) {
 }
 
 async function realHandler(req, res) {
+  // The scheduled re-sync is the one caller with no user session, so it is
+  // authorised by CRON_SECRET and answered before the Firebase gate below.
+  // Kept narrow deliberately: it runs one fixed action for every user, takes
+  // nothing from the request, and cannot name a uid.
+  if (req.query?.mode === 'scheduled-sync') {
+    if (!process.env.CRON_SECRET || req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+    if (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_SECRET) {
+      return res.status(500).json({ error: 'Plaid credentials not configured' })
+    }
+    try {
+      return await handleScheduledSync(req, res)
+    } catch (err) {
+      console.error('[plaid:scheduled-sync] failed:', err.response?.data || err.message)
+      return res.status(500).json({ error: err.message })
+    }
+  }
+
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   // First gate, ahead of even the action name: an unauthenticated request

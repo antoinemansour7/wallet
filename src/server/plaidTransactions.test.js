@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   PAGE_SIZE,
   defaultWindow,
+  incrementalWindow,
+  RESYNC_OVERLAP_DAYS,
   fetchAllInvestmentTransactions,
   securityContext,
   buildLedgerRecords,
@@ -320,5 +322,91 @@ describe('syncInvestmentTransactions', () => {
     expect(resolveFxRates).toHaveBeenCalledOnce()
     const transactionRecord = written.find((d) => d?.id === 'plaid:tx1')
     expect(transactionRecord.fxRate).toBe(1.3542)
+  })
+})
+
+describe('incrementalWindow (#87)', () => {
+  const now = new Date('2026-09-06T00:00:00Z')
+
+  it('reaches back from the last sync, with an overlap for late-arriving trades', () => {
+    // A trade can appear in Plaid days after it happened. A window starting
+    // exactly where the last one ended would step straight over it.
+    const { startDate, endDate } = incrementalWindow('2026-09-01T00:00:00Z', now)
+
+    expect(startDate).toBe('2026-08-27')
+    expect(endDate).toBe('2026-09-06')
+    expect(RESYNC_OVERLAP_DAYS).toBe(5)
+  })
+
+  it('falls back to the full window when nothing has synced yet', () => {
+    expect(incrementalWindow(null, now)).toEqual(defaultWindow(now))
+    expect(incrementalWindow('not a date', now)).toEqual(defaultWindow(now))
+  })
+
+  it('never reaches further back than the provider actually serves', () => {
+    // A connection dormant for years must not ask for five years of history.
+    expect(incrementalWindow('2019-01-01T00:00:00Z', now).startDate).toBe(defaultWindow(now).startDate)
+  })
+})
+
+describe('syncInvestmentTransactions — incremental (#87)', () => {
+  const client = (transactions = []) => ({
+    investmentsTransactionsGet: vi.fn(async () => ({
+      data: {
+        investment_transactions: transactions,
+        securities: [],
+        accounts: [{ account_id: 'a1', name: 'TFSA', type: 'investment', subtype: 'tfsa' }],
+        total_investment_transactions: transactions.length,
+      },
+    })),
+  })
+
+  const db = () => {
+    const set = vi.fn()
+    return {
+      db: {
+        collection: () => ({ doc: () => ({ collection: () => ({ doc: () => ({}) }) }) }),
+        batch: () => ({ set, commit: vi.fn(async () => {}) }),
+      },
+      set,
+    }
+  }
+
+  it('does not move historyStartsAt forward on a re-sync', async () => {
+    // The line before which no transactions exist is what makes a cost base
+    // resolve to "incomplete" rather than to a wrong number. Writing an
+    // incremental start date here would claim a two-year history began last
+    // week — turning a complete cost base into an incomplete one.
+    const { db: fake, set } = db()
+    await syncInvestmentTransactions({
+      client: client(), accessToken: 't', db: fake, uid: 'u1',
+      accountTypeFor: () => 'TFSA', since: '2026-09-01T00:00:00Z', now: new Date('2026-09-06T00:00:00Z'),
+    })
+
+    const wroteHistoryStart = set.mock.calls.some(([, value]) => value && 'historyStartsAt' in value)
+    expect(wroteHistoryStart).toBe(false)
+  })
+
+  it('still records where history begins on a full sync', async () => {
+    const { db: fake, set } = db()
+    await syncInvestmentTransactions({
+      client: client(), accessToken: 't', db: fake, uid: 'u1',
+      accountTypeFor: () => 'TFSA', now: new Date('2026-09-06T00:00:00Z'),
+    })
+
+    const wroteHistoryStart = set.mock.calls.some(([, value]) => value && 'historyStartsAt' in value)
+    expect(wroteHistoryStart).toBe(true)
+  })
+
+  it('asks the provider only for the incremental window', async () => {
+    const plaid = client()
+    await syncInvestmentTransactions({
+      client: plaid, accessToken: 't', db: db().db, uid: 'u1',
+      accountTypeFor: () => 'TFSA', since: '2026-09-01T00:00:00Z', now: new Date('2026-09-06T00:00:00Z'),
+    })
+
+    expect(plaid.investmentsTransactionsGet.mock.calls[0][0]).toMatchObject({
+      start_date: '2026-08-27', end_date: '2026-09-06',
+    })
   })
 })
