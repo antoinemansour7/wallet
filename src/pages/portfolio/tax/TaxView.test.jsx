@@ -37,7 +37,7 @@ describe('Tax navigation and context', () => {
 describe('Tax page interactions', () => {
   it('starts with a focused summary and opens one planning tool at a time', () => {
     render(<TaxView accounts={accounts} workspace={workspace()} />)
-    expect(screen.getByRole('heading', { name: 'By account' })).toBeVisible()
+    expect(screen.getByRole('region', { name: 'FX conversion cost summary' })).toBeVisible()
     expect(screen.getByRole('heading', { name: 'Contribution room' })).toBeVisible()
     expect(screen.queryByRole('heading', { name: 'Compare account types' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'After a sale' })).not.toBeInTheDocument()
@@ -52,10 +52,12 @@ describe('Tax page interactions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Account comparison' }))
     expect(screen.getByRole('slider')).toHaveValue('20')
   })
-  it('does not label a zero-yield TFSA as treaty exempt', () => {
+  it('does not describe a zero-yield TFSA as treaty exempt anywhere on the page', () => {
+    // The by-account table that carried this label is gone (#139). The rule it
+    // guarded is asserted directly on projectWithholding now; this keeps the
+    // weaker guarantee that no surface reintroduces the claim.
     render(<TaxView accounts={[accounts[0]]} workspace={workspace({ settings: { yieldPct: 0 } })} />)
-    expect(screen.getByRole('table')).toHaveTextContent('Not recoverable')
-    expect(screen.getByRole('table')).not.toHaveTextContent('Treaty-exempt')
+    expect(screen.getByRole('tabpanel', { name: 'Summary' })).not.toHaveTextContent('Treaty-exempt')
   })
   it('saves room with its date and checks an excess against all contributions', async () => {
     const current = localTaxDate()
@@ -92,11 +94,13 @@ describe('Tax page interactions', () => {
     expect(document.querySelector('#tax-fees')).toHaveTextContent('$3.00')
     expect(document.querySelector('#tax-fees')).toHaveTextContent('Expense ratio unavailable: OTHER')
   })
-  it('keeps imported registration read-only and permits unknown registration to be set', () => {
-    render(<TaxView accounts={[...accounts, { accountNumber: 'unknown', currency: 'USD', positions: [{ SYMBOL: 'MSFT' }] }]} workspace={workspace({ settings: { accountTypes: { TFSA: 'RRSP' } } })} />)
-    expect(screen.queryByLabelText('Registration for TFSA')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Registration for unknown')).toBeEnabled()
-    expect(screen.getByRole('table').querySelector('tbody tr .tax-badge')).toHaveTextContent('TFSA')
+  it('no longer offers a registration control on the Tax page', () => {
+    // The control moves to Accounts (#136's sibling issue). Asserting its
+    // absence keeps that move honest: if it reappears here it exists twice,
+    // and two controls over one setting can disagree.
+    render(<TaxView accounts={[...accounts, { accountNumber: 'unknown', currency: 'USD', positions: [{ SYMBOL: 'MSFT' }] }]} workspace={workspace()} />)
+    expect(screen.queryByLabelText('Registration for unknown')).not.toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
   it('hides stale contribution numbers and any planned-excess warning', () => {
     const prior = `${new Date().getFullYear() - 1}-01-01`
@@ -137,4 +141,61 @@ describe('Tax page interactions', () => {
     expect(screen.getByLabelText(/TFSA available room \(CAD\)/)).toHaveValue(7300)
   })
 
+})
+
+describe('FX conversion costs card (#139)', () => {
+  // A CAD leg and a USD leg on the same day are one conversion.
+  const conversion = (day, cad, usd, rate = 1.34) => ([
+    { id: `fx-cad-${day}`, accountId: 'a1', action: 'FX', tradeDate: `2026-0${day}-01`, amountMinor: cad, currency: 'CAD', quantity: 0 },
+    { id: `fx-usd-${day}`, accountId: 'a1', action: 'FX', tradeDate: `2026-0${day}-01`, amountMinor: usd, currency: 'USD', quantity: 0, fxRate: rate },
+  ])
+  const withLedger = (transactions) => workspace({ data: { reference, transactions } })
+  const card = () => screen.getByRole('region', { name: 'FX conversion cost summary' })
+
+  it('always reports itself as measured, never as an estimate', () => {
+    // It reports only what the ledger can prove happened, which is a different
+    // kind of number from the two cards beside it.
+    render(<TaxView accounts={accounts} workspace={withLedger(conversion(7, 500000, 366300))} />)
+    // The badge specifically. The body copy does say "Estimated FX spread",
+    // which is the issue's own wording — what must never appear is the badge
+    // that would file this alongside the two projected figures.
+    const badges = [...card().querySelectorAll('.tax-badge')].map((b) => b.textContent)
+    expect(badges).toContain('Measured')
+    expect(badges).not.toContain('Estimate')
+    expect(badges).not.toContain('Annual estimate')
+  })
+
+  it('counts a single conversion in the singular', () => {
+    render(<TaxView accounts={accounts} workspace={withLedger(conversion(7, 500000, 366300))} />)
+    expect(card()).toHaveTextContent('1 measured conversion')
+    expect(card()).not.toHaveTextContent('1 measured conversions')
+  })
+
+  it('counts several', () => {
+    render(<TaxView accounts={accounts} workspace={withLedger([
+      ...conversion(5, 500000, 366300), ...conversion(6, 400000, 295000), ...conversion(7, 300000, 221000),
+    ])} />)
+    expect(card()).toHaveTextContent('3 measured conversions')
+  })
+
+  it('says nothing was recorded when the ledger holds no USD activity at all', () => {
+    // Claiming USD purchases exist when none do explains something that never
+    // happened.
+    render(<TaxView accounts={accounts} workspace={withLedger([])} />)
+    expect(card()).toHaveTextContent('No conversions recorded')
+    expect(card()).not.toHaveTextContent('We found USD purchases')
+  })
+
+  it('explains the gap when USD activity exists but cannot be priced', () => {
+    render(<TaxView accounts={accounts} workspace={withLedger([
+      { id: 'buy', accountId: 'a1', action: 'BUY', tradeDate: '2026-07-01', amountMinor: 91856, currency: 'USD', quantity: 8, priceMinor: 11482, symbol: 'MSFT' },
+    ])} />)
+    expect(card()).toHaveTextContent('We found USD purchases')
+  })
+
+  it('offers a route to the conversions rather than only a number', () => {
+    render(<TaxView accounts={accounts} workspace={withLedger(conversion(7, 500000, 366300))} />)
+    fireEvent.click(within(card()).getByRole('button', { name: /View conversions/ }))
+    expect(screen.getByRole('heading', { name: 'Currency conversion' })).toBeVisible()
+  })
 })
