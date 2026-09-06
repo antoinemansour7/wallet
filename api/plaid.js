@@ -746,6 +746,22 @@ async function verifyCaller(req) {
     const decoded = await getAuth().verifyIdToken(token)
     return decoded.uid
   } catch (err) {
+    // The caller is told nothing beyond "not signed in" — a rejection reason is
+    // an oracle for anyone probing the route. The server, though, has to record
+    // why, because the reasons are not interchangeable: an expired token is the
+    // user's problem and clears on re-login, while a service account issued for
+    // a different Firebase project rejects *every* token forever and no amount
+    // of signing in again will fix it. Firebase names both projects in that
+    // second case, and throwing the error away left a permanent misconfiguration
+    // indistinguishable from an ordinary expiry.
+    console.error('[plaid:auth] token verification failed:', err?.code || err?.errorInfo?.code || 'unknown', '-', err?.message)
+    // The project the service account actually belongs to, so a mismatch is
+    // visible in one line rather than inferred from an audience claim. Wrapped
+    // because reading it must never turn a 401 into a crash — the diagnostic
+    // exists to explain a failure, not to add one.
+    try {
+      console.error('[plaid:auth] admin project:', loadServiceAccount()?.project_id ?? 'unknown')
+    } catch { /* the service account is unreadable, which the 500 path reports */ }
     throw Object.assign(new Error('Invalid or expired session'), { status: 401, cause: err })
   }
 }
