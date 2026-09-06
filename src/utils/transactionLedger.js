@@ -37,6 +37,11 @@ export const ACTIONS = {
   // exists to measure. A tax record is not a fee: a fee is a cost of trading,
   // this is a cost of the account the security is held in.
   TAX: 'TAX',
+  // A currency conversion. Like TAX before it, this had no action and no Plaid
+  // mapping, so every conversion record failed to classify and was dropped —
+  // which is why the app can price a hypothetical conversion but has never been
+  // able to say what a real one cost.
+  FX: 'FX',
 }
 
 // Actions whose quantity is a disposition and is therefore stored negative,
@@ -56,6 +61,13 @@ const PLAID_ACTIONS = new Map([
   // Plaid spells withholding both ways depending on the institution.
   ['tax', ACTIONS.TAX],
   ['tax withholding', ACTIONS.TAX],
+  // Institutions differ on the wording, and Plaid passes much of it through.
+  // Unmatched spellings still fall through to a refusal rather than a guess.
+  ['exchange', ACTIONS.FX],
+  ['currency exchange', ACTIONS.FX],
+  ['foreign exchange', ACTIONS.FX],
+  ['conversion', ACTIONS.FX],
+  ['currency conversion', ACTIONS.FX],
 ])
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
