@@ -228,3 +228,22 @@
 @media (prefers-reduced-motion: reduce) {
   .tax-page, .tax-page * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* The FX card sits in the same visual tier as withholding and fund expenses,
+   but reports a different kind of number: measured, not projected. */
+.tax-fx-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 20px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 14px;
+}
+
+/* Disclosures relocated from the removed "By account" card. */
+.tax-summary-disclosures {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}

@@ -128,6 +128,17 @@ describe('projectWithholding', () => {
     }
   })
 
+  it('does not turn a TFSA into a treaty-exempt account by yielding nothing', () => {
+    // A zero yield withholds zero, which is not the same fact as an RRSP's
+    // exemption. Conflating them tells someone the account type protects them
+    // when only the absence of a dividend did.
+    const projection = projectWithholding({ row: holding(), accountType: 'TFSA', assumptions: { yieldPct: 0 } })
+
+    expect(projection.annualWithheldMinor).toBe(0)
+    expect(projection.exempt).toBe(false)
+    expect(projection.recoverable).toBe(false)
+  })
+
   it('treats an FHSA and an RESP like a TFSA — not exempt', () => {
     // Neither is recognised as a pension under the treaty, which surprises
     // people who assume "registered" means "sheltered".

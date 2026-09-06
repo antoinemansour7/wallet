@@ -499,7 +499,7 @@ export default function Portfolio() {
           {visibleView === 'holdings' && (
             <HoldingsView rows={rows} accounts={accountEntries} onUploadClick={() => openAdd()} />
           )}
-          {visibleView === 'tax' && <TaxView accounts={accountEntries} workspace={taxWorkspace} onAddAccount={openAdd} onOpenAccount={(account) => { setRemovalError(''); setOpenAccount(account) }} />}
+          {visibleView === 'tax' && <TaxView accounts={accountEntries} workspace={taxWorkspace} onAddAccount={openAdd} />}
           {visibleView === 'add' && (
             <AccountsView
               accounts={accountEntries}
