@@ -142,9 +142,15 @@ export function buildLedgerRecords({ transactions, securities, accounts, enabled
 
   const records = []
   const skipped = []
+  // Counted rather than dropped in silence. A run reporting "54 fetched, 6
+  // written, 6 skipped" leaves 42 unaccounted for and reads like data loss,
+  // when in fact those rows belong to Plaid accounts that were never enabled
+  // here. Naming the reason is the difference between a reconcilable number
+  // and an alarming one.
+  let notEnabled = 0
 
   for (const raw of transactions || []) {
-    if (!isEnabled(raw.account_id)) continue
+    if (!isEnabled(raw.account_id)) { notEnabled += 1; continue }
 
     const security = securityContext(securities?.get?.(raw.security_id) ?? securities?.[raw.security_id])
     const account = accounts?.get?.(raw.account_id) ?? accounts?.[raw.account_id]
@@ -168,7 +174,7 @@ export function buildLedgerRecords({ transactions, securities, accounts, enabled
     records.push(record)
   }
 
-  return { records, skipped }
+  return { records, skipped, notEnabled }
 }
 
 /**
@@ -265,7 +271,7 @@ export async function syncInvestmentTransactions({
 
   const resolvedFxFor = fxFor || (resolveFxRates ? await resolveFxForTransactions(transactions, resolveFxRates) : undefined)
 
-  const { records, skipped } = buildLedgerRecords({
+  const { records, skipped, notEnabled } = buildLedgerRecords({
     transactions, securities, accounts, enabledAccountIds, accountTypeFor, fxFor: resolvedFxFor,
   })
 
@@ -285,6 +291,7 @@ export async function syncInvestmentTransactions({
     written,
     fetched: transactions.length,
     skipped: skipped.length,
+    notEnabled,
     pages,
     startDate,
     endDate,

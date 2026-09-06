@@ -176,3 +176,49 @@ describe('normalizeTransaction', () => {
     expect(first.id).toBe(second.id)
   })
 })
+
+describe('cash rows carry no security', () => {
+  // Withholding tax and a currency conversion are cash movements: Plaid sends
+  // them with a null security_id. Requiring a resolvable security before
+  // looking at the action dropped every one of them, which made the TAX and FX
+  // actions unreachable and every figure measured from them permanently empty.
+  const cash = (subtype) => ({
+    investment_transaction_id: `t-${subtype}`,
+    subtype,
+    date: '2026-05-12',
+    amount: 43.21,
+    quantity: 0,
+    iso_currency_code: 'USD',
+  })
+
+  it('keeps a withholding-tax row that names no security', () => {
+    const record = normalizeTransaction(cash('tax'), { source: 'plaid', security: null, accountId: 'a1' })
+
+    expect(record).not.toBeNull()
+    expect(record.action).toBe(ACTIONS.TAX)
+    expect(record.securityKey).toBeNull()
+    expect(record.amountMinor).toBe(4321)
+  })
+
+  it('keeps a currency-conversion row that names no security', () => {
+    const record = normalizeTransaction(cash('currency exchange'), { source: 'plaid', security: null, accountId: 'a1' })
+
+    expect(record?.action).toBe(ACTIONS.FX)
+    expect(record.securityKey).toBeNull()
+  })
+
+  it('still refuses a trade with no identifiable security', () => {
+    // A buy without a security cannot be pooled and must not become a cost
+    // base entry keyed on nothing.
+    expect(normalizeTransaction(cash('buy'), { source: 'plaid', security: null, accountId: 'a1' })).toBeNull()
+    expect(normalizeTransaction(cash('sell'), { source: 'plaid', security: null, accountId: 'a1' })).toBeNull()
+  })
+
+  it('keeps the security when a cash row does happen to name one', () => {
+    const record = normalizeTransaction(cash('tax'), {
+      source: 'plaid', accountId: 'a1', security: { isin: 'US67066G1040', symbol: 'NVDA' },
+    })
+
+    expect(record.securityKey).toBe('isin:US67066G1040')
+  })
+})
