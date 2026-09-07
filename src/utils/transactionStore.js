@@ -70,6 +70,10 @@ export async function loadHistoryStarts(uid, { strict = false } = {}) {
     const snapshot = await getDocs(collection(db, 'users', uid, 'accounts'))
     const starts = {}
     for (const entry of snapshot.docs) {
+      if (entry.data()?.importComplete === false) {
+        if (strict) throw new Error('A broker import has skipped records; complete reconciliation before using tax history')
+        continue
+      }
       const value = entry.data()?.historyStartsAt
       if (typeof value === 'string' && value) starts[entry.id] = value
     }
@@ -87,6 +91,7 @@ export async function loadHistoryStart(uid, accountId) {
 
   try {
     const snapshot = await getDoc(doc(db, 'users', uid, 'accounts', accountId))
+    if (snapshot.data()?.importComplete === false) return null
     const value = snapshot.data()?.historyStartsAt
     return typeof value === 'string' && value ? value : null
   } catch (error) {

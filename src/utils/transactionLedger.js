@@ -226,6 +226,16 @@ export function normalizeTransaction(raw, context = {}) {
     fxRate: fx?.rate ?? null,
     fxRateSource: fx?.source ?? null,
     fxAsOf: fx?.asOf ?? null,
+    ...(source === 'plaid' ? {
+      institution: context.institution ?? null,
+      accountBalanceCurrency: context.accountBalanceCurrency ?? null,
+      providerType: raw.type ?? null,
+      providerSubtype: raw.subtype ?? null,
+      description: raw.name ?? null,
+      unitPrice: Number.isFinite(raw.price) ? raw.price : null,
+      // Plaid Investments: positive amount debits cash, negative credits it.
+      cashDirection: amountMinor > 0 ? 'out' : amountMinor < 0 ? 'in' : null,
+    } : {}),
     source,
     sourceId: raw.investment_transaction_id ?? raw.sourceId ?? null,
   }

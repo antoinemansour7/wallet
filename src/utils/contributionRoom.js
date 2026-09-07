@@ -64,6 +64,10 @@ export function depositsSince({ transactions = [], accountId, asOf }) {
       t?.accountId === accountId
       && (t.action === 'TRANSFER' || t.action === 'CONTRIBUTION')
       && Number(t.quantity ?? 0) >= 0
+      && t.cashDirection !== 'out'
+      // A brokerage transfer is not automatically a new contribution. Plaid
+      // deposits/contributions are explicit; other incoming transfers need review.
+      && (t.source !== 'plaid' || ['deposit', 'contribution'].includes(t.providerSubtype))
       && typeof t.tradeDate === 'string'
       && (!from || t.tradeDate >= from)
     ))

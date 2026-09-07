@@ -284,7 +284,7 @@ export function runningCashBalances(transactions = [], currency = 'USD') {
     // Only a row denominated in the tracked currency moves it.
     if (String(row.currency ?? '').toUpperCase() !== wanted) continue
     const amount = magnitude(row.amountMinor)
-    byAccount.set(account, CASH_OUTFLOW.has(row.action) ? running - amount : running + amount)
+    byAccount.set(account, row.cashDirection === 'out' || (!row.cashDirection && CASH_OUTFLOW.has(row.action)) ? running - amount : running + amount)
   }
 
   return { balanceBefore, closing: byAccount }
@@ -311,7 +311,7 @@ function tradeLegs(row) {
   if (!(debitedMinor > 0) || !(quantity > 0) || !(priceMinor > 0)) return null
 
   // The security's own cost, in the currency it is priced in.
-  const securityCostMinor = Math.round(quantity * priceMinor)
+  const securityCostMinor = Math.round(quantity * (Number(row.unitPrice) > 0 ? row.unitPrice * 100 : priceMinor))
   if (!(securityCostMinor > 0)) return null
 
   // Same currency on both sides means nothing was converted to make this trade.
@@ -348,7 +348,7 @@ export function tradeEmbeddedConversions({ transactions = [], historyStarts = {}
     // USD unit price. In particular, a CAD amount equal to quantity × price
     // cannot prove a 1:1 CAD/USD conversion. Legacy records need evidence from
     // their source before the embedded path can price them.
-    if (String(row.currency).toUpperCase() === 'CAD' && !row.priceCurrency && magnitude(row.priceMinor) > 0 && magnitude(row.quantity) > 0) {
+    if (String(row.currency).toUpperCase() === 'CAD' && !row.priceCurrency && !Number.isFinite(row.unitPrice) && magnitude(row.priceMinor) > 0 && magnitude(row.quantity) > 0) {
       unpriced.push({ transactionId: row.id ?? null, tradeDate: row.tradeDate, accountId: row.accountId, symbol: row.symbol, reason: 'unverified-price-currency' })
       continue
     }
@@ -453,5 +453,28 @@ export function estimateConversionCost({
     currency: 'CAD',
     basis: 'scenario',
     assumption: 'Assumes the full purchase amount required CAD-to-USD conversion; existing USD cash is not deducted.',
+  }
+}
+
+// A broker-specific fee illustration, never a measured conversion. The account
+// balance currency is a reporting currency and does NOT prove how a trade was
+// funded. Carry that condition everywhere this figure is shown.
+export function estimateWealthsimpleFxFees({ transactions = [], year = null, asOf = null, measured = null } = {}) {
+  const eligible = transactions.filter((t) => t.source === 'plaid'
+    && /^wealthsimple(?:\s|$)/i.test(t.institution || '')
+    && t.accountBalanceCurrency === 'CAD')
+  const scenario = estimateConversionCost({ transactions: eligible, year, asOf, measured, spreadPct: 1.5 })
+  if (!scenario) return null
+  // Published buy formula: corporate rate / (1 - fee). The daily reference
+  // substitutes for the unavailable corporate rate; its spread is excluded.
+  const purchases = scenario.purchases.map((p) => ({ ...p,
+    estimatedCostMinor: Math.round(p.usdMinor * p.midRate / (1 - 0.015)) - p.atMidMinor,
+    basis: 'broker-fee-estimate',
+  }))
+  return { ...scenario, purchases,
+    totalCostMinor: purchases.reduce((sum, p) => sum + p.estimatedCostMinor, 0),
+    basis: 'broker-fee-estimate', broker: 'Wealthsimple',
+    sourceUrl: 'https://www.wealthsimple.com/en-ca/legal/fees/trade',
+    assumption: 'Assumes these purchases were funded entirely from CAD. Uses Wealthsimple’s published 1.5% conversion fee and the daily reference rate. Excludes any difference between the broker’s corporate rate and the daily rate. Purchases funded from existing USD cash do not incur this trading conversion fee.',
   }
 }

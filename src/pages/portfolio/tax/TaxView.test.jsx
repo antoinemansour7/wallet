@@ -164,6 +164,19 @@ describe('Cost evidence and detail windows', () => {
     expect(dialog).toHaveTextContent('Not a recorded cost')
     expect(dialog).toHaveTextContent('existing USD cash is not deducted')
   })
+  it('shows a qualified broker-fee estimate with the same per-trade breakdown', () => {
+    const transactions = [{ id: 'rklb', accountId: 'TFSA', source: 'plaid', institution: 'Wealthsimple (Canada)', accountBalanceCurrency: 'CAD', action: 'BUY', symbol: 'RKLB', tradeDate: `${year}-08-12`, amountMinor: 91856, currency: 'USD', fxRate: 1.393 }]
+    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions } })} />)
+    const card = screen.getByRole('region', { name: 'FX conversion cost summary' })
+    expect(card).toHaveTextContent('$19.49')
+    expect(card).toHaveTextContent('Estimated fee')
+    expect(card).toHaveTextContent('If funded from CAD')
+    expect(card).not.toHaveTextContent('Measured')
+    const dialog = open(/View conversions/)
+    expect(dialog).toHaveTextContent('RKLB')
+    expect(dialog).toHaveTextContent('not a measured loss')
+    expect(dialog.querySelectorAll('.tax-conversion')).toHaveLength(1)
+  })
   it.each([{ error: 'Offline' }, { limited: true }, { loading: true }])('distinguishes unavailable history from empty history (%j)', (ledger) => {
     render(<TaxView accounts={accounts} workspace={workspace({ ledger: { transactions: [], ...ledger } })} />)
     const card = screen.getByRole('region', { name: 'FX conversion cost summary' })

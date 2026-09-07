@@ -45,6 +45,7 @@ export function contributionInputs(type, record, accounts, transactions, setting
   const accountId = `registration:${type}`
   const relevant = transactions.filter((t) => t.tradeDate <= localTaxDate() && (accountIds.has(t.accountId) || t.accountType === type))
   let missingFx = false
+  const unreviewedTransfers = relevant.filter((t) => t.source === 'plaid' && t.action === 'TRANSFER' && t.tradeDate >= (record?.asOf || '') && t.cashDirection !== 'out' && !['deposit', 'contribution'].includes(t.providerSubtype))
   const converted = relevant.map((t) => {
     if (!['TRANSFER', 'CONTRIBUTION'].includes(t.action) || Number(t.quantity ?? 0) < 0 || t.tradeDate < record?.asOf) return { ...t, accountId }
     if (!['CAD', 'USD'].includes(t.currency) || (t.currency === 'USD' && !(Number(t.fxRate) > 0))) { missingFx = true; return t }
@@ -52,8 +53,8 @@ export function contributionInputs(type, record, accounts, transactions, setting
   })
   const needsMigration = !!record && !Number.isFinite(record.limitMinor)
   const validDate = record?.asOf && Number.isFinite(Date.parse(record.asOf)) && new Date(record.asOf).toISOString().slice(0, 10) === record.asOf && record.asOf <= localTaxDate()
-  const room = record && !needsMigration && validDate && !missingFx ? { ...record, accountId, accountType: type } : null
-  return { room, transactions: converted, needsMigration, missingFx }
+  const room = record && !needsMigration && validDate && !missingFx && !unreviewedTransfers.length ? { ...record, accountId, accountType: type } : null
+  return { room, transactions: converted, needsMigration, missingFx, unreviewedTransfers }
 }
 export function contributionView(type, record, accounts, transactions, settings, planned) {
   const input = contributionInputs(type, record, accounts, transactions, settings)
