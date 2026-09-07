@@ -230,6 +230,12 @@ export default function TaxView({ accounts, workspace, onAddAccount }) {
     {syncState.error && <p className="tax-error" role="alert">{syncState.error}</p>}
     {syncState.result && <div className="tax-notice" role="status">
       <p>{syncState.result.written} transactions synced.{syncState.result.skipped > 0 ? ` ${syncState.result.skipped} records skipped.` : ''}</p>
+      {/* Transactions belonging to accounts that are not enabled here — most
+          often a brokerage connected more than once, where only the current
+          connection is active. Left unsaid, they are the difference between
+          what was fetched and what was kept, and that gap reads like data
+          loss rather than a setting. */}
+      {syncState.result.notEnabled > 0 && <p>{syncState.result.notEnabled} from accounts not enabled here. Check Accounts for a brokerage connected more than once.</p>}
       {/* A skipped record is only actionable once it says what stopped it. An
           unmapped action carries the institution's own wording, which is the
           thing that lets it be mapped rather than guessed at. */}
