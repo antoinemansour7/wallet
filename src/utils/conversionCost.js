@@ -38,6 +38,17 @@ import { conversionComparison } from './currencyConversion.js'
 /** Both legs of a conversion land on the same day, in opposite directions. */
 const SAME_DAY = (a, b) => a.tradeDate === b.tradeDate
 
+/** Actions whose two legs can be the sides of one conversion. */
+const CONVERSION_LEG_ACTIONS = new Set(['FX', 'TRANSFER'])
+
+/**
+ * How far an implied rate may sit from the day's reference before the pair is
+ * refused. A conversion costs a spread of a few percent; two unrelated cash
+ * movements that happen to share a date imply an arbitrary ratio, and this is
+ * what keeps the second from being reported as the first.
+ */
+const RATE_TOLERANCE = { min: 0.9, max: 1.2 }
+
 const magnitude = (value) => Math.abs(Number(value) || 0)
 
 // Deduplicate only stable identities. Equal dates/amounts can be real trades
@@ -69,8 +80,17 @@ const uniqueTransactions = (transactions) => {
  * be trusted while this part is still being confirmed against real records.
  */
 export function conversionEventsFromLedger(transactions = []) {
+  // A conversion is not always labelled one. Brokers that convert CAD to fund a
+  // US purchase frequently report the two legs as ordinary cash movements — a
+  // transfer out and a deposit in — and never emit a subtype this could match
+  // on. Requiring action === 'FX' meant those conversions were in the ledger,
+  // in plain sight, and contributed nothing.
+  //
+  // Widening the candidates is only safe because the pairing is checked below:
+  // two unrelated same-day transfers in different currencies would imply a rate
+  // nowhere near the day's reference, and are rejected rather than priced.
   const fx = uniqueTransactions(transactions)
-    .filter((t) => t?.action === 'FX' && t.tradeDate && magnitude(t.amountMinor) > 0)
+    .filter((t) => CONVERSION_LEG_ACTIONS.has(t?.action) && t.tradeDate && magnitude(t.amountMinor) > 0)
     .sort((a, b) => (a.tradeDate < b.tradeDate ? -1 : a.tradeDate > b.tradeDate ? 1 : 0))
 
   const events = []
@@ -89,9 +109,21 @@ export function conversionEventsFromLedger(transactions = []) {
     ))
 
     if (partnerIndex === -1) { unpairable.push(left); continue }
+    const right = fx[partnerIndex]
+
+    // Two cash movements sharing a date are only a conversion if the rate they
+    // imply is one the market could have offered. A transfer in and an
+    // unrelated withdrawal out would pass every structural test above and
+    // produce a fabricated cost; this is the check that stops it.
+    const candidateForeign = String(left.currency).toUpperCase() === 'CAD' ? right : left
+    const candidateDomestic = candidateForeign === left ? right : left
+    const reference = Number(candidateForeign.fxRate)
+    const impliedRate = magnitude(candidateDomestic.amountMinor) / magnitude(candidateForeign.amountMinor)
+    const plausible = reference > 0 && impliedRate / reference >= RATE_TOLERANCE.min && impliedRate / reference <= RATE_TOLERANCE.max
+    if (!plausible) { unpairable.push(left); continue }
+
     used.add(i)
     used.add(partnerIndex)
-    const right = fx[partnerIndex]
 
     // The leg carrying a mid-market rate is the non-CAD one: fxRate is CAD per
     // unit of the foreign currency, so a CAD row has no rate to carry.
