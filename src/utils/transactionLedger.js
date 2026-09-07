@@ -152,6 +152,31 @@ function signQuantity(quantity, action) {
   return NEGATIVE_QUANTITY.has(action) ? -magnitude : magnitude
 }
 
+/**
+ * Why a record could not be normalised.
+ *
+ * normalizeTransaction returns null for four different reasons and callers
+ * reported all of them as "unclassifiable", which is true and useless: an
+ * import that drops three rows says nothing about whether they were a
+ * currency conversion nobody mapped, a security nobody could identify, or a
+ * malformed date. The first is a missing feature, the second is a data gap,
+ * and only the reason tells them apart.
+ *
+ * Deliberately separate from normalizeTransaction rather than folded into its
+ * return value: every existing caller checks for null, and widening that
+ * contract to an object would quietly turn each of those checks into a
+ * truthiness bug.
+ */
+export function normalizationFailure(raw, context = {}) {
+  const { security, accountId } = context
+  if (!raw) return 'empty-record'
+  if (!accountId) return 'no-account'
+  if (!resolveAction(raw)) return 'unmapped-action'
+  if (!resolveTradeDate(raw)) return 'no-trade-date'
+  if (!resolveSecurityKey(security) && !CASH_ACTIONS.has(resolveAction(raw))) return 'unidentifiable-security'
+  return null
+}
+
 export function normalizeTransaction(raw, context = {}) {
   if (!raw) return null
 
