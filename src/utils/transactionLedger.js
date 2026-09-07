@@ -55,7 +55,11 @@ export const ACTIONS = {
  * poolCostBase already filters on that field, so none of this reaches a cost
  * base.
  */
-const CASH_ACTIONS = new Set(['TAX', 'FX', 'FEE'])
+// A transfer is a movement of cash and names no security, so requiring one
+// rejected every deposit and withdrawal an account ever received — the cash
+// that funds a purchase, never recorded, so no balance could be reconstructed
+// from it.
+const CASH_ACTIONS = new Set(['TAX', 'FX', 'FEE', 'TRANSFER'])
 
 // Actions whose quantity is a disposition and is therefore stored negative,
 // so that summing quantity over a security is the position.
@@ -70,6 +74,13 @@ const PLAID_ACTIONS = new Map([
   ['return of capital', ACTIONS.ROC],
   ['fee', ACTIONS.FEE],
   ['transfer', ACTIONS.TRANSFER],
+  // Cash arriving in the account. Unmapped, this fell through to the `cash`
+  // entry below and was recorded as a DIVIDEND — money paid in became income
+  // received, which is wrong twice over: it is not a dividend, and it is not
+  // taxable. Withdrawals are deliberately left unmapped rather than folded in
+  // here, because TRANSFER is treated as an inflow everywhere it is read and a
+  // withdrawal counted as one would overstate both cash and contribution room.
+  ['deposit', ACTIONS.TRANSFER],
   ['split', ACTIONS.SPLIT],
   // Plaid spells withholding both ways depending on the institution.
   ['tax', ACTIONS.TAX],

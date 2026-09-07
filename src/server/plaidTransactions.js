@@ -148,9 +148,17 @@ export function buildLedgerRecords({ transactions, securities, accounts, enabled
   // here. Naming the reason is the difference between a reconcilable number
   // and an alarming one.
   let notEnabled = 0
+  const notEnabledAccounts = {}
 
   for (const raw of transactions || []) {
-    if (!isEnabled(raw.account_id)) { notEnabled += 1; continue }
+    if (!isEnabled(raw.account_id)) {
+      notEnabled += 1
+      // Named, not merely counted. "75 held back" does not say which account to
+      // re-enable; the id does, and it is the difference between a number to
+      // read and a thing to fix.
+      notEnabledAccounts[raw.account_id] = (notEnabledAccounts[raw.account_id] || 0) + 1
+      continue
+    }
 
     const security = securityContext(securities?.get?.(raw.security_id) ?? securities?.[raw.security_id])
     const account = accounts?.get?.(raw.account_id) ?? accounts?.[raw.account_id]
@@ -181,7 +189,7 @@ export function buildLedgerRecords({ transactions, securities, accounts, enabled
     records.push(record)
   }
 
-  return { records, skipped, notEnabled }
+  return { records, skipped, notEnabled, notEnabledAccounts }
 }
 
 /**
@@ -336,7 +344,7 @@ export async function syncInvestmentTransactions({
 
   const resolvedFxFor = fxFor || (resolveFxRates ? await resolveFxForTransactions(transactions, resolveFxRates) : undefined)
 
-  const { records, skipped, notEnabled } = buildLedgerRecords({
+  const { records, skipped, notEnabled, notEnabledAccounts } = buildLedgerRecords({
     transactions, securities, accounts, enabledAccountIds, accountTypeFor, fxFor: resolvedFxFor,
   })
 
@@ -364,6 +372,7 @@ export async function syncInvestmentTransactions({
       return tally
     }, {}),
     notEnabled,
+    notEnabledAccounts,
     pages,
     startDate,
     endDate,

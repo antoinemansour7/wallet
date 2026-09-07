@@ -222,3 +222,38 @@ describe('cash rows carry no security', () => {
     expect(record.securityKey).toBe('isin:US67066G1040')
   })
 })
+
+describe('cash movements that name no security (#147 follow-up)', () => {
+  // A real sync reported "1 × unidentifiable-security (transfer)" and
+  // "2 × unidentifiable-security (deposit)". Neither is a security transaction;
+  // both are the cash that funds purchases, and rejecting them meant no cash
+  // balance could ever be reconstructed from the ledger.
+  const cash = (subtype) => ({
+    investment_transaction_id: `t-${subtype}`,
+    subtype,
+    date: '2026-08-01',
+    amount: 500,
+    quantity: 0,
+    iso_currency_code: 'USD',
+  })
+
+  it('keeps a transfer that names no security', () => {
+    const record = normalizeTransaction(cash('transfer'), { source: 'plaid', security: null, accountId: 'a1' })
+
+    expect(record?.action).toBe(ACTIONS.TRANSFER)
+    expect(record.securityKey).toBeNull()
+  })
+
+  it('records a deposit as a transfer, not as a dividend', () => {
+    // Unmapped, "deposit" fell through to the `cash` entry and became a
+    // DIVIDEND — money paid in recorded as income received.
+    const record = normalizeTransaction(cash('deposit'), { source: 'plaid', security: null, accountId: 'a1' })
+
+    expect(record?.action).toBe(ACTIONS.TRANSFER)
+    expect(record.action).not.toBe(ACTIONS.DIVIDEND)
+  })
+
+  it('still refuses a trade that names no security', () => {
+    expect(normalizeTransaction(cash('buy'), { source: 'plaid', security: null, accountId: 'a1' })).toBeNull()
+  })
+})

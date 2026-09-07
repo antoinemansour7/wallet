@@ -580,6 +580,7 @@ async function handleSyncTransactions(req, res) {
   // accounts that were never enabled here — usually a brokerage connected more
   // than once, where only the current connection's accounts are active.
   let notEnabled = 0
+  const notEnabledAccounts = {}
   const skippedReasons = {}
   const errors = []
 
@@ -590,6 +591,9 @@ async function handleSyncTransactions(req, res) {
       fetched += result.value.fetched
       skipped += result.value.skipped
       notEnabled += result.value.notEnabled ?? 0
+      for (const [accountId, count] of Object.entries(result.value.notEnabledAccounts ?? {})) {
+        notEnabledAccounts[accountId] = (notEnabledAccounts[accountId] || 0) + count
+      }
       for (const [reason, count] of Object.entries(result.value.skippedReasons ?? {})) {
         skippedReasons[reason] = (skippedReasons[reason] || 0) + count
       }
@@ -602,7 +606,7 @@ async function handleSyncTransactions(req, res) {
     errors.push({ itemId: doc.id, institution: doc.data().institution || 'Connected', message })
   })
 
-  return res.status(200).json({ written, fetched, skipped, notEnabled, skippedReasons, errors })
+  return res.status(200).json({ written, fetched, skipped, notEnabled, notEnabledAccounts, skippedReasons, errors })
 }
 
 // ─── Disconnect ───────────────────────────────────────────────────────────────
