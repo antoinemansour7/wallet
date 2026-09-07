@@ -268,6 +268,7 @@ export default function TaxView({ accounts, workspace, onAddAccount }) {
           connection is active. Left unsaid, they are the difference between
           what was fetched and what was kept, and that gap reads like data
           loss rather than a setting. */}
+      {syncState.result.pruned > 0 && <p>{countLabel(syncState.result.pruned, 'record')} removed from disconnected accounts.</p>}
       {syncState.result.notEnabled > 0 && <>
         <p>{syncState.result.notEnabled} from accounts not enabled here. Check Accounts for a brokerage connected more than once.</p>
         {/* The account ids, so the connection holding the missing holdings can

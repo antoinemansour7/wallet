@@ -12,6 +12,8 @@ import {
   resolveFxForTransactions,
   syncInvestmentTransactions,
   dedupeEnabledAccounts,
+  deleteTransactionsForAccounts,
+  pruneOrphanedTransactions,
 } from './plaidTransactions'
 
 describe('dedupeEnabledAccounts', () => {
@@ -468,5 +470,85 @@ describe('syncInvestmentTransactions — incremental (#87)', () => {
     expect(plaid.investmentsTransactionsGet.mock.calls[0][0]).toMatchObject({
       start_date: '2026-08-27', end_date: '2026-09-06',
     })
+  })
+})
+
+describe('removing what a connection left behind', () => {
+  // Disconnecting deleted the Plaid document and the token and left every
+  // transaction it had imported in place, so reconnecting added a second copy
+  // of each. One real ledger ended up holding every trade three times.
+  const fakeDb = (transactions) => {
+    const deleted = []
+    const docs = transactions.map((data, i) => ({ data: () => data, ref: { id: `t${i}` } }))
+    return {
+      deleted,
+      db: {
+        collection: () => ({
+          doc: () => ({
+            collection: (name) => ({
+              get: async () => ({ docs: name === 'transactions' ? docs : [] }),
+              doc: (id) => ({ id: `accounts/${id}` }),
+            }),
+          }),
+        }),
+        batch: () => ({ delete: (ref) => deleted.push(ref.id), commit: async () => {} }),
+      },
+    }
+  }
+
+  it('deletes only the transactions of the accounts it was given', async () => {
+    const { db, deleted } = fakeDb([
+      { accountId: 'gone' }, { accountId: 'kept' }, { accountId: 'gone' },
+    ])
+    const result = await deleteTransactionsForAccounts({ db, uid: 'u1', accountIds: ['gone'] })
+
+    expect(result.deleted).toBe(2)
+    expect(deleted).toContain('t0')
+    expect(deleted).toContain('t2')
+    expect(deleted).not.toContain('t1')
+  })
+
+  it('takes the account metadata with them', async () => {
+    // historyStartsAt describing an account with no transactions would tell the
+    // next import that history begins somewhere it does not.
+    const { db, deleted } = fakeDb([{ accountId: 'gone' }])
+    await deleteTransactionsForAccounts({ db, uid: 'u1', accountIds: ['gone'] })
+
+    expect(deleted).toContain('accounts/gone')
+  })
+
+  it('does nothing when given no accounts, rather than everything', async () => {
+    const { db, deleted } = fakeDb([{ accountId: 'kept' }])
+    await deleteTransactionsForAccounts({ db, uid: 'u1', accountIds: [] })
+
+    expect(deleted).toEqual([])
+  })
+
+  it('prunes transactions belonging to no current connection', async () => {
+    const { db, deleted } = fakeDb([
+      { accountId: 'live' }, { accountId: 'orphan' }, { accountId: 'live' },
+    ])
+    const result = await pruneOrphanedTransactions({ db, uid: 'u1', keepAccountIds: ['live'] })
+
+    expect(result.deleted).toBe(1)
+    expect(deleted).toEqual(['t1'])
+  })
+
+  it('prunes nothing when the accounts to keep are unknown', async () => {
+    // An empty keep-list is indistinguishable from an account that owns
+    // everything, and treating it as the former would delete a live ledger.
+    const { db, deleted } = fakeDb([{ accountId: 'live' }])
+    const result = await pruneOrphanedTransactions({ db, uid: 'u1', keepAccountIds: [] })
+
+    expect(result.deleted).toBe(0)
+    expect(deleted).toEqual([])
+  })
+
+  it('leaves a transaction with no account alone', async () => {
+    // It cannot be attributed, but neither can it be proven stale.
+    const { db, deleted } = fakeDb([{ accountId: null }])
+    await pruneOrphanedTransactions({ db, uid: 'u1', keepAccountIds: ['live'] })
+
+    expect(deleted).toEqual([])
   })
 })
