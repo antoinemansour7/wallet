@@ -4,22 +4,24 @@ Issue #124 connects the Tax workspace preserved in commit `287da25` to the engin
 
 ## Simplified workspace
 
-The default **Summary** shows annual withholding and fund expenses together, followed by a compact account table and contribution room. Fund fee details expand from the summary figure. Reference sources, the editable fallback yield and contribution methodology use disclosure controls; estimated/measured labels, incomplete coverage and re-contribution exclusions remain beside the affected figures.
+The default **Summary** has three equal-width cards: annual dividend withholding, annual fund expenses, and the current year's measured FX difference. Each uses the same label, amount, currency/period, qualification and action hierarchy. CAD FX measurements remain explicitly CAD even when the portfolio display currency is USD. Annual estimates and historical measurements are not combined into a misleading total.
 
-**Planning** presents one tool at a time: account comparison or currency conversion (including recorded conversion costs). **Sales** has its own focused view. Switching views preserves contribution drafts, comparison selections and scenario inputs. The tab bar supports arrow keys, Home and End; hidden views are removed from the accessibility tree and tab order. Animations respect reduced-motion preferences.
+A short data-status row replaces the long inline source list. **Data & assumptions** opens an accessible modal with excluded holdings, the editable fallback yield and a table of per-holding yields, accounts, listings and reference dates. Percentages round to two decimal places for display only. Assumed yields and fund-level limitations remain identified. Missing coverage and assumed-yield qualifications remain beside the summary figure; fund expenses retain their own breakdown and named gaps.
 
-The presentation uses fewer framed panels, larger supporting text, aligned amounts, quiet registration badges and shared light/dark colors. The summary and tools stack at narrow widths. The sync action remains in the header, with failures shown prominently.
+Contribution room spans the available page width, with TFSA and RRSP beside each other on desktop and stacked on mobile. Only one contribution editor can be open at once. Current room, stale-data behavior and planned-contribution checks continue to use the shared engine.
 
-Redesign validation: 872 tests across 72 files passed. Browser checks covered Summary, Planning, Sales, both planning tools and fee expansion at 1440px and 390px in light/dark themes, with no runtime errors or horizontal overflow. The representative populated desktop summary is about 1,200px tall, compared with the previous 2,773px full page. Browser data was mocked; these checks make no claim about production balances.
+**Planning** presents one tool at a time: account comparison or a historical currency report. The report shares the Summary's measurement object and year. Statement-style conversion rows show dates, account identifiers and the signed difference from the daily reference; expanding a row reveals both currency amounts, both rates and the evidence used. A negative measured difference is labeled below reference, not presented as a negative fee paid. Equal-looking transactions with different stable identities remain separate. **Sales** retains its focused view.
+
+The page uses shared light/dark color tokens, aligned tabular amounts and restrained motion. Keyboard tab navigation, dialog focus trapping/restoration and reduced-motion behavior remain supported. Switching page sections preserves drafts and comparison selections; opening another contribution editor closes the previous one.
 
 ## Page and data flow
 
 | Section | Source and calculation | Qualifications displayed |
 | --- | --- | --- |
-| Across accounts | `accountTypeOf` reads imported `ACCOUNT TYPE`; `accountWithholding` and `projectWithholding` use `securityReference` | Listing, resolved dividend yield or explicit fallback, reference date, treatment and named gaps |
+| Withholding summary and details | `accountTypeOf` reads imported `ACCOUNT TYPE`; `accountWithholding` and `projectWithholding` use `securityReference` | Listing, resolved dividend yield or explicit fallback, reference date, treatment and named gaps |
 | Side-by-side comparison | Same holding and reference passed to `projectWithholding` for two existing accounts | Withholding only, constant value/yield, no compounding; fund-level treatment stays unavoidable |
 | Contribution room | Entered starting room/date plus ledger deposits passed to `roomStatus` and `checkContribution` | Stale room suppresses numbers and warnings; `excludesTfsaRecontribution` stays beside the figure |
-| Currency conversion | Editable spread, commissions and bid–ask scenario | Assumptions, not a broker quote; settlement and exchange-rate changes excluded |
+| Currency conversion | One `measureConversionCost` result shared by Summary and the historical Planning report | CAD/USD amounts, account, daily reference, evidence source and unpriced records; no hypothetical calculator |
 | Fund fees | `summarizeFundFees` reads `securityReference` expense ratios | Annual estimate at current values; weighted across priced funds only; missing MER named; stocks excluded |
 | After a sale | `poolCostBase` disposals feed `saleCounterfactuals` and `summarizeCounterfactuals` | CAD after FX conversion; pool provenance and security-match basis; `excludesReinvestment` travels with the figures |
 
@@ -56,3 +58,13 @@ Unit and integration tests cover imported registration, CAD-valued US listings, 
 The one-time production sync has **not run** in this development session. Automatic approval review rejected exporting production configuration to a local file. Run **Tax → Sync transactions** in an authenticated deployed session, or explicitly authorize that production-configuration access for a scoped operational run. A successful build/test run does not establish that the production ledger has been populated.
 
 Verified locally: 847 tests passed across 70 files; ESLint and production build passed (the existing bundle-size warning remains). Playwright checked empty and populated withholding states with mocked reference responses at 1440px and 390px in light/dark themes: no page errors or horizontal overflow. Live production reference availability and transaction counts were not verified.
+
+## FX evidence guard
+
+A CAD transaction amount and quantity × unit price do not establish two different currency legs. Legacy trade records do not independently establish that the unit price is USD, and identical amounts were previously interpreted as a 1.0000 CAD/USD rate. The embedded-conversion path now requires independently established `priceCurrency: 'USD'`; missing price currency is disclosed as an unpriced record. Known CAD-priced CAD trades are not FX conversions. This guard does not populate that metadata by guessing from a ticker or a current quote.
+
+The [Plaid investment transaction schema](https://plaid.com/docs/api/products/investments/) supplies a transaction currency and price; the security currency describes its closing price. The application cannot assume the latter independently verifies the currency of a transaction's unit price. Explicit paired CAD/USD FX records continue to be measured. Existing history and cash-balance prerequisites still apply to verified embedded trades. The report states its opening-cash assumption next to those derived figures.
+
+Repeated transaction identities are counted once per account. Distinct records with the same date and amount are retained; account labels make them distinguishable. Unsupported currency pairs are left unpriced instead of being labeled CAD/USD.
+
+Validation for the card/detail redesign: the full suite passed 911 tests across 72 files; the final focused run passed 61 Tax/FX tests. Changed-file ESLint and the production build passed (existing bundle-size warning). A temporary harness rendered the production Tax components with synthetic populated references and both verified and unverified FX records at 1440px, 768px and 390px in light/dark themes. All 12 combinations had no horizontal overflow or runtime errors. Checks covered equal card heights, rounded yields, dialog Escape/focus restoration, exclusive contribution editing, retained account-specific conversions, and reduced motion. No production account data was used in browser checks.
