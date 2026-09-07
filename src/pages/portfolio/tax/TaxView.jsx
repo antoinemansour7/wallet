@@ -4,7 +4,7 @@ import TaxDataDialog from './TaxDataDialog'
 import { projectWithholding } from '../../../utils/withholdingTax'
 import { summarizeFundFees } from '../../../utils/fundFees'
 import { toMinorUnits } from '../../../utils/money'
-import { measureConversionCost } from '../../../utils/conversionCost'
+import { measureConversionCost, estimateConversionCost } from '../../../utils/conversionCost'
 import { accountTypeLabel, contributionView, localTaxDate, money, saleReview, taxAccountType, taxOverview } from './taxModel'
 import './Tax.css'
 
@@ -118,11 +118,11 @@ const accountLabelIn = (accounts = []) => (id) => {
   return account?.accountNumber || (id ? `Account ${String(id).slice(-8)}` : 'Account unavailable')
 }
 
-function ConversionSection({ measured, accounts, year, hasUsdActivity }) {
+function ConversionSection({ measured, estimate, accounts, year, hasUsdActivity }) {
   const conversions = measured?.conversions ?? []
   const accountLabel = accountLabelIn(accounts)
   return <section className="tax-card" id="tax-conversion" aria-label="Currency conversion">
-    <SectionHeading title="Currency conversion" subtitle={`Your ${year} activity, compared with the daily reference rate.`} aside={<Badge>Measured · CAD</Badge>} />
+    <SectionHeading title="Currency conversion" subtitle={`Your ${year} activity, compared with the daily reference rate.`} aside={<Badge>{measured?.conversions?.length ? 'Measured · CAD' : estimate ? 'Estimate · CAD' : 'Measured · CAD'}</Badge>} />
     {conversions.length > 0 ? <>
       <div className="tax-fx-total">
         <div><span>{measured.totalCostMinor < 0 ? 'Below daily reference' : 'FX cost vs daily reference'}</span><strong>{money(measured.totalCostMinor, 'CAD')} <small>CAD</small></strong></div>
@@ -144,6 +144,29 @@ function ConversionSection({ measured, accounts, year, hasUsdActivity }) {
           </dl><p className="tax-footnote">Rates are CAD per USD. {c.source === 'trade-embedded' ? 'Derived from the trade’s verified currency amounts and recorded USD balance; assumes no cash before the available history.' : 'Based on paired CAD and USD FX records in this account on the same date.'} This comparison uses a daily reference, not an intraday execution quote.</p></div>
         </details></li>)}
       </ul>
+    </> : estimate ? <>
+      {/* The exchange itself was never reported, but the purchases were, and
+          they happened in US dollars. What is unknown is the spread, not
+          whether a conversion took place — so it is stated as an estimate and
+          kept out of any measured total. */}
+      <div className="tax-fee-total">
+        <span>Estimated FX cost<small>{countLabel(estimate.purchases.length, 'US-dollar purchase')} · {estimate.spreadPct}% assumed spread</small></span>
+        <strong>{money(estimate.totalCostMinor, 'CAD')} <small>CAD</small></strong>
+      </div>
+      <ul className="tax-conversion-list">
+        {estimate.purchases.map((p) => <li key={p.transactionId ?? `${p.tradeDate}:${p.usdMinor}`} className="tax-conversion">
+          <div className="tax-conversion-head">
+            <span className="tax-conversion-identity"><strong>{p.symbol ? `${p.symbol} · US-dollar purchase` : 'US-dollar purchase'}</strong><small>{formatConversionDate(p.tradeDate)} · {accountLabel(p.accountId)}</small></span>
+            <strong className="tax-numeric">{money(p.estimatedCostMinor, 'CAD')} <small>CAD</small></strong>
+          </div>
+          <dl className="tax-conversion-detail">
+            <div><dt>US dollars bought</dt><dd>{money(p.usdMinor, 'USD')}</dd></div>
+            <div><dt>At the reference rate</dt><dd>{money(p.atMidMinor, 'CAD')}</dd></div>
+            <div><dt>Reference rate</dt><dd>{p.midRate.toFixed(4)}</dd></div>
+          </dl>
+        </li>)}
+      </ul>
+      <p className="tax-notice">Your broker did not report the exchange itself, so this is what the spread would have cost at {estimate.spreadPct}%. It is an estimate, not a measured charge, and is never added to a measured total. Change the assumed spread in Data &amp; assumptions.</p>
     </> : <div className="tax-empty"><span className="tax-empty-symbol" aria-hidden="true">↔</span><h3>No measured FX conversions yet</h3><p>{measured?.unpricedCount ? 'Some transactions need currency details before their FX cost can be measured.' : hasUsdActivity ? 'We found USD activity, but do not have enough information to determine the actual currency conversion cost.' : 'No conversions recorded.'}</p></div>}
     {measured?.unpricedCount > 0 && <details className="tax-details tax-fx-incomplete"><summary>{countLabel(measured.unpricedCount, 'record')} not priced</summary><p>Excluded from the total. A conversion needs both currency amounts and a reference rate.</p>{measured.unpriced?.length > 0 && <ul>{measured.unpriced.map((row, index) => <li key={`${row.accountId}:${row.transactionId}:${index}`}><strong>{row.symbol || 'Transaction'}</strong> · {formatConversionDate(row.tradeDate)} · {accountLabel(row.accountId)}<span>{row.reason === 'unverified-price-currency' ? 'Unit-price currency is unverified; a USD amount cannot be established.' : row.reason === 'insufficient-history' ? 'Earlier cash history is needed.' : 'Daily reference rate is missing.'}</span></li>)}</ul>}</details>}
   </section>
@@ -204,6 +227,13 @@ export default function TaxView({ accounts, workspace, onAddAccount }) {
   const fx = useMemo(
     () => measureConversionCost({ transactions: data.transactions, historyStarts: data.historyStarts, year: taxYear }),
     [data.transactions, data.historyStarts, taxYear],
+  )
+  // Where the exchange itself was never reported, the purchase still happened
+  // in US dollars and a conversion demonstrably funded it. Estimated, kept
+  // apart from the measured total, and never added to it.
+  const fxEstimate = useMemo(
+    () => estimateConversionCost({ transactions: data.transactions, year: taxYear, spreadPct: settings.brokerSpreadPct, measured: fx }),
+    [data.transactions, taxYear, settings.brokerSpreadPct, fx],
   )
   const hasUsdActivity = (data.transactions ?? []).some((t) => String(t?.currency ?? '').toUpperCase() === 'USD')
   const [feesOpen, setFeesOpen] = useState(false)
@@ -293,7 +323,7 @@ export default function TaxView({ accounts, workspace, onAddAccount }) {
     <div id="tax-panel-planning" role="tabpanel" aria-labelledby="tax-tab-planning" hidden={view !== 'planning'}>
       <div className="tax-planning-intro"><div><h2>Explore your options</h2><p>Compare account types or review past currency conversions.</p></div><div className="tax-tool-switch" role="group" aria-label="Planning tool"><button type="button" aria-pressed={tool === 'accounts'} onClick={() => setTool('accounts')}>Account comparison</button><button type="button" aria-pressed={tool === 'currency'} onClick={() => setTool('currency')}>Currency conversion</button></div></div>
       <div className="tax-tool-panel" hidden={tool !== 'accounts'}><WithholdingSimulator accounts={accounts} settings={settings} currency={currency} reference={data.reference} /></div>
-      <div className="tax-tool-panel" hidden={tool !== 'currency'}><ConversionSection measured={fx} accounts={accounts} year={taxYear} hasUsdActivity={hasUsdActivity} /></div>
+      <div className="tax-tool-panel" hidden={tool !== 'currency'}><ConversionSection measured={fx} estimate={fxEstimate} accounts={accounts} year={taxYear} hasUsdActivity={hasUsdActivity} /></div>
     </div>
     <div id="tax-panel-sales" role="tabpanel" aria-labelledby="tax-tab-sales" hidden={view !== 'sales'}><SalesSection ledger={ledger} prices={prices} /></div>
     <footer className="tax-footer"><span>Estimates, not a tax return.</span><div><button type="button" onClick={workspace.retry}>Refresh data</button><a href={TREATY} target="_blank" rel="noreferrer">Canada–US treaty ↗</a></div></footer>

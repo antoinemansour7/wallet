@@ -34,6 +34,7 @@
  */
 
 import { conversionComparison } from './currencyConversion.js'
+import { dedupeTransactions } from './dedupeTransactions.js'
 
 /** Both legs of a conversion land on the same day, in opposite directions. */
 const SAME_DAY = (a, b) => a.tradeDate === b.tradeDate
@@ -411,4 +412,87 @@ export function tradeEmbeddedConversions({ transactions = [], historyStarts = {}
   }
 
   return { events, unpriced }
+}
+
+// ─── When the conversion itself was never reported ────────────────────────────
+
+/**
+ * What the currency on a US purchase most likely cost, when the exchange that
+ * funded it is not in the ledger.
+ *
+ * Some brokers report the CAD leaving and the US purchase, and never the
+ * exchange between them. Wealthsimple is one: a real ledger held three RKLB
+ * purchases in US dollars, several CAD withdrawals, and no US-dollar arrival
+ * anywhere. Both sides are needed to *measure* a spread, so those conversions
+ * cannot be measured — not for want of syncing, but because the record does not
+ * exist.
+ *
+ * Reporting nothing at all is the wrong answer to that. The purchase happened
+ * in US dollars, the account is Canadian, and a conversion demonstrably took
+ * place; only its price is unobserved. So this states what it would have cost
+ * at a given spread, and labels it an estimate — the same distinction the
+ * withholding figure draws between a projection and a measurement.
+ *
+ * It is never mixed into the measured total. A number derived from an
+ * assumption and one derived from two recorded amounts are different claims,
+ * and a screen that adds them together is making the stronger one on the
+ * weaker one's evidence.
+ */
+
+/** Typical retail conversion spread, as a percent. The user can change it. */
+export const DEFAULT_BROKER_SPREAD_PCT = 1.5
+
+export function estimateConversionCost({
+  transactions = [], year = null, spreadPct = DEFAULT_BROKER_SPREAD_PCT, measured = null,
+} = {}) {
+  const rate = Number(spreadPct)
+  if (!Number.isFinite(rate) || rate < 0) return null
+
+  // A purchase already covered by a measured conversion is not estimated on top
+  // of it: that would charge the same exchange twice.
+  const measuredKeys = new Set((measured?.conversions ?? []).map((c) => `${c.accountId}|${c.tradeDate}`))
+
+  const purchases = []
+  // Content-based, not id-based: the duplicates come from separate
+  // connections, so every copy carries a different id and only what the trade
+  // *is* identifies it.
+  for (const row of dedupeTransactions(transactions)) {
+    if (row?.action !== 'BUY' || !row.tradeDate) continue
+    if (year && String(row.tradeDate).slice(0, 4) !== String(year)) continue
+    // Only a purchase settled in US dollars needed dollars bought for it.
+    if (String(row.currency ?? '').toUpperCase() !== 'USD') continue
+    if (measuredKeys.has(`${row.accountId}|${row.tradeDate}`)) continue
+
+    const usdMinor = magnitude(row.amountMinor)
+    const midRate = Number(row.fxRate)
+    // Without the day's reference rate there is no Canadian figure to take a
+    // spread of, and inventing one would be an estimate resting on an estimate.
+    if (!(usdMinor > 0) || !(midRate > 0)) continue
+
+    const atMidMinor = Math.round(usdMinor * midRate)
+    purchases.push({
+      transactionId: row.id ?? null,
+      accountId: row.accountId,
+      symbol: row.symbol ?? null,
+      tradeDate: row.tradeDate,
+      usdMinor,
+      midRate,
+      atMidMinor,
+      estimatedCostMinor: Math.round((atMidMinor * rate) / 100),
+      currency: 'CAD',
+      basis: 'estimated',
+    })
+  }
+
+  if (purchases.length === 0) return null
+
+  return {
+    purchases: purchases.sort((a, b) => (a.tradeDate < b.tradeDate ? 1 : -1)),
+    totalCostMinor: purchases.reduce((sum, p) => sum + p.estimatedCostMinor, 0),
+    totalConvertedMinor: purchases.reduce((sum, p) => sum + p.atMidMinor, 0),
+    spreadPct: rate,
+    year: year ?? null,
+    currency: 'CAD',
+    basis: 'estimated',
+  }
 }

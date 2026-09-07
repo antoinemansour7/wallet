@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { conversionEventsFromLedger, measureConversion, measureConversionCost, tradeEmbeddedConversions, runningCashBalances } from './conversionCost'
+import { conversionEventsFromLedger, measureConversion, measureConversionCost, tradeEmbeddedConversions, runningCashBalances, estimateConversionCost } from './conversionCost'
 
 /** One leg of a conversion, as the ledger stores it. */
 const leg = (overrides = {}) => ({
@@ -442,5 +442,55 @@ describe('a conversion reported as ordinary cash movements', () => {
     ])
 
     expect(events).toHaveLength(1)
+  })
+})
+
+describe('estimating a conversion the broker never reported', () => {
+  // A real ledger: RKLB bought in US dollars, CAD leaving the account, and no
+  // US-dollar arrival anywhere. The exchange happened; only its price is
+  // unobserved, and reporting nothing is the wrong answer to that.
+  const buy = (overrides = {}) => ({
+    id: 'rklb-1', accountId: 'tfsa-1', action: 'BUY', symbol: 'RKLB',
+    tradeDate: '2026-08-12', quantity: 8, amountMinor: 91856, currency: 'USD',
+    fxRate: 1.393, ...overrides,
+  })
+
+  it('prices the US dollars bought at the day’s reference rate, plus a spread', () => {
+    // 918.56 USD x 1.393 = 1,279.56 CAD at mid; 1.5% of that is 19.19.
+    const estimate = estimateConversionCost({ transactions: [buy()] })
+
+    expect(estimate.purchases[0].atMidMinor).toBe(127955)
+    expect(estimate.totalCostMinor).toBe(1919)
+    expect(estimate.basis).toBe('estimated')
+  })
+
+  it('follows the spread it is given', () => {
+    expect(estimateConversionCost({ transactions: [buy()], spreadPct: 3 }).totalCostMinor).toBe(3839)
+    expect(estimateConversionCost({ transactions: [buy()], spreadPct: 0 }).totalCostMinor).toBe(0)
+  })
+
+  it('ignores a purchase already settled in Canadian dollars', () => {
+    // Nothing was bought with US dollars, so no conversion funded it.
+    expect(estimateConversionCost({ transactions: [buy({ currency: 'CAD' })] })).toBeNull()
+  })
+
+  it('does not estimate a conversion that was actually measured', () => {
+    // Charging an assumed spread on top of an observed one bills the same
+    // exchange twice.
+    const measured = { conversions: [{ accountId: 'tfsa-1', tradeDate: '2026-08-12' }] }
+    expect(estimateConversionCost({ transactions: [buy()], measured })).toBeNull()
+  })
+
+  it('refuses without the day’s reference rate rather than estimating on an estimate', () => {
+    expect(estimateConversionCost({ transactions: [buy({ fxRate: null })] })).toBeNull()
+  })
+
+  it('counts one real purchase once, however many connections reported it', () => {
+    const triplicated = [buy({ id: 'a' }), buy({ id: 'b', accountId: 'dup-1' }), buy({ id: 'c', accountId: 'dup-2' })]
+    expect(estimateConversionCost({ transactions: triplicated }).purchases).toHaveLength(1)
+  })
+
+  it('filters to the selected year', () => {
+    expect(estimateConversionCost({ transactions: [buy({ tradeDate: '2025-08-12' })], year: 2026 })).toBeNull()
   })
 })
