@@ -35,6 +35,7 @@ export default function useTaxWorkspace(uid, active, accounts = []) {
     // The endpoint accepts 200 symbols per request. Resolve the entire portfolio.
     Promise.all(Array.from({ length: Math.ceil(symbols.length / 200) }, (_, i) => fetchSecurityReference(symbols.slice(i * 200, (i + 1) * 200))))
       .then((parts) => { if (!cancelled) setReference({ uid, key: symbolsKey, loading: false, reference: Object.assign({}, ...parts) }) })
+      .catch(() => { if (!cancelled) setReference({ uid, key: symbolsKey, loading: false, reference: {}, error: 'Holding references couldn’t be loaded. Refresh data to try again.' }) })
     return () => { cancelled = true }
   }, [uid, symbolsKey, revision])
   useEffect(() => {
@@ -90,6 +91,7 @@ export default function useTaxWorkspace(uid, active, accounts = []) {
         // a connection needing re-authentication never succeeds on a retry.
         throw Object.assign(new Error(result?.error || `Sync failed (${response.status})`), { code: result?.code ?? null })
       }
+      if (!result || !Number.isFinite(result.written)) throw new Error('Sync returned an unreadable response.')
       if (currentUid.current === uid) {
         setSync({ uid, loading: false, result, error: result?.errors?.length ? `${result.errors.length} connection(s) could not sync. Reconnect them on Accounts and retry.` : '' })
         refresh((value) => value + 1)
@@ -118,6 +120,7 @@ export default function useTaxWorkspace(uid, active, accounts = []) {
     retry: () => refresh((value) => value + 1),
     syncState: syncState.uid === uid ? syncState : {},
     prices: prices.uid === uid ? prices : {},
+    referenceError: referenceState.uid === uid && referenceState.key === symbolsKey ? referenceState.error || '' : '',
     referenceLoading: referenceState.uid !== uid || referenceState.key !== symbolsKey || referenceState.loading,
     ledger: visibleLedger,
     data: { reference, transactions: visibleLedger.limited || visibleLedger.error ? [] : visibleLedger.transactions, historyStarts: visibleLedger.historyStarts },

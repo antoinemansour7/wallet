@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import AccountIcon from '../AccountIcons'
 import TaxDataDialog from './TaxDataDialog'
+import Modal, { ModalClose } from '../../../components/Modal'
 import { projectWithholding } from '../../../utils/withholdingTax'
 import { summarizeFundFees } from '../../../utils/fundFees'
 import { toMinorUnits } from '../../../utils/money'
@@ -20,7 +21,7 @@ const formatConversionDate = (iso) => {
     : iso
 }
 
-const SectionHeading = ({ title, subtitle, aside }) => <div className="tax-section-heading"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>{aside}</div>
+const SectionHeading = ({ title, subtitle, aside }) => <div className="tax-section-heading"><div><h2 id="tax-tool-title">{title}</h2>{subtitle && <p>{subtitle}</p>}</div>{aside}</div>
 const countLabel = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`
 const Badge = ({ children }) => <span className="tax-badge">{children}</span>
 
@@ -49,11 +50,12 @@ function WithholdingSimulator({ accounts, settings, currency, reference = {} }) 
   const [holdingKey, setHoldingKey] = useState('')
   const [leftKey, setLeftKey] = useState('')
   const [rightKey, setRightKey] = useState('')
-  const [years, setYears] = useState(10)
+  const [years, setYears] = useState(1)
   const holding = eligible.find((h) => h.key === holdingKey) || eligible[0]
   const typedAccounts = accounts.filter((a) => taxAccountType(a, settings))
   const left = typedAccounts.find((a) => a.accountNumber === leftKey) || typedAccounts.find((a) => a.accountNumber === holding?.account.accountNumber) || typedAccounts[0]
-  const right = typedAccounts.find((a) => a.accountNumber === rightKey) || typedAccounts.find((a) => taxAccountType(a, settings) !== taxAccountType(left || {}, settings)) || typedAccounts[0]
+  const otherAccounts = typedAccounts.filter((a) => a.accountNumber !== left?.accountNumber)
+  const right = otherAccounts.find((a) => a.accountNumber === rightKey) || otherAccounts.find((a) => taxAccountType(a, settings) !== taxAccountType(left || {}, settings)) || otherAccounts[0]
   const projections = [left, right].map((account) => account && holding ? projectWithholding({ row: holding.row, securityReference: reference[String(holding.row.SYMBOL).toUpperCase()], accountType: taxAccountType(account, settings), assumptions: { yieldPct: settings.yieldPct ?? 1.3 } }) : null)
   const inFund = projections.some((p) => p?.treatment === 'IN_FUND')
   const comparable = projections.every(Boolean)
@@ -64,12 +66,12 @@ function WithholdingSimulator({ accounts, settings, currency, reference = {} }) 
       <Field label="Holding"><select value={holding.key} onChange={(e) => setHoldingKey(e.target.value)}>{eligible.map((h) => <option key={h.key} value={h.key}>{h.row.SYMBOL} · {h.account.accountNumber}</option>)}</select></Field>
       <div className="tax-comparison">
         {[left, right].map((account, index) => <div className="tax-comparison-option" key={index}>
-          <Field label={index === 0 ? 'Account A' : 'Account B'}><select value={account.accountNumber} onChange={(e) => (index === 0 ? setLeftKey : setRightKey)(e.target.value)}>{typedAccounts.map((a) => <option key={a.accountNumber} value={a.accountNumber}>{accountTypeLabel(taxAccountType(a, settings))} · {a.accountNumber}</option>)}</select></Field>
+          <Field label={index === 0 ? 'Account A' : 'Account B'}><select value={account.accountNumber} onChange={(e) => (index === 0 ? setLeftKey : setRightKey)(e.target.value)}>{(index === 0 ? typedAccounts : otherAccounts).map((a) => <option key={a.accountNumber} value={a.accountNumber}>{accountTypeLabel(taxAccountType(a, settings))} · {a.accountNumber}</option>)}</select></Field>
           <small>Annual withholding</small><strong>{comparable ? money(projections[index].annualWithheldMinor, currency) : '—'}</strong>
-          <p>{inFund ? 'Fund-level withholding · applies in either account' : projections[index]?.exempt ? 'Treaty-exempt in this scenario' : projections[index]?.recoverable ? 'Potential foreign tax credit' : projections[index] ? 'Withholding is not recoverable' : 'No direct US withholding modeled'}</p>
+          <p>{inFund ? 'Fund-level withholding · applies in either account' : projections[index]?.exempt ? 'Treaty-exempt in this scenario' : projections[index]?.recoverable ? 'Potential foreign tax credit' : projections[index] ? 'Withholding is not recoverable' : 'Not enough information to compare'}</p>
         </div>)}
       </div>
-      <div className="tax-period"><label htmlFor="tax-years">Illustration over <strong>{years} years</strong></label><input id="tax-years" type="range" min="1" max="30" value={years} onChange={(e) => setYears(Number(e.target.value))} /></div>
+      <details className="tax-details"><summary>Compare over several years</summary><div className="tax-period"><label htmlFor="tax-years">Illustration over <strong>{years} years</strong></label><input id="tax-years" type="range" min="1" max="30" value={years} onChange={(e) => setYears(Number(e.target.value))} /></div></details>
       <div className="tax-comparison-result"><span>Difference in withholding<br /><small>Same value and yield each year, no compounding</small></span><strong>{money(difference, currency)} <small>{currency}</small></strong></div>
       <p className="tax-footnote">This compares dividend withholding only. It excludes Canadian income tax, contribution deductions, withdrawal tax and investment returns.</p>
     </>}
@@ -95,8 +97,8 @@ function ContributionCard({ type, record, disabled, onSave, accounts, workspace,
     </form> : <>
       <strong className={`tax-room-amount ${!record ? 'tax-room-amount-empty' : ''} ${current && room.remainingMinor < 0 ? 'tax-negative' : ''}`}>{current ? money(room.remainingMinor) : room?.stale || view.needsMigration ? 'Needs an update' : record ? 'Not available' : 'Not set'} <small>{current ? 'CAD remaining' : ''}</small></strong>
       <p>{current ? `Your room as of ${room.asOf}, less ${money(room.depositedMinor)} in recorded deposits across your ${type} accounts.` : room?.stale ? `Your last figure is from ${room.asOf}. Enter this year’s room before checking a contribution.` : view.needsMigration ? 'Confirm your saved room and date. Deposits now come from transaction history; the old manually entered contribution total is not deducted again.' : view.missingFx ? 'A deposit needs its historical exchange rate before room can be checked.' : record && unavailable ? 'Complete transaction history is needed to check this figure.' : `Enter the available room from your ${type === 'TFSA' ? 'CRA account' : 'notice of assessment'}.`}</p>
-      {current && <><Field label={`Check a planned ${type} contribution (CAD)`}><input type="number" min="0" step="0.01" placeholder="0.00" value={planned} onChange={(e) => setPlanned(e.target.value)} /></Field>{view.check && <p role="status" className={view.check.exceeds ? 'tax-notice tax-negative' : 'tax-notice'}>{view.check.exceeds ? `${money(view.check.excessMinor)} above the room you recorded.` : `${money(view.check.remainingAfterMinor)} would remain based on your records.`}</p>}</>}
-      {room?.excludesTfsaRecontribution && <p className="tax-footnote">TFSA withdrawal and re-contribution adjustments are excluded.</p>}
+      {current && <details className="tax-details"><summary>Check a contribution</summary><Field label={`Check a planned ${type} contribution (CAD)`}><input type="number" min="0" step="0.01" placeholder="0.00" value={planned} onChange={(e) => setPlanned(e.target.value)} /></Field>{view.check && <p role="status" className={view.check.exceeds ? 'tax-notice tax-negative' : 'tax-notice'}>{view.check.exceeds ? `${money(view.check.excessMinor)} above the room you recorded.` : `${money(view.check.remainingAfterMinor)} would remain based on your records.`}</p>}</details>}
+      {type === 'TFSA' && room?.excludesTfsaRecontribution && <p className="tax-footnote">Withdrawals do not add room in this estimate.</p>}
     </>}
   </div>
 }
@@ -118,12 +120,12 @@ const accountLabelIn = (accounts = []) => (id) => {
   return account?.accountNumber || (id ? `Account ${String(id).slice(-8)}` : 'Account unavailable')
 }
 
-function ConversionSection({ measured, estimate, accounts, year, hasUsdActivity }) {
+function ConversionSection({ measured, estimate, accounts, year, hasUsdActivity, unavailable }) {
   const conversions = measured?.conversions ?? []
   const accountLabel = accountLabelIn(accounts)
   return <section className="tax-card" id="tax-conversion" aria-label="Currency conversion">
-    <SectionHeading title="Currency conversion" subtitle={`Your ${year} activity, compared with the daily reference rate.`} aside={<Badge>{measured?.conversions?.length ? 'Measured · CAD' : estimate ? 'Estimate · CAD' : 'Measured · CAD'}</Badge>} />
-    {conversions.length > 0 ? <>
+    <SectionHeading title="Currency conversion" subtitle={`Your ${year} activity, compared with the daily reference rate.`} aside={<Badge>CAD · {year}</Badge>} />
+    {unavailable ? <div className="tax-empty"><h3>Transaction history unavailable</h3><p>Load complete history to review currency conversions.</p></div> : conversions.length > 0 ? <>
       <div className="tax-fx-total">
         <div><span>{measured.totalCostMinor < 0 ? 'Below daily reference' : 'FX cost vs daily reference'}</span><strong>{money(measured.totalCostMinor, 'CAD')} <small>CAD</small></strong></div>
         <p>{countLabel(conversions.length, 'measured conversion')}<span>{money(measured.totalConvertedMinor, 'CAD')} CAD converted</span></p>
@@ -144,30 +146,11 @@ function ConversionSection({ measured, estimate, accounts, year, hasUsdActivity 
           </dl><p className="tax-footnote">Rates are CAD per USD. {c.source === 'trade-embedded' ? 'Derived from the trade’s verified currency amounts and recorded USD balance; assumes no cash before the available history.' : 'Based on paired CAD and USD FX records in this account on the same date.'} This comparison uses a daily reference, not an intraday execution quote.</p></div>
         </details></li>)}
       </ul>
-    </> : estimate ? <>
-      {/* The exchange itself was never reported, but the purchases were, and
-          they happened in US dollars. What is unknown is the spread, not
-          whether a conversion took place — so it is stated as an estimate and
-          kept out of any measured total. */}
-      <div className="tax-fee-total">
-        <span>Estimated FX cost<small>{countLabel(estimate.purchases.length, 'US-dollar purchase')} · {estimate.spreadPct}% assumed spread</small></span>
-        <strong>{money(estimate.totalCostMinor, 'CAD')} <small>CAD</small></strong>
-      </div>
-      <ul className="tax-conversion-list">
-        {estimate.purchases.map((p) => <li key={p.transactionId ?? `${p.tradeDate}:${p.usdMinor}`} className="tax-conversion">
-          <div className="tax-conversion-head">
-            <span className="tax-conversion-identity"><strong>{p.symbol ? `${p.symbol} · US-dollar purchase` : 'US-dollar purchase'}</strong><small>{formatConversionDate(p.tradeDate)} · {accountLabel(p.accountId)}</small></span>
-            <strong className="tax-numeric">{money(p.estimatedCostMinor, 'CAD')} <small>CAD</small></strong>
-          </div>
-          <dl className="tax-conversion-detail">
-            <div><dt>US dollars bought</dt><dd>{money(p.usdMinor, 'USD')}</dd></div>
-            <div><dt>At the reference rate</dt><dd>{money(p.atMidMinor, 'CAD')}</dd></div>
-            <div><dt>Reference rate</dt><dd>{p.midRate.toFixed(4)}</dd></div>
-          </dl>
-        </li>)}
-      </ul>
     </> : <div className="tax-empty"><span className="tax-empty-symbol" aria-hidden="true">↔</span><h3>No measured FX conversions yet</h3><p>{measured?.unpricedCount ? 'Some transactions need currency details before their FX cost can be measured.' : hasUsdActivity ? 'We found USD activity, but do not have enough information to determine the actual currency conversion cost.' : 'No conversions recorded.'}</p></div>}
-    {measured?.unpricedCount > 0 && <details className="tax-details tax-fx-incomplete"><summary>{countLabel(measured.unpricedCount, 'record')} not priced</summary><p>Excluded from the total. A conversion needs both currency amounts and a reference rate.</p>{measured.unpriced?.length > 0 && <ul>{measured.unpriced.map((row, index) => <li key={`${row.accountId}:${row.transactionId}:${index}`}><strong>{row.symbol || 'Transaction'}</strong> · {formatConversionDate(row.tradeDate)} · {accountLabel(row.accountId)}<span>{row.reason === 'unverified-price-currency' ? 'Unit-price currency is unverified; a USD amount cannot be established.' : row.reason === 'insufficient-history' ? 'Earlier cash history is needed.' : 'Daily reference rate is missing.'}</span></li>)}</ul>}</details>}
+    {!unavailable && estimate && <details className="tax-details tax-fx-scenario"><summary>What if these purchases needed currency conversion?</summary>
+      <p>{estimate.assumption}</p><div className="tax-fx-total"><div><span>Scenario · {estimate.spreadPct}% assumed spread</span><strong>{money(estimate.totalCostMinor, 'CAD')} <small>CAD</small></strong></div><p>{countLabel(estimate.purchases.length, 'USD purchase')}<span>Not a recorded cost</span></p></div>
+    </details>}
+    {!unavailable && measured?.unpricedCount > 0 && <details className="tax-details tax-fx-incomplete"><summary>{countLabel(measured.unpricedCount, 'record')} not priced</summary><p>Excluded from the total. A conversion needs both currency amounts and a reference rate.</p>{measured.unpriced?.length > 0 && <ul>{measured.unpriced.map((row, index) => <li key={`${row.accountId}:${row.transactionId}:${index}`}><strong>{row.symbol || 'Transaction'}</strong> · {formatConversionDate(row.tradeDate)} · {accountLabel(row.accountId)}<span>{row.reason === 'unverified-price-currency' ? 'Unit-price currency is unverified; a USD amount cannot be established.' : row.reason === 'insufficient-history' ? 'Earlier cash history is needed.' : 'Daily reference rate is missing.'}</span></li>)}</ul>}</details>}
   </section>
 }
 
@@ -180,7 +163,7 @@ function FeesSection({ accounts, reference = {}, loading }) {
     {loading ? <p className="tax-loading" role="status">Loading fund references…</p> : !summaries.length ? <div className="tax-empty"><AccountIcon name="file" size={25} /><h3>{unresolved.length ? 'Fund references needed' : 'No funds identified'}</h3><p>Individual stocks have no fund expense ratio. Unresolved securities are not counted as zero-cost funds.</p></div> : summaries.map(({ currency, fees }) => <div key={currency} className="tax-fee-currency">
       <div className="tax-fee-total"><span>{currency} / year</span><strong>{money(fees.holdings.length ? fees.annualFeeMinor : null, currency)}</strong></div>
       <p className="tax-footnote">{fees.weightedMerPct === null ? 'No priced funds' : `${fees.weightedMerPct.toFixed(3)}% weighted expense ratio · priced funds only`}</p>
-      {fees.holdings.map((holding, i) => <div className="tax-cost-row" key={`${holding.symbol}:${i}`}><span>{holding.symbol}<small>{holding.expenseRatioPct}% expense ratio · reference {reference[holding.symbol]?.resolvedAt?.slice(0, 10) || 'date unavailable'}</small></span><strong>{money(holding.annualFeeMinor, currency)}</strong></div>)}
+      {fees.holdings.map((holding, i) => <div className="tax-cost-row" key={`${holding.symbol}:${i}`}><span>{holding.symbol}<small>{Number(holding.expenseRatioPct).toLocaleString('en-CA', { maximumFractionDigits: 3 })}% expense ratio · reference {reference[holding.symbol]?.resolvedAt?.slice(0, 10) || 'date unavailable'}</small></span><strong>{money(holding.annualFeeMinor, currency)}</strong></div>)}
       {!fees.complete && <p className="tax-notice">Expense ratio unavailable: {fees.missingFeeData.join(', ')}. These funds are excluded from the total.</p>}
     </div>)}
     {unresolved.length > 0 && <p className="tax-notice">Security reference unavailable: {unresolved.join(', ')}.</p>}
@@ -195,19 +178,18 @@ function SalesSection({ ledger, prices = {} }) {
   return <section className="tax-card" id="tax-sales"><SectionHeading title="After a sale" subtitle="Your net proceeds compared with the value of those shares today." aside={<Badge>CAD · price comparison</Badge>} />
     {unavailable || prices.loading ? <p className="tax-loading">{ledger.loading || prices.loading ? 'Loading sale history and comparison prices…' : 'Complete transaction history is needed before comparing sales.'}</p> : <>
       {prices.error && <p className="tax-error" role="alert">{prices.error}</p>}
-      {!review.comparisons.length && <div className="tax-empty tax-empty-wide"><AccountIcon name="file" size={24} /><div><h3>No complete sale comparisons yet</h3><p>Sales need a supported cost-base pool, transaction history and a current quote with currency conversion. Registered-account trades are excluded.</p></div></div>}
+      {!review.comparisons.length && <div className="tax-empty tax-empty-wide"><AccountIcon name="file" size={24} /><div><h3>No sales ready to compare</h3><p>Comparisons appear when a taxable sale has enough purchase history and a current price. Registered-account sales are excluded.</p></div></div>}
       {review.comparisons.map((sale) => <article className="tax-sale-record" key={sale.transactionId}>
         <h3>{sale.symbol} <small>· {sale.quantity} shares · {sale.tradeDate}</small></h3>
         <div className="tax-sale-comparison"><div><span>Net sale proceeds</span><strong>{money(sale.proceedsMinor)}</strong><small>CAD · after recorded fees</small></div><div><span>Value if held</span><strong>{money(sale.wouldBeWorthMinor)}</strong><small>CAD · latest available quote</small></div><div><span>{sale.differenceMinor > 0 ? 'Holding would be worth more' : sale.differenceMinor < 0 ? 'Selling was worth more' : 'No price difference'}</span><strong>{money(Math.abs(sale.differenceMinor))}</strong><small>CAD · price difference</small></div></div>
-        <p className="tax-footnote">{sale.provenance} from the transaction pool · security match: {sale.securityKeyBasis || 'unavailable'} · quote {sale.quote.currency} {sale.quote.price}{sale.quote.marketTime ? ` at ${new Date(sale.quote.marketTime * 1000).toLocaleString()}` : ''}. {review.summary?.excludesReinvestment && 'Excludes reinvestment of the sale proceeds.'} Dividends, tax and subsequent corporate actions are not modeled.</p>
+        <p className="tax-footnote">Price comparison only. Excludes dividends, tax and reinvestment.</p>
+        <details className="tax-details"><summary>Calculation details</summary><dl className="tax-conversion-detail"><div><dt>History</dt><dd>{sale.provenance}</dd></div><div><dt>Security match</dt><dd>{sale.securityKeyBasis || 'Unavailable'}</dd></div><div><dt>Quote</dt><dd>{sale.quote.currency} {Number(sale.quote.price).toLocaleString('en-CA', { maximumFractionDigits: 2 })}</dd></div><div><dt>Updated</dt><dd>{sale.quote.marketTime ? new Date(sale.quote.marketTime * 1000).toLocaleDateString('en-CA') : 'Date unavailable'}</dd></div></dl><p>Subsequent corporate actions are not modeled.</p></details>
       </article>)}
-      {review.unpriced > 0 && <p className="tax-notice">{review.unpriced} disposal(s) need a usable quote or exchange rate.</p>}
+      {review.unpriced > 0 && <p className="tax-notice">{countLabel(review.unpriced, 'sale')} need a usable quote or exchange rate.</p>}
       {incomplete.length > 0 && <details className="tax-details"><summary>Incomplete cost-base pools · {incomplete.length}</summary><ul>{incomplete.map((pool) => <li key={pool.securityKey}>{pool.symbol}: {pool.incompleteReasons.join(', ')}</li>)}</ul></details>}
     </>}
   </section>
 }
-
-const TAX_VIEWS = [['summary', 'Summary'], ['planning', 'Planning'], ['sales', 'Sales']]
 
 export default function TaxView({ accounts, workspace, onAddAccount }) {
   const { settings, loading, error, ledger, data = {}, prices, referenceLoading, syncState = {} } = workspace
@@ -219,64 +201,41 @@ export default function TaxView({ accounts, workspace, onAddAccount }) {
   const fees = summarizeFundFees(feeRows, data.reference)
   const unresolvedFees = feeRows.filter((r) => !data.reference?.[String(r.SYMBOL).toUpperCase()]?.exchange).map((r) => String(r.SYMBOL).toUpperCase())
   const feeGapCount = new Set([...unresolvedFees, ...(fees?.missingFeeData || [])]).size
-  const [view, setView] = useState('summary')
-  const [tool, setTool] = useState('accounts')
+  const [tool, setSelectedTool] = useState(null)
+  const [toolOpen, setToolOpen] = useState(false)
+  const openTool = (id) => { setSelectedTool(id); setToolOpen(true) }
+  const historyUnavailable = ledger.loading || ledger.error || ledger.limited
   // Summary and report share the same period and measurement.
-  const taxYear = Number(localTaxDate().slice(0, 4))
+  const asOf = localTaxDate()
+  const taxYear = Number(asOf.slice(0, 4))
   const fx = useMemo(
-    () => measureConversionCost({ transactions: data.transactions, historyStarts: data.historyStarts, year: taxYear }),
-    [data.transactions, data.historyStarts, taxYear],
+    () => measureConversionCost({ transactions: data.transactions, historyStarts: data.historyStarts, year: taxYear, asOf }),
+    [data.transactions, data.historyStarts, taxYear, asOf],
   )
-  // Where the exchange itself was never reported, the purchase still happened
-  // in US dollars and a conversion demonstrably funded it. Estimated, kept
-  // apart from the measured total, and never added to it.
+  // An optional what-if illustration, never a substitute for measured history.
   const fxEstimate = useMemo(
-    () => estimateConversionCost({ transactions: data.transactions, year: taxYear, spreadPct: settings.brokerSpreadPct, measured: fx }),
-    [data.transactions, taxYear, settings.brokerSpreadPct, fx],
+    () => estimateConversionCost({ transactions: data.transactions, year: taxYear, spreadPct: settings.brokerSpreadPct, measured: fx, asOf }),
+    [data.transactions, taxYear, settings.brokerSpreadPct, fx, asOf],
   )
   const hasUsdActivity = (data.transactions ?? []).some((t) => String(t?.currency ?? '').toUpperCase() === 'USD')
-  const [feesOpen, setFeesOpen] = useState(false)
   const [dataOpen, setDataOpen] = useState(false)
-  const changeViewWithKeys = (event) => {
-    const index = TAX_VIEWS.findIndex(([id]) => id === view)
-    const next = event.key === 'ArrowRight' ? (index + 1) % TAX_VIEWS.length : event.key === 'ArrowLeft' ? (index + TAX_VIEWS.length - 1) % TAX_VIEWS.length : event.key === 'Home' ? 0 : event.key === 'End' ? TAX_VIEWS.length - 1 : null
-    if (next === null) return
-    event.preventDefault()
-    setView(TAX_VIEWS[next][0])
-    document.getElementById(`tax-tab-${TAX_VIEWS[next][0]}`).focus()
-  }
   return <div className="tax-page">
     <header className="tax-header">
       <div><h1>Tax & costs<span className="tax-year">{new Date().getFullYear()}</span></h1><p>Withholding, fund fees and contribution room.</p></div>
       <button type="button" className="tax-sync-button" onClick={workspace.sync} disabled={syncState.loading}><AccountIcon name="link" size={16} />{syncState.loading ? 'Syncing…' : 'Sync transactions'}</button>
     </header>
-    <div className="tax-navigation">
-      <div className="tax-view-tabs" role="tablist" aria-label="Tax sections" onKeyDown={changeViewWithKeys}>
-        {TAX_VIEWS.map(([id, label]) => <button key={id} type="button" role="tab" id={`tax-tab-${id}`} aria-selected={view === id} aria-controls={`tax-panel-${id}`} tabIndex={view === id ? 0 : -1} onClick={() => setView(id)}>{label}</button>)}
-      </div>
-      {currencies.length > 0 && <div className="tax-currency-control" role="group" aria-label="Tax display currency">{currencies.map((value) => <button type="button" key={value} aria-pressed={currency === value} onClick={() => setCurrency(value)}>{value}</button>)}</div>}
-    </div>
+    <div className="tax-summary-heading"><h2>Your costs at a glance</h2>{currencies.length > 1 && <div className="tax-currency-control" role="group" aria-label="Tax display currency">{currencies.map((value) => <button type="button" key={value} aria-pressed={currency === value} onClick={() => setCurrency(value)}>{value}</button>)}</div>}</div>
+    {workspace.referenceError && <p className="tax-error" role="alert">{workspace.referenceError}</p>}
     {error && <p className="tax-error" role="alert">{error}</p>}
     {ledger.error && <p className="tax-error" role="alert">{ledger.error} <button type="button" className="tax-text-button" onClick={workspace.retry}>Try again</button></p>}
     {ledger.limited && <p className="tax-notice">Transaction history is incomplete. Contribution and sale calculations are unavailable until full history is loaded.</p>}
     {syncState.error && <p className="tax-error" role="alert">{syncState.error}</p>}
     {syncState.result && <div className="tax-notice" role="status">
       <p>{syncState.result.written} transactions synced.{syncState.result.skipped > 0 ? ` ${syncState.result.skipped} records skipped.` : ''}</p>
-      {/* Transactions belonging to accounts that are not enabled here — most
-          often a brokerage connected more than once, where only the current
-          connection is active. Left unsaid, they are the difference between
-          what was fetched and what was kept, and that gap reads like data
-          loss rather than a setting. */}
-      {syncState.result.pruned > 0 && <p>{countLabel(syncState.result.pruned, 'record')} removed from disconnected accounts.</p>}
-      {/* A skipped record is only actionable once it says what stopped it. An
-          unmapped action carries the institution's own wording, which is the
-          thing that lets it be mapped rather than guessed at. */}
-      {Object.keys(syncState.result.skippedReasons ?? {}).length > 0 && <ul className="tax-skip-reasons">
-        {Object.entries(syncState.result.skippedReasons).map(([reason, count]) => <li key={reason}>{count} × {reason}</li>)}
-      </ul>}
+      {(syncState.result.pruned > 0 || Object.keys(syncState.result.skippedReasons ?? {}).length > 0) && <details className="tax-details"><summary>Sync details</summary>{syncState.result.pruned > 0 && <p>{countLabel(syncState.result.pruned, 'record')} removed from disconnected accounts.</p>}<ul>{Object.entries(syncState.result.skippedReasons || {}).map(([reason, count]) => <li key={reason}>{count} · {reason}</li>)}</ul></details>}
     </div>}
 
-    <div id="tax-panel-summary" role="tabpanel" aria-labelledby="tax-tab-summary" hidden={view !== 'summary'}>
+    <div className="tax-summary">
       {accounts.length === 0 && <div className="tax-empty"><AccountIcon name="bank" size={24} /><h3>Add your first account</h3><p>See what withholding, fund fees and currency conversion actually cost you.</p>{onAddAccount && <button type="button" className="tax-button" onClick={onAddAccount}>Add an account</button>}</div>}
       <div className="tax-at-a-glance">
         <section className="tax-metric tax-hero" aria-label="Portfolio withholding summary">
@@ -293,38 +252,34 @@ export default function TaxView({ accounts, workspace, onAddAccount }) {
           <span className="tax-metric-unit">{currency} / year</span>
           <p>{fees?.weightedMerPct != null ? `${fees.weightedMerPct.toFixed(3)}% weighted expense ratio · priced funds only` : 'Expense ratios apply to funds, not individual stocks.'}{feeGapCount > 0 && <span className="tax-inline-gap">{countLabel(feeGapCount, 'holding')} {feeGapCount === 1 ? 'needs' : 'need'} fee data</span>}</p>
           <div className="tax-metric-note">Deducted within your funds</div>
-          <div className="tax-metric-footer"><button type="button" className="tax-text-button" aria-expanded={feesOpen} aria-controls="tax-fee-breakdown" onClick={() => setFeesOpen(!feesOpen)}>{feesOpen ? 'Hide breakdown' : 'View breakdown'}<AccountIcon name="chevron" size={14} /></button></div>
+          <div className="tax-metric-footer"><button type="button" className="tax-text-button" onClick={() => openTool('fees')}>View breakdown<AccountIcon name="chevron" size={14} /></button></div>
         </section>
         <section className="tax-metric" aria-label="FX conversion cost summary" id="tax-fx-summary">
-          {/* A measured cost outranks an estimated one, but an estimate
-              outranks silence: the conversion demonstrably happened, and only
-              its price is unobserved. The badge always says which is on show. */}
-          <div className="tax-hero-label">FX conversion costs <Badge>{fx?.conversions.length ? 'Measured' : fxEstimate ? 'Estimate' : 'Measured'}</Badge></div>
-          <div className={`tax-hero-amount ${!fx?.conversions.length && !fxEstimate ? 'tax-amount-empty' : ''}`}>{fx?.conversions.length ? money(fx.totalCostMinor, 'CAD') : fxEstimate ? money(fxEstimate.totalCostMinor, 'CAD') : 'Not measured'}</div>
+          <div className="tax-hero-label">FX conversion costs <Badge>{historyUnavailable ? 'Unavailable' : 'Measured'}</Badge></div>
+          <div className={`tax-hero-amount ${!fx?.conversions.length || historyUnavailable ? 'tax-amount-empty' : ''}`}>{historyUnavailable ? 'Unavailable' : fx?.conversions.length ? money(fx.totalCostMinor, 'CAD') : 'Not measured'}</div>
           <span className="tax-metric-unit">CAD · {taxYear} to date</span>
-          <p>{fx?.conversions.length
-            ? `${countLabel(fx.conversions.length, 'measured conversion')}${fx.complete ? '' : ` · ${fx.unpricedCount} records not priced`}`
-            : fxEstimate
-              ? `${countLabel(fxEstimate.purchases.length, 'US-dollar purchase')} at a ${fxEstimate.spreadPct}% assumed spread`
-              : hasUsdActivity ? 'USD activity found; conversion amounts are unavailable.' : 'No conversions recorded.'}</p>
-          <div className="tax-metric-note">{fx?.conversions.length ? (fx.totalCostMinor < 0 ? 'Below the daily reference rate' : 'Compared with the daily reference rate') : fxEstimate ? 'Your broker did not report the exchange' : 'Compared with the daily reference rate'}</div>
-          <div className="tax-metric-footer"><button type="button" className="tax-text-button" onClick={() => { setView('planning'); setTool('currency') }}>View conversions <AccountIcon name="arrow" size={14} /></button></div>
+          <p>{historyUnavailable ? 'Complete transaction history is needed.' : fx?.conversions.length ? `${countLabel(fx.conversions.length, 'measured conversion')}${fx.complete ? '' : ` · ${fx.unpricedCount} records not priced`}` : fx?.unpricedCount ? 'Some records need currency details.' : hasUsdActivity ? 'USD purchases alone do not establish a conversion.' : 'No conversions recorded.'}</p>
+          <div className="tax-metric-note">{fx?.totalCostMinor < 0 ? 'Below the daily reference rate' : 'Compared with the daily reference rate'}</div>
+          <div className="tax-metric-footer"><button type="button" className="tax-text-button" onClick={() => openTool('currency')}>View conversions <AccountIcon name="arrow" size={14} /></button></div>
         </section>
       </div>
-      <div id="tax-fee-breakdown" hidden={!feesOpen}><FeesSection accounts={accounts} reference={data.reference} loading={referenceLoading} /></div>
-      <div className="tax-data-status"><span><span className="tax-status-dot" aria-hidden="true" />{summary.gaps.length || feeGapCount ? 'Some holdings need more data' : 'Your estimates, explained'}<small>{summary.gaps.length ? `${countLabel(summary.gaps.length, 'holding')} excluded from withholding. ` : ''}Sources and assumptions are available for review.</small></span><button type="button" className="tax-text-button" onClick={() => setDataOpen(true)}>Data & assumptions <AccountIcon name="arrow" size={14} /></button></div>
-      <TaxDataDialog open={dataOpen} onClose={() => setDataOpen(false)} summary={summary} workspace={workspace} />
-      <div className="tax-summary-grid">
-        <ContributionSection workspace={workspace} accounts={accounts} />
-      </div>
+      <div className="tax-data-link"><span>{summary.gaps.length || feeGapCount ? 'Some holdings are excluded where data is missing.' : 'Based on your holdings and available records.'}</span><button type="button" className="tax-text-button" onClick={() => setDataOpen(true)}>Data & assumptions <AccountIcon name="arrow" size={14} /></button></div>
     </div>
-
-    <div id="tax-panel-planning" role="tabpanel" aria-labelledby="tax-tab-planning" hidden={view !== 'planning'}>
-      <div className="tax-planning-intro"><div><h2>Explore your options</h2><p>Compare account types or review past currency conversions.</p></div><div className="tax-tool-switch" role="group" aria-label="Planning tool"><button type="button" aria-pressed={tool === 'accounts'} onClick={() => setTool('accounts')}>Account comparison</button><button type="button" aria-pressed={tool === 'currency'} onClick={() => setTool('currency')}>Currency conversion</button></div></div>
-      <div className="tax-tool-panel" hidden={tool !== 'accounts'}><WithholdingSimulator accounts={accounts} settings={settings} currency={currency} reference={data.reference} /></div>
-      <div className="tax-tool-panel" hidden={tool !== 'currency'}><ConversionSection measured={fx} estimate={fxEstimate} accounts={accounts} year={taxYear} hasUsdActivity={hasUsdActivity} /></div>
-    </div>
-    <div id="tax-panel-sales" role="tabpanel" aria-labelledby="tax-tab-sales" hidden={view !== 'sales'}><SalesSection ledger={ledger} prices={prices} /></div>
+    <section className="tax-tool-list" aria-label="Tax tools"><h2>Plan & review</h2>
+      {[
+        ['room', 'Contribution room', 'Add or update your TFSA and RRSP room.', 'bank'],
+        ['accounts', 'Compare accounts', 'See how account type changes dividend withholding.', 'shield'],
+        ['sales', 'Review sales', 'Compare a sale with the value of those shares today.', 'file'],
+      ].map(([id, title, description, icon]) => <button type="button" className="tax-tool-row" key={id} onClick={() => openTool(id)}><span className="tax-tool-icon"><AccountIcon name={icon} size={20} /></span><span><strong>{title}</strong><small>{description}</small></span><AccountIcon name="chevron" size={16} /></button>)}
+    </section>
+    <TaxDataDialog open={dataOpen} onClose={() => setDataOpen(false)} summary={summary} workspace={workspace} />
+    <Modal open={toolOpen} onClose={() => setToolOpen(false)} labelledBy="tax-tool-title" className="tax-tool-dialog"><ModalClose onClose={() => setToolOpen(false)} /><div className="tax-tool-body">
+      {tool === 'room' && <ContributionSection workspace={workspace} accounts={accounts} />}
+      {tool === 'accounts' && <WithholdingSimulator accounts={accounts} settings={settings} currency={currency} reference={data.reference} />}
+      {tool === 'fees' && <FeesSection accounts={accounts} reference={data.reference} loading={referenceLoading} />}
+      {tool === 'currency' && <ConversionSection measured={fx} estimate={fxEstimate} accounts={accounts} year={taxYear} hasUsdActivity={hasUsdActivity} unavailable={historyUnavailable} />}
+      {tool === 'sales' && <SalesSection ledger={ledger} prices={prices} />}
+    </div></Modal>
     <footer className="tax-footer"><span>Estimates, not a tax return.</span><div><button type="button" onClick={workspace.retry}>Refresh data</button><a href={TREATY} target="_blank" rel="noreferrer">Canada–US treaty ↗</a></div></footer>
   </div>
 }

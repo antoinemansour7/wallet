@@ -66,3 +66,17 @@ describe('summarizeFundFees', () => {
     expect(summary.weightedMerPct).toBeCloseTo(0.145, 3)
   })
 })
+
+describe('zero fee and weighted precision', () => {
+  it('accepts a published zero fee while rejecting absent fee values', () => {
+    const summary = summarizeFundFees([row('ZERO', 10000), row('MISSING', 10000)], { ZERO: { isFund: true, expenseRatioPct: 0 }, MISSING: { isFund: true, expenseRatioPct: null } })
+    expect(summary.holdings).toEqual([{ symbol: 'ZERO', expenseRatioPct: 0, annualFeeMinor: 0 }])
+    expect(summary.weightedMerPct).toBe(0)
+    expect(summary.missingFeeData).toEqual(['MISSING'])
+  })
+  it('does not derive the weighted rate from rounded penny amounts', () => {
+    const summary = summarizeFundFees([row('TINY', 1)], { TINY: { isFund: true, expenseRatioPct: 0.2 } })
+    expect(summary.annualFeeMinor).toBe(0)
+    expect(summary.weightedMerPct).toBe(0.2)
+  })
+})

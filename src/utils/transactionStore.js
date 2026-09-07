@@ -46,10 +46,7 @@ export async function loadTransactions(uid, { since = null, max = DEFAULT_LIMIT,
       limit(max),
     ]
     const snapshot = await getDocs(query(transactionsCollection(uid), ...constraints))
-    // Deduped here rather than in each consumer: a brokerage connected more
-    // than once reports the same trade under a different id per connection, and
-    // a dedupe some readers apply and others do not is a disagreement waiting
-    // to surface in a tax figure.
+    // Keep distinct trades, even when their dates and amounts match.
     return dedupeTransactions(snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() })))
   } catch (error) {
     if (strict) throw error

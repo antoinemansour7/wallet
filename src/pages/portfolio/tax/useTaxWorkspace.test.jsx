@@ -132,3 +132,22 @@ describe('tax workspace persistence', () => {
     expect(result.current.syncState.error).toContain('504')
   })
 })
+
+describe('unavailable data states', () => {
+  it('ends reference loading and exposes a failure when lookup rejects', async () => {
+    loadTaxSettings.mockResolvedValue({})
+    fetchSecurityReference.mockRejectedValueOnce(new Error('offline'))
+    const { result } = renderHook(() => useTaxWorkspace('owner', false, [{ positions: [{ SYMBOL: 'MSFT' }] }]))
+    await waitFor(() => expect(result.current.referenceLoading).toBe(false))
+    expect(result.current.referenceError).toContain('couldn’t be loaded')
+  })
+  it('does not report a malformed successful HTTP response as a successful sync', async () => {
+    loadTaxSettings.mockResolvedValue({})
+    callPlaid.mockResolvedValue({ ok: true, json: async () => null })
+    const { result } = renderHook(() => useTaxWorkspace('owner', false))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await act(async () => result.current.sync())
+    expect(result.current.syncState.error).toContain('unreadable response')
+    expect(result.current.syncState.result).toBeUndefined()
+  })
+})

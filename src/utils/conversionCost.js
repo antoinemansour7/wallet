@@ -39,17 +39,6 @@ import { dedupeTransactions } from './dedupeTransactions.js'
 /** Both legs of a conversion land on the same day, in opposite directions. */
 const SAME_DAY = (a, b) => a.tradeDate === b.tradeDate
 
-/** Actions whose two legs can be the sides of one conversion. */
-const CONVERSION_LEG_ACTIONS = new Set(['FX', 'TRANSFER'])
-
-/**
- * How far an implied rate may sit from the day's reference before the pair is
- * refused. A conversion costs a spread of a few percent; two unrelated cash
- * movements that happen to share a date imply an arbitrary ratio, and this is
- * what keeps the second from being reported as the first.
- */
-const RATE_TOLERANCE = { min: 0.9, max: 1.2 }
-
 const magnitude = (value) => Math.abs(Number(value) || 0)
 
 // Deduplicate only stable identities. Equal dates/amounts can be real trades
@@ -81,18 +70,23 @@ const uniqueTransactions = (transactions) => {
  * be trusted while this part is still being confirmed against real records.
  */
 export function conversionEventsFromLedger(transactions = []) {
-  // A conversion is not always labelled one. Brokers that convert CAD to fund a
-  // US purchase frequently report the two legs as ordinary cash movements — a
-  // transfer out and a deposit in — and never emit a subtype this could match
-  // on. Requiring action === 'FX' meant those conversions were in the ledger,
-  // in plain sight, and contributed nothing.
-  //
-  // Widening the candidates is only safe because the pairing is checked below:
-  // two unrelated same-day transfers in different currencies would imply a rate
-  // nowhere near the day's reference, and are rejected rather than priced.
+  // Only explicitly reported FX events qualify. A plausible ratio between two
+  // ordinary deposits does not prove a conversion or its direction.
   const fx = uniqueTransactions(transactions)
-    .filter((t) => CONVERSION_LEG_ACTIONS.has(t?.action) && t.tradeDate && magnitude(t.amountMinor) > 0)
+    .filter((t) => t?.action === 'FX' && t.tradeDate && magnitude(t.amountMinor) > 0)
     .sort((a, b) => (a.tradeDate < b.tradeDate ? -1 : a.tradeDate > b.tradeDate ? 1 : 0))
+
+  // Multiple different FX legs on one date need a conversion identifier.
+  // Pairing them by array order invents a broker rate. Identical amounts/rates
+  // remain interchangeable without changing the measured result.
+  const groupKey = (row) => JSON.stringify([row.accountId, row.tradeDate, row.conversionId || ''])
+  const groups = new Map()
+  for (const row of fx) { const key = groupKey(row); groups.set(key, [...(groups.get(key) || []), row]) }
+  const ambiguous = new Set([...groups].filter(([, rows]) => {
+    const cad = rows.filter((r) => String(r.currency).toUpperCase() === 'CAD')
+    const usd = rows.filter((r) => String(r.currency).toUpperCase() === 'USD')
+    return (cad.length > 1 || usd.length > 1) && (new Set(cad.map((r) => magnitude(r.amountMinor))).size > 1 || new Set(usd.map((r) => `${magnitude(r.amountMinor)}:${r.fxRate}`)).size > 1)
+  }).map(([key]) => key))
 
   const events = []
   const unpairable = []
@@ -101,27 +95,17 @@ export function conversionEventsFromLedger(transactions = []) {
   for (let i = 0; i < fx.length; i += 1) {
     if (used.has(i)) continue
     const left = fx[i]
+    if (ambiguous.has(groupKey(left))) { unpairable.push(left); continue }
 
     const partnerIndex = fx.findIndex((right, j) => (
       j > i && !used.has(j) && SAME_DAY(left, right)
-      && right.accountId === left.accountId
+      && groupKey(right) === groupKey(left)
       && new Set([left.currency, right.currency].map((c) => String(c).toUpperCase())).size === 2
       && [left.currency, right.currency].every((c) => ['CAD', 'USD'].includes(String(c).toUpperCase()))
     ))
 
     if (partnerIndex === -1) { unpairable.push(left); continue }
     const right = fx[partnerIndex]
-
-    // Two cash movements sharing a date are only a conversion if the rate they
-    // imply is one the market could have offered. A transfer in and an
-    // unrelated withdrawal out would pass every structural test above and
-    // produce a fabricated cost; this is the check that stops it.
-    const candidateForeign = String(left.currency).toUpperCase() === 'CAD' ? right : left
-    const candidateDomestic = candidateForeign === left ? right : left
-    const reference = Number(candidateForeign.fxRate)
-    const impliedRate = magnitude(candidateDomestic.amountMinor) / magnitude(candidateForeign.amountMinor)
-    const plausible = reference > 0 && impliedRate / reference >= RATE_TOLERANCE.min && impliedRate / reference <= RATE_TOLERANCE.max
-    if (!plausible) { unpairable.push(left); continue }
 
     used.add(i)
     used.add(partnerIndex)
@@ -194,7 +178,7 @@ export function measureConversion(event, { sourceId } = {}) {
  * screen can say the total is incomplete rather than presenting a partial sum
  * as the whole picture.
  */
-export function measureConversionCost({ transactions = [], sourceId = null, historyStarts = {}, year = null } = {}) {
+export function measureConversionCost({ transactions = [], sourceId = null, historyStarts = {}, year = null, asOf = null } = {}) {
   transactions = uniqueTransactions(transactions)
   const { events, unpairable } = conversionEventsFromLedger(transactions)
   // Both kinds of evidence, priced by the same formula and merged into one
@@ -205,7 +189,7 @@ export function measureConversionCost({ transactions = [], sourceId = null, hist
   // A single year, applied here rather than by each caller. The Summary card and
   // the Planning report both read this function, and two aggregations over the
   // same data are two chances to disagree about what a year cost.
-  const inYear = (entry) => !year || String(entry?.tradeDate ?? '').slice(0, 4) === String(year)
+  const inYear = (entry) => (!year || String(entry?.tradeDate ?? '').slice(0, 4) === String(year)) && (!asOf || entry.tradeDate <= asOf)
 
   const priced = [
     ...events.map((event) => measureConversion({ ...event, source: 'ledger-fx' }, { sourceId })),
@@ -414,36 +398,12 @@ export function tradeEmbeddedConversions({ transactions = [], historyStarts = {}
   return { events, unpriced }
 }
 
-// ─── When the conversion itself was never reported ────────────────────────────
-
-/**
- * What the currency on a US purchase most likely cost, when the exchange that
- * funded it is not in the ledger.
- *
- * Some brokers report the CAD leaving and the US purchase, and never the
- * exchange between them. Wealthsimple is one: a real ledger held three RKLB
- * purchases in US dollars, several CAD withdrawals, and no US-dollar arrival
- * anywhere. Both sides are needed to *measure* a spread, so those conversions
- * cannot be measured — not for want of syncing, but because the record does not
- * exist.
- *
- * Reporting nothing at all is the wrong answer to that. The purchase happened
- * in US dollars, the account is Canadian, and a conversion demonstrably took
- * place; only its price is unobserved. So this states what it would have cost
- * at a given spread, and labels it an estimate — the same distinction the
- * withholding figure draws between a projection and a measurement.
- *
- * It is never mixed into the measured total. A number derived from an
- * assumption and one derived from two recorded amounts are different claims,
- * and a screen that adds them together is making the stronger one on the
- * weaker one's evidence.
- */
-
-/** Typical retail conversion spread, as a percent. The user can change it. */
+// A what-if scenario, not evidence of a past conversion. A USD purchase may
+// have used USD already held. Callers must carry this assumption with the cost.
 export const DEFAULT_BROKER_SPREAD_PCT = 1.5
 
 export function estimateConversionCost({
-  transactions = [], year = null, spreadPct = DEFAULT_BROKER_SPREAD_PCT, measured = null,
+  transactions = [], year = null, spreadPct = DEFAULT_BROKER_SPREAD_PCT, measured = null, asOf = null,
 } = {}) {
   const rate = Number(spreadPct)
   if (!Number.isFinite(rate) || rate < 0) return null
@@ -453,13 +413,11 @@ export function estimateConversionCost({
   const measuredKeys = new Set((measured?.conversions ?? []).map((c) => `${c.accountId}|${c.tradeDate}`))
 
   const purchases = []
-  // Content-based, not id-based: the duplicates come from separate
-  // connections, so every copy carries a different id and only what the trade
-  // *is* identifies it.
   for (const row of dedupeTransactions(transactions)) {
     if (row?.action !== 'BUY' || !row.tradeDate) continue
     if (year && String(row.tradeDate).slice(0, 4) !== String(year)) continue
-    // Only a purchase settled in US dollars needed dollars bought for it.
+    if (asOf && row.tradeDate > asOf) continue
+    // Model a full conversion only as an explicit scenario, not a recorded cost.
     if (String(row.currency ?? '').toUpperCase() !== 'USD') continue
     if (measuredKeys.has(`${row.accountId}|${row.tradeDate}`)) continue
 
@@ -480,7 +438,7 @@ export function estimateConversionCost({
       atMidMinor,
       estimatedCostMinor: Math.round((atMidMinor * rate) / 100),
       currency: 'CAD',
-      basis: 'estimated',
+      basis: 'scenario',
     })
   }
 
@@ -493,6 +451,7 @@ export function estimateConversionCost({
     spreadPct: rate,
     year: year ?? null,
     currency: 'CAD',
-    basis: 'estimated',
+    basis: 'scenario',
+    assumption: 'Assumes the full purchase amount required CAD-to-USD conversion; existing USD cash is not deducted.',
   }
 }

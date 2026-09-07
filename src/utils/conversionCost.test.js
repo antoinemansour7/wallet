@@ -382,73 +382,16 @@ describe('FX evidence and record identity', () => {
   })
 })
 
-describe('a conversion reported as ordinary cash movements', () => {
-  // Wealthsimple converts CAD to fund a USD purchase in a registered account
-  // and reports the two legs as a transfer out and a deposit in — never as an
-  // "FX" subtype. Requiring that subtype meant the conversion sat in the
-  // ledger, in plain sight, contributing nothing.
-  const leg = (overrides) => ({
-    id: `t-${Math.random().toString(36).slice(2)}`,
-    accountId: 'tfsa-1', action: 'TRANSFER', tradeDate: '2026-08-12',
-    quantity: 0, ...overrides,
-  })
-
-  it('pairs a CAD transfer out with a USD deposit in', () => {
-    const { events } = conversionEventsFromLedger([
-      leg({ amountMinor: 131740, currency: 'CAD' }),
-      leg({ amountMinor: 91856, currency: 'USD', fxRate: 1.393 }),
-    ])
-
-    expect(events).toHaveLength(1)
-    expect(events[0]).toMatchObject({ fromCurrency: 'CAD', fromAmountMinor: 131740, toCurrency: 'USD', toAmountMinor: 91856 })
-  })
-
-  it('prices it exactly as an explicit conversion would', () => {
-    const summary = measureConversionCost({ transactions: [
-      leg({ amountMinor: 131740, currency: 'CAD' }),
-      leg({ amountMinor: 91856, currency: 'USD', fxRate: 1.393 }),
-    ] })
-
-    expect(summary.totalCostMinor).toBe(3785)
-    expect(summary.conversions[0].spreadPct).toBe(2.958)
-  })
-
-  it('refuses two same-day movements whose implied rate is not a market rate', () => {
-    // A deposit and an unrelated withdrawal share a date and differ in
-    // currency, which passes every structural test. Only the rate they imply
-    // says they were never one conversion.
-    const { events, unpairable } = conversionEventsFromLedger([
-      leg({ amountMinor: 500000, currency: 'CAD' }),
-      leg({ amountMinor: 91856, currency: 'USD', fxRate: 1.393 }),
-    ])
-
-    expect(events).toEqual([])
-    expect(unpairable).toHaveLength(2)
-  })
-
-  it('refuses a pair with no reference rate to check against', () => {
-    const { events } = conversionEventsFromLedger([
-      leg({ amountMinor: 131740, currency: 'CAD' }),
-      leg({ amountMinor: 91856, currency: 'USD', fxRate: null }),
-    ])
-
-    expect(events).toEqual([])
-  })
-
-  it('still pairs legs a broker did label as FX', () => {
-    const { events } = conversionEventsFromLedger([
-      leg({ action: 'FX', amountMinor: 131740, currency: 'CAD' }),
-      leg({ action: 'FX', amountMinor: 91856, currency: 'USD', fxRate: 1.393 }),
-    ])
-
-    expect(events).toHaveLength(1)
+describe('ordinary cash movements are not conversion evidence', () => {
+  it('does not measure two deposits even when their ratio resembles an exchange rate', () => {
+    const transfers = [{ ...CAD_OUT, action: 'TRANSFER' }, { ...USD_IN, action: 'TRANSFER' }]
+    expect(conversionEventsFromLedger(transfers)).toEqual({ events: [], unpairable: [] })
+    expect(measureConversionCost({ transactions: transfers })).toBeNull()
   })
 })
 
 describe('estimating a conversion the broker never reported', () => {
-  // A real ledger: RKLB bought in US dollars, CAD leaving the account, and no
-  // US-dollar arrival anywhere. The exchange happened; only its price is
-  // unobserved, and reporting nothing is the wrong answer to that.
+  // A purchase is input to a hypothetical full-conversion scenario only.
   const buy = (overrides = {}) => ({
     id: 'rklb-1', accountId: 'tfsa-1', action: 'BUY', symbol: 'RKLB',
     tradeDate: '2026-08-12', quantity: 8, amountMinor: 91856, currency: 'USD',
@@ -461,7 +404,8 @@ describe('estimating a conversion the broker never reported', () => {
 
     expect(estimate.purchases[0].atMidMinor).toBe(127955)
     expect(estimate.totalCostMinor).toBe(1919)
-    expect(estimate.basis).toBe('estimated')
+    expect(estimate.basis).toBe('scenario')
+    expect(estimate.assumption).toContain('existing USD cash is not deducted')
   })
 
   it('follows the spread it is given', () => {
@@ -485,12 +429,29 @@ describe('estimating a conversion the broker never reported', () => {
     expect(estimateConversionCost({ transactions: [buy({ fxRate: null })] })).toBeNull()
   })
 
-  it('counts one real purchase once, however many connections reported it', () => {
+  it('retains equal purchases in different accounts without assuming a duplicate connection', () => {
     const triplicated = [buy({ id: 'a' }), buy({ id: 'b', accountId: 'dup-1' }), buy({ id: 'c', accountId: 'dup-2' })]
-    expect(estimateConversionCost({ transactions: triplicated }).purchases).toHaveLength(1)
+    expect(estimateConversionCost({ transactions: triplicated }).purchases).toHaveLength(3)
   })
 
   it('filters to the selected year', () => {
     expect(estimateConversionCost({ transactions: [buy({ tradeDate: '2025-08-12' })], year: 2026 })).toBeNull()
+  })
+})
+
+describe('unambiguous FX periods and pairing', () => {
+  it('refuses multiple unmatched same-day FX legs with different amounts', () => {
+    const transactions = [CAD_OUT, USD_IN, leg({ amountMinor: 140000 }), leg({ currency: 'USD', amountMinor: 100000, fxRate: 1.39 })]
+    const summary = measureConversionCost({ transactions })
+    expect(summary.conversions).toHaveLength(0)
+    expect(summary.unpricedCount).toBe(4)
+  })
+  it('uses explicit conversion identities to disambiguate same-day FX', () => {
+    const transactions = [{ ...CAD_OUT, conversionId: 'one' }, { ...USD_IN, conversionId: 'one' }, leg({ conversionId: 'two', amountMinor: 140000 }), leg({ conversionId: 'two', currency: 'USD', amountMinor: 100000, fxRate: 1.39 })]
+    expect(measureConversionCost({ transactions }).conversions).toHaveLength(2)
+  })
+  it('excludes future records from a year-to-date measurement and scenario', () => {
+    expect(measureConversionCost({ transactions: [CAD_OUT, USD_IN], year: 2026, asOf: '2026-05-01' })).toBeNull()
+    expect(estimateConversionCost({ transactions: [{ id: 'future', action: 'BUY', tradeDate: '2026-12-01', currency: 'USD', amountMinor: 10000, fxRate: 1.39 }], year: 2026, asOf: '2026-09-07' })).toBeNull()
   })
 })
