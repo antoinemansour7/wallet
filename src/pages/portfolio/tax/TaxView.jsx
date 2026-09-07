@@ -228,7 +228,15 @@ export default function TaxView({ accounts, workspace, onAddAccount }) {
     {ledger.error && <p className="tax-error" role="alert">{ledger.error} <button type="button" className="tax-text-button" onClick={workspace.retry}>Try again</button></p>}
     {ledger.limited && <p className="tax-notice">Transaction history is incomplete. Contribution and sale calculations are unavailable until full history is loaded.</p>}
     {syncState.error && <p className="tax-error" role="alert">{syncState.error}</p>}
-    {syncState.result && <p className="tax-notice" role="status">{syncState.result.written} transactions synced.{syncState.result.skipped > 0 ? ` ${syncState.result.skipped} records skipped.` : ''}</p>}
+    {syncState.result && <div className="tax-notice" role="status">
+      <p>{syncState.result.written} transactions synced.{syncState.result.skipped > 0 ? ` ${syncState.result.skipped} records skipped.` : ''}</p>
+      {/* A skipped record is only actionable once it says what stopped it. An
+          unmapped action carries the institution's own wording, which is the
+          thing that lets it be mapped rather than guessed at. */}
+      {Object.keys(syncState.result.skippedReasons ?? {}).length > 0 && <ul className="tax-skip-reasons">
+        {Object.entries(syncState.result.skippedReasons).map(([reason, count]) => <li key={reason}>{count} × {reason}</li>)}
+      </ul>}
+    </div>}
 
     <div id="tax-panel-summary" role="tabpanel" aria-labelledby="tax-tab-summary" hidden={view !== 'summary'}>
       {accounts.length === 0 && <div className="tax-empty"><AccountIcon name="bank" size={24} /><h3>Add your first account</h3><p>See what withholding, fund fees and currency conversion actually cost you.</p>{onAddAccount && <button type="button" className="tax-button" onClick={onAddAccount}>Add an account</button>}</div>}

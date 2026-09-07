@@ -332,3 +332,28 @@ describe('Tax detail hierarchy', () => {
     expect(report).toHaveTextContent('68BB39W')
   })
 })
+
+describe('sync result reports why records were skipped', () => {
+  it('lists each reason with the count, so a skip can be acted on', () => {
+    // "3 records skipped" is not actionable. An unmapped action carries the
+    // institution's own wording, which is what allows it to be mapped.
+    const state = workspace()
+    state.syncState = {
+      result: { written: 3, skipped: 3, skippedReasons: { 'unidentifiable-security': 2, 'unmapped-action (currency conv)': 1 } },
+    }
+    render(<TaxView accounts={accounts} workspace={state} />)
+
+    const notice = screen.getByRole('status')
+    expect(notice).toHaveTextContent('3 transactions synced. 3 records skipped.')
+    expect(notice).toHaveTextContent('2 × unidentifiable-security')
+    expect(notice).toHaveTextContent('1 × unmapped-action (currency conv)')
+  })
+
+  it('stays quiet when nothing was skipped', () => {
+    const state = workspace()
+    state.syncState = { result: { written: 3, skipped: 0, skippedReasons: {} } }
+    render(<TaxView accounts={accounts} workspace={state} />)
+
+    expect(screen.getByRole('status')).not.toHaveTextContent('skipped')
+  })
+})
