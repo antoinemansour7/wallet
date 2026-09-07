@@ -381,3 +381,40 @@ describe('a sync result accounts for every fetched transaction', () => {
     expect(screen.getByRole('status')).not.toHaveTextContent('not enabled')
   })
 })
+
+describe('the ledger is visible, not only summarised', () => {
+  // Four rounds of counts, refusals and reason codes described this data from
+  // the outside without ever showing it. When a figure is missing, the rows
+  // themselves are the only place the answer can be.
+  const ledger = [
+    { id: 'buy', accountId: 'a1', action: 'BUY', symbol: 'RKLB', tradeDate: '2026-08-12', amountMinor: 91856, currency: 'USD', quantity: 8, priceMinor: 11482, fxRate: 1.393 },
+    { id: 'dep', accountId: 'a1', action: 'TRANSFER', tradeDate: '2026-08-10', amountMinor: 131740, currency: 'CAD', quantity: 0, fxRate: null },
+  ]
+
+  it('lists every imported record with its currency and reference rate', () => {
+    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: ledger } })} />)
+    fireEvent.click(screen.getByRole('button', { name: /Data & assumptions/ }))
+    const table = within(screen.getByRole('region', { name: 'Transaction ledger' })).getByRole('table')
+
+    expect(table).toHaveTextContent('RKLB')
+    expect(table).toHaveTextContent('918.56 USD')
+    expect(table).toHaveTextContent('1,317.40 CAD')
+    expect(table).toHaveTextContent('1.3930')
+  })
+
+  it('names a missing reference rate rather than leaving a blank', () => {
+    // A conversion cannot be priced without one, so its absence is the answer
+    // to why a cost is missing — not an empty cell to wonder about.
+    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: ledger } })} />)
+    fireEvent.click(screen.getByRole('button', { name: /Data & assumptions/ }))
+
+    expect(within(screen.getByRole('region', { name: 'Transaction ledger' })).getAllByText('None')).toHaveLength(1)
+  })
+
+  it('says the ledger is empty rather than showing an empty table', () => {
+    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: [] } })} />)
+    fireEvent.click(screen.getByRole('button', { name: /Data & assumptions/ }))
+
+    expect(screen.getByRole('region', { name: 'Transaction ledger' })).toHaveTextContent('No transactions imported yet')
+  })
+})

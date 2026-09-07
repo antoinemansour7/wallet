@@ -4,9 +4,18 @@ import Modal, { ModalHeader } from '../../../components/Modal'
 const percent = (value) => Number.isFinite(value) ? `${new Intl.NumberFormat('en-CA', { maximumFractionDigits: 2 }).format(value)}%` : '—'
 const exchangeLabel = (value) => ({ NMS: 'Nasdaq', NGM: 'Nasdaq', NCM: 'Nasdaq', NYQ: 'NYSE', PCX: 'NYSE Arca', BTS: 'Cboe', TOR: 'TSX' })[value] || value || 'Listing unavailable'
 
+const money = (minor, currency) => Number.isFinite(minor)
+  ? `${new Intl.NumberFormat('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(minor / 100)} ${currency || ''}`.trim()
+  : '—'
+
 export default function TaxDataDialog({ open, onClose, summary, workspace }) {
   const [yieldDraft, setYieldDraft] = useState(null)
-  const { settings, update, loading, saving, loadFailed, error } = workspace
+  const { settings, update, loading, saving, loadFailed, error, data = {} } = workspace
+  // Every figure on this page is derived from these rows, so when one is
+  // missing the ledger is the only place the answer can be. Counts and
+  // refusals describe it from the outside; this is the thing itself.
+  const ledger = [...(data.transactions ?? [])]
+    .sort((a, b) => (a.tradeDate < b.tradeDate ? 1 : a.tradeDate > b.tradeDate ? -1 : 0))
   return <Modal open={open} onClose={onClose} labelledBy="tax-data-title" className="tax-data-dialog">
     <ModalHeader id="tax-data-title" title="Data & assumptions" onClose={onClose} />
     <div className="tax-data-body">
@@ -33,6 +42,22 @@ export default function TaxDataDialog({ open, onClose, summary, workspace }) {
           </tr>))}
         </tbody></table></div>
         {!summary.covered && <p className="tax-footnote">No holding references available for this estimate yet.</p>}
+      </section>
+      <section className="tax-data-ledger" aria-label="Transaction ledger">
+        <h3>Transaction ledger</h3>
+        <p>Every imported record. A currency conversion appears as two rows on one date — one leaving in CAD, one arriving in USD.</p>
+        {ledger.length > 0 ? <div className="tax-reference-scroll"><table className="tax-reference-table">
+          <thead><tr><th scope="col">Date</th><th scope="col">Action</th><th scope="col">Holding</th><th scope="col">Amount</th><th scope="col">Reference rate</th></tr></thead>
+          <tbody>{ledger.map((row, index) => <tr key={`${row.id ?? index}`}>
+            <td>{row.tradeDate}</td>
+            <td>{row.action}</td>
+            <td>{row.symbol || <span className="tax-footnote">Cash</span>}</td>
+            <td>{money(row.amountMinor, row.currency)}</td>
+            {/* Named rather than shown as a blank: a conversion cannot be
+                priced without one, and its absence is the answer to why. */}
+            <td>{Number.isFinite(Number(row.fxRate)) && Number(row.fxRate) > 0 ? Number(row.fxRate).toFixed(4) : <span className="tax-footnote">None</span>}</td>
+          </tr>)}</tbody>
+        </table></div> : <p className="tax-footnote">No transactions imported yet. Sync from the Tax page to load them.</p>}
       </section>
     </div>
   </Modal>
