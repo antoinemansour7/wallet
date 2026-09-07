@@ -381,3 +381,66 @@ describe('FX evidence and record identity', () => {
     expect(result.totalCostMinor).toBe(-1000)
   })
 })
+
+describe('a conversion reported as ordinary cash movements', () => {
+  // Wealthsimple converts CAD to fund a USD purchase in a registered account
+  // and reports the two legs as a transfer out and a deposit in — never as an
+  // "FX" subtype. Requiring that subtype meant the conversion sat in the
+  // ledger, in plain sight, contributing nothing.
+  const leg = (overrides) => ({
+    id: `t-${Math.random().toString(36).slice(2)}`,
+    accountId: 'tfsa-1', action: 'TRANSFER', tradeDate: '2026-08-12',
+    quantity: 0, ...overrides,
+  })
+
+  it('pairs a CAD transfer out with a USD deposit in', () => {
+    const { events } = conversionEventsFromLedger([
+      leg({ amountMinor: 131740, currency: 'CAD' }),
+      leg({ amountMinor: 91856, currency: 'USD', fxRate: 1.393 }),
+    ])
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ fromCurrency: 'CAD', fromAmountMinor: 131740, toCurrency: 'USD', toAmountMinor: 91856 })
+  })
+
+  it('prices it exactly as an explicit conversion would', () => {
+    const summary = measureConversionCost({ transactions: [
+      leg({ amountMinor: 131740, currency: 'CAD' }),
+      leg({ amountMinor: 91856, currency: 'USD', fxRate: 1.393 }),
+    ] })
+
+    expect(summary.totalCostMinor).toBe(3785)
+    expect(summary.conversions[0].spreadPct).toBe(2.958)
+  })
+
+  it('refuses two same-day movements whose implied rate is not a market rate', () => {
+    // A deposit and an unrelated withdrawal share a date and differ in
+    // currency, which passes every structural test. Only the rate they imply
+    // says they were never one conversion.
+    const { events, unpairable } = conversionEventsFromLedger([
+      leg({ amountMinor: 500000, currency: 'CAD' }),
+      leg({ amountMinor: 91856, currency: 'USD', fxRate: 1.393 }),
+    ])
+
+    expect(events).toEqual([])
+    expect(unpairable).toHaveLength(2)
+  })
+
+  it('refuses a pair with no reference rate to check against', () => {
+    const { events } = conversionEventsFromLedger([
+      leg({ amountMinor: 131740, currency: 'CAD' }),
+      leg({ amountMinor: 91856, currency: 'USD', fxRate: null }),
+    ])
+
+    expect(events).toEqual([])
+  })
+
+  it('still pairs legs a broker did label as FX', () => {
+    const { events } = conversionEventsFromLedger([
+      leg({ action: 'FX', amountMinor: 131740, currency: 'CAD' }),
+      leg({ action: 'FX', amountMinor: 91856, currency: 'USD', fxRate: 1.393 }),
+    ])
+
+    expect(events).toHaveLength(1)
+  })
+})
