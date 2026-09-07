@@ -381,3 +381,37 @@ describe('FX evidence and record identity', () => {
     expect(result.totalCostMinor).toBe(-1000)
   })
 })
+
+describe('a Canadian security is not a conversion', () => {
+  // A CAD-hedged CDR settles in CAD because it *is* Canadian. Reporting it as
+  // needing currency details blames missing data for something that never
+  // happened, and the holder is told to fix a gap that does not exist.
+  const cdr = (overrides = {}) => ({
+    id: 'nvda-cdr', accountId: 'a1', action: 'BUY', symbol: 'NVDA',
+    tradeDate: '2026-08-12', quantity: 1, priceMinor: 24611, amountMinor: 24611,
+    currency: 'CAD', securityCurrency: 'CAD', fxRate: 1.393, ...overrides,
+  })
+  const history = { a1: '2026-01-01' }
+
+  it('does not list a CAD-settled Canadian security as unpriced', () => {
+    const { events, unpriced } = tradeEmbeddedConversions({ transactions: [cdr()], historyStarts: history })
+
+    expect(events).toEqual([])
+    expect(unpriced).toEqual([])
+  })
+
+  it('still reports a US-listed security bought in CAD as missing evidence', () => {
+    // Same settlement currency, different security. This one did convert, and
+    // the record simply does not carry the US-dollar side of it.
+    const { unpriced } = tradeEmbeddedConversions({
+      transactions: [cdr({ id: 'rklb', symbol: 'RKLB', securityCurrency: 'USD' })],
+      historyStarts: history,
+    })
+
+    expect(unpriced[0]).toMatchObject({ symbol: 'RKLB', reason: 'unverified-price-currency' })
+  })
+
+  it('leaves a ledger of only Canadian purchases with nothing to report', () => {
+    expect(measureConversionCost({ transactions: [cdr()], historyStarts: history })).toBeNull()
+  })
+})

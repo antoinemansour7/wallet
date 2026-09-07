@@ -331,6 +331,13 @@ export function tradeEmbeddedConversions({ transactions = [], historyStarts = {}
     // USD unit price. In particular, a CAD amount equal to quantity × price
     // cannot prove a 1:1 CAD/USD conversion. Legacy records need evidence from
     // their source before the embedded path can price them.
+    // A CAD purchase of a Canadian security converted nothing. A CAD-hedged
+    // CDR is the common case: it settles in CAD because it *is* Canadian, and
+    // listing it as needing currency details blames missing data for a
+    // conversion that never happened.
+    const securityCurrency = String(row.securityCurrency ?? '').toUpperCase()
+    if (String(row.currency).toUpperCase() === 'CAD' && securityCurrency && securityCurrency !== 'USD') continue
+
     if (String(row.currency).toUpperCase() === 'CAD' && !row.priceCurrency && magnitude(row.priceMinor) > 0 && magnitude(row.quantity) > 0) {
       unpriced.push({ transactionId: row.id ?? null, tradeDate: row.tradeDate, accountId: row.accountId, symbol: row.symbol, reason: 'unverified-price-currency' })
       continue

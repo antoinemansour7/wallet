@@ -212,6 +212,13 @@ export function normalizeTransaction(raw, context = {}) {
     // commission is ordinary and means exactly zero, unlike a missing amount.
     feesMinor: toMinorUnits(raw.fees) ?? 0,
     currency: String(raw.iso_currency_code ?? raw.currency ?? security?.currency ?? '').trim().toUpperCase() || null,
+    // The security's own currency, kept apart from the transaction's. Folded
+    // together they cannot distinguish a CAD-hedged CDR — a Canadian security
+    // that never required a conversion — from a US-listed one bought with
+    // converted dollars. Both settle in CAD, and only this field says which is
+    // which, so without it the first gets reported as missing evidence for a
+    // conversion that never happened.
+    securityCurrency: String(security?.currency ?? '').trim().toUpperCase() || null,
     fxRate: fx?.rate ?? null,
     fxRateSource: fx?.source ?? null,
     fxAsOf: fx?.asOf ?? null,
