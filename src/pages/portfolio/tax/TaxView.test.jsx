@@ -418,3 +418,45 @@ describe('the ledger is visible, not only summarised', () => {
     expect(screen.getByRole('region', { name: 'Transaction ledger' })).toHaveTextContent('No transactions imported yet')
   })
 })
+
+describe('FX cost when the broker never reported the exchange', () => {
+  // A real ledger: RKLB bought in US dollars, CAD leaving the account, no
+  // US-dollar arrival anywhere. The conversion happened; only its price is
+  // unobserved, and showing nothing is the wrong answer to that.
+  const ledger = [
+    { id: 'rklb', accountId: 'a1', action: 'BUY', symbol: 'RKLB', tradeDate: `${localTaxDate().slice(0, 4)}-08-12`, quantity: 8, amountMinor: 91856, currency: 'USD', fxRate: 1.393 },
+    { id: 'out', accountId: 'a1', action: 'TRANSFER', tradeDate: `${localTaxDate().slice(0, 4)}-08-09`, quantity: 0, amountMinor: 170000, currency: 'CAD', fxRate: 1.3943 },
+  ]
+  const openCurrency = () => {
+    fireEvent.click(screen.getByRole('tab', { name: 'Planning' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Currency conversion' }))
+    return screen.getByRole('region', { name: 'Currency conversion' })
+  }
+
+  it('shows what the conversion cost rather than an empty state', () => {
+    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: ledger } })} />)
+    const panel = openCurrency()
+
+    expect(panel).toHaveTextContent('Estimated FX cost')
+    expect(panel).toHaveTextContent('$19.19')          // 1.5% of 918.56 USD at 1.393
+    expect(panel).toHaveTextContent('RKLB')
+    expect(panel).not.toHaveTextContent('No measured FX conversions yet')
+  })
+
+  it('says it is an estimate and why, never calling it measured', () => {
+    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: ledger } })} />)
+    const panel = openCurrency()
+
+    expect(within(panel).getByText('Estimate · CAD')).toBeInTheDocument()
+    expect(panel).toHaveTextContent('did not report the exchange itself')
+  })
+
+  it('counts one real purchase once when three connections reported it', () => {
+    // Duplicate Plaid connections give the same trade a different id each, so
+    // the estimate would otherwise be charged three times over.
+    const triplicated = [ledger[0], { ...ledger[0], id: 'dup1', accountId: 'b1' }, { ...ledger[0], id: 'dup2', accountId: 'c1' }]
+    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: triplicated } })} />)
+
+    expect(within(openCurrency()).getAllByRole('listitem')).toHaveLength(1)
+  })
+})

@@ -15,6 +15,7 @@
 import { collection, doc, getDoc, getDocs, limit, orderBy, query, where } from 'firebase/firestore'
 import { db } from '../firebase/config.js'
 import { IS_PREVIEW } from '../preview/mockMode.js'
+import { dedupeTransactions } from './dedupeTransactions.js'
 
 /**
  * Enough to cover the twelve-month withholding window and a cost-base pool
@@ -45,7 +46,11 @@ export async function loadTransactions(uid, { since = null, max = DEFAULT_LIMIT,
       limit(max),
     ]
     const snapshot = await getDocs(query(transactionsCollection(uid), ...constraints))
-    return snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() }))
+    // Deduped here rather than in each consumer: a brokerage connected more
+    // than once reports the same trade under a different id per connection, and
+    // a dedupe some readers apply and others do not is a disagreement waiting
+    // to surface in a tax figure.
+    return dedupeTransactions(snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() })))
   } catch (error) {
     if (strict) throw error
     console.error('[transactionStore] ledger read failed:', error?.message ?? error)
