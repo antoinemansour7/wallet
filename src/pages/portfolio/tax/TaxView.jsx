@@ -112,12 +112,15 @@ function ContributionSection({ workspace, accounts }) {
   </section>
 }
 
+/** A Plaid account id as something a person can match to a connection. */
+const accountLabelIn = (accounts = []) => (id) => {
+  const account = accounts.find((a) => a.accountNumber === id || a.positions?.some((r) => r.__plaidAccountId === id))
+  return account?.accountNumber || (id ? `Account ${String(id).slice(-8)}` : 'Account unavailable')
+}
+
 function ConversionSection({ measured, accounts, year, hasUsdActivity }) {
   const conversions = measured?.conversions ?? []
-  const accountLabel = (id) => {
-    const account = accounts.find((a) => a.accountNumber === id || a.positions?.some((r) => r.__plaidAccountId === id))
-    return account?.accountNumber || (id ? `Account ${String(id).slice(-8)}` : 'Account unavailable')
-  }
+  const accountLabel = accountLabelIn(accounts)
   return <section className="tax-card" id="tax-conversion" aria-label="Currency conversion">
     <SectionHeading title="Currency conversion" subtitle={`Your ${year} activity, compared with the daily reference rate.`} aside={<Badge>Measured · CAD</Badge>} />
     {conversions.length > 0 ? <>
@@ -235,7 +238,14 @@ export default function TaxView({ accounts, workspace, onAddAccount }) {
           connection is active. Left unsaid, they are the difference between
           what was fetched and what was kept, and that gap reads like data
           loss rather than a setting. */}
-      {syncState.result.notEnabled > 0 && <p>{syncState.result.notEnabled} from accounts not enabled here. Check Accounts for a brokerage connected more than once.</p>}
+      {syncState.result.notEnabled > 0 && <>
+        <p>{syncState.result.notEnabled} from accounts not enabled here. Check Accounts for a brokerage connected more than once.</p>
+        {/* The account ids, so the connection holding the missing holdings can
+            be identified rather than guessed at. */}
+        {Object.keys(syncState.result.notEnabledAccounts ?? {}).length > 0 && <ul className="tax-skip-reasons">
+          {Object.entries(syncState.result.notEnabledAccounts).map(([accountId, count]) => <li key={accountId}>{count} × {accountLabelIn(accounts)(accountId)}</li>)}
+        </ul>}
+      </>}
       {/* A skipped record is only actionable once it says what stopped it. An
           unmapped action carries the institution's own wording, which is the
           thing that lets it be mapped rather than guessed at. */}
