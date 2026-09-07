@@ -20,7 +20,7 @@
  * question.
  */
 
-import { normalizeTransaction } from '../utils/transactionLedger.js'
+import { normalizeTransaction, normalizationFailure } from '../utils/transactionLedger.js'
 
 /** Plaid caps a page at 500. */
 export const PAGE_SIZE = 500
@@ -167,7 +167,14 @@ export function buildLedgerRecords({ transactions, securities, accounts, enabled
     // date, or an action that cannot be classified. Each is recorded so an
     // import reports what it could not take instead of quietly taking less.
     if (!record) {
-      skipped.push({ id: raw.investment_transaction_id, reason: 'unclassifiable' })
+      const context = { security, accountId: raw.account_id }
+      skipped.push({
+        id: raw.investment_transaction_id,
+        reason: normalizationFailure(raw, context) ?? 'unclassifiable',
+        // The wording the institution used, so an unmapped action can be
+        // mapped rather than guessed at.
+        subtype: raw.subtype ?? raw.type ?? null,
+      })
       continue
     }
 
@@ -349,6 +356,13 @@ export async function syncInvestmentTransactions({
     written,
     fetched: transactions.length,
     skipped: skipped.length,
+    // Counted by reason: three dropped rows that are all one unmapped action
+    // is a different problem from three unrelated gaps.
+    skippedReasons: skipped.reduce((tally, entry) => {
+      const key = entry.subtype ? `${entry.reason} (${entry.subtype})` : entry.reason
+      tally[key] = (tally[key] || 0) + 1
+      return tally
+    }, {}),
     notEnabled,
     pages,
     startDate,

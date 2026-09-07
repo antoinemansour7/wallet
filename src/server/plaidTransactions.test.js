@@ -195,12 +195,24 @@ describe('buildLedgerRecords', () => {
     expect(records).toHaveLength(0)
   })
 
-  it('reports what it could not classify instead of quietly taking less', () => {
+  it('says why it could not classify a record, not merely that it could not', () => {
+    // "unclassifiable" for every failure is true and useless. An unmapped
+    // action is a missing feature; an unidentifiable security is a data gap.
+    // Only the reason tells a reader which one they are looking at.
     const undated = txn({ investment_transaction_id: 'bad', date: '' })
     const { records, skipped } = buildLedgerRecords({ transactions: [txn(), undated], securities, accounts, accountTypeFor })
 
     expect(records).toHaveLength(1)
-    expect(skipped).toEqual([{ id: 'bad', reason: 'unclassifiable' }])
+    expect(skipped[0]).toMatchObject({ id: 'bad', reason: 'no-trade-date' })
+  })
+
+  it('names the institution\'s own wording for an action it cannot map', () => {
+    // An action nobody mapped can be mapped once it is named. Reported as
+    // "unclassifiable" it stays invisible for as long as nobody goes looking.
+    const foreign = txn({ investment_transaction_id: 'fx?', subtype: 'currency conv', type: 'currency conv' })
+    const { skipped } = buildLedgerRecords({ transactions: [foreign], securities, accounts, accountTypeFor })
+
+    expect(skipped[0]).toMatchObject({ reason: 'unmapped-action', subtype: 'currency conv' })
   })
 
   it('is idempotent — the same page twice yields the same ids', () => {
