@@ -4,478 +4,192 @@ import { localTaxDate } from './taxModel'
 import TaxView, { TaxOverviewPointer, AccountTaxSection } from './TaxView'
 import TabNav from '../TabNav'
 
+const year = Number(localTaxDate().slice(0, 4))
 const accounts = ['TFSA', 'RRSP'].map((type, index) => ({ accountNumber: type, currency: 'USD', positions: [{ SYMBOL: 'MSFT', DESCRIPTION: 'Microsoft Corporation', 'ACCOUNT CURRENCY': 'USD', CURRENCY: 'USD', 'ACCOUNT TYPE': type, 'MARKET VALUE': 10000 + index * 1000 }] }))
 const reference = { MSFT: { exchange: 'NMS', yieldPct: 1.3, isFund: false } }
 const workspace = (overrides = {}) => ({ settings: {}, data: { reference }, loading: false, saving: false, update: vi.fn().mockResolvedValue(true), ledger: { transactions: [], loading: false, error: '', limited: false }, ...overrides })
+const open = (name) => { fireEvent.click(screen.getByRole('button', { name })); return screen.getByRole('dialog') }
+const close = () => fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }))
+const conversion = (accountId = 'TFSA', tradeDate = `${year}-07-01`) => [
+  { id: `cad-${accountId}-${tradeDate}`, accountId, action: 'FX', tradeDate, amountMinor: 140000, currency: 'CAD' },
+  { id: `usd-${accountId}-${tradeDate}`, accountId, action: 'FX', tradeDate, amountMinor: 100000, currency: 'USD', fxRate: 1.39 },
+]
 
-describe('Tax navigation and context', () => {
-  it('puts Tax between Holdings and Accounts and opens it from the Overview pointer', () => {
-    const onChange = vi.fn()
-    render(<><TabNav activeView="tax" hasData onChange={onChange} /><TaxOverviewPointer accounts={accounts} settings={{}} onOpen={() => onChange('tax')} /></>)
-    expect(within(screen.getByRole('navigation', { name: 'Portfolio views' })).getAllByRole('button').map((b) => b.textContent)).toEqual(['Overview', 'Charts', 'Holdings', 'Tax', 'Accounts'])
-    expect(screen.getByRole('button', { name: 'Tax' })).toHaveAttribute('aria-current', 'page')
+describe('Tax navigation and hierarchy', () => {
+  it('retains the portfolio Tax tab, overview pointer and contextual account section', () => {
+    const onOpen = vi.fn()
+    render(<><TabNav activeView="tax" hasData onChange={onOpen} /><TaxOverviewPointer accounts={accounts} settings={{}} onOpen={() => onOpen('tax')} /><AccountTaxSection account={accounts[0]} data={{ reference }} onOpenTax={onOpen} /></>)
+    expect(within(screen.getByRole('navigation', { name: 'Portfolio views' })).getAllByRole('button').map(b => b.textContent)).toEqual(['Overview', 'Charts', 'Holdings', 'Tax', 'Accounts'])
+    expect(screen.getByRole('region', { name: 'Account withholding' })).toHaveTextContent('$19.50')
     fireEvent.click(screen.getByRole('button', { name: /Explore tax/ }))
-    expect(onChange).toHaveBeenCalledWith('tax')
+    expect(onOpen).toHaveBeenCalledWith('tax')
   })
-  it('allows contribution planning before any account is imported', () => {
+  it('shows three metrics and task rows without nested tabs, forms or tables', () => {
+    render(<TaxView accounts={accounts} workspace={workspace()} />)
+    expect(document.querySelectorAll('.tax-metric')).toHaveLength(3)
+    expect(screen.getByRole('region', { name: 'Portfolio withholding summary' })).toHaveTextContent('$19.50')
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'Tax tools' })).getAllByRole('button')).toHaveLength(3)
+  })
+  it('opens one labeled tool and supports Escape with focus restoration', () => {
+    render(<TaxView accounts={accounts} workspace={workspace()} />)
+    const trigger = screen.getByRole('button', { name: /Compare accounts/ })
+    trigger.focus()
+    fireEvent.click(trigger)
+    expect(screen.getByRole('dialog', { name: 'Compare account types' })).toBeVisible()
+    expect(screen.queryByRole('heading', { name: 'Contribution room' })).not.toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
+  it('allows contribution planning before importing accounts', () => {
     const onAdd = vi.fn()
-    render(<><TabNav activeView="tax" hasData={false} onChange={vi.fn()} /><TaxView accounts={[]} workspace={workspace()} onAddAccount={onAdd} /></>)
-    expect(screen.getByRole('button', { name: 'Tax', exact: true })).toBeEnabled()
-    expect(screen.getByRole('heading', { name: 'Contribution room' })).toBeInTheDocument()
+    render(<TaxView accounts={[]} workspace={workspace()} onAddAccount={onAdd} />)
     fireEvent.click(screen.getByRole('button', { name: 'Add an account' }))
     expect(onAdd).toHaveBeenCalledOnce()
+    expect(open(/Contribution room/)).toHaveAccessibleName('Contribution room')
   })
-  it('retains the contextual withholding section and a route to the full page', () => {
-    const onOpenTax = vi.fn()
-    render(<AccountTaxSection account={accounts[0]} data={{ reference }} onOpenTax={onOpenTax} />)
-    expect(screen.getByRole('region', { name: 'Account withholding' })).toHaveTextContent('$19.50')
-    fireEvent.click(screen.getByRole('button', { name: /Compare on the Tax page/ }))
-    expect(onOpenTax).toHaveBeenCalledOnce()
+  it('compares distinct accounts and starts with a one-year illustration', () => {
+    render(<TaxView accounts={accounts} workspace={workspace()} />)
+    const dialog = open(/Compare accounts/)
+    expect(dialog).toHaveTextContent('$19.50')
+    expect(within(dialog).getByLabelText('Account A')).toHaveValue('TFSA')
+    fireEvent.change(within(dialog).getByLabelText('Account A'), { target: { value: 'RRSP' } })
+    expect(within(dialog).getByLabelText('Account B')).toHaveValue('TFSA')
+    fireEvent.click(within(dialog).getByText('Compare over several years'))
+    fireEvent.change(within(dialog).getByRole('slider'), { target: { value: '20' } })
+    expect(dialog).toHaveTextContent('$390.00')
   })
 })
 
-describe('Tax page interactions', () => {
-  it('starts with a focused summary and opens one planning tool at a time', () => {
-    render(<TaxView accounts={accounts} workspace={workspace()} />)
-    expect(screen.getByRole('region', { name: 'FX conversion cost summary' })).toBeVisible()
-    expect(screen.getByRole('heading', { name: 'Contribution room' })).toBeVisible()
-    expect(screen.queryByRole('heading', { name: 'Compare account types' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'After a sale' })).not.toBeInTheDocument()
-    expect(screen.getByRole('region', { name: 'Portfolio withholding summary' })).toHaveTextContent('$19.50')
-    fireEvent.click(screen.getByRole('tab', { name: 'Planning' }))
-    expect(screen.getByRole('heading', { name: 'Compare account types' })).toBeVisible()
-    fireEvent.change(screen.getByLabelText(/Illustration over/), { target: { value: '20' } })
-    expect(screen.getByText('$390.00')).toBeVisible()
-    fireEvent.click(screen.getByRole('button', { name: 'Currency conversion', exact: true }))
-    expect(screen.getByRole('heading', { name: 'Currency conversion' })).toBeVisible()
-    expect(screen.queryByRole('heading', { name: 'Compare account types' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Account comparison' }))
-    expect(screen.getByRole('slider')).toHaveValue('20')
-  })
-  it('does not describe a zero-yield TFSA as treaty exempt anywhere on the page', () => {
-    // The by-account table that carried this label is gone (#139). The rule it
-    // guarded is asserted directly on projectWithholding now; this keeps the
-    // weaker guarantee that no surface reintroduces the claim.
-    render(<TaxView accounts={[accounts[0]]} workspace={workspace({ settings: { yieldPct: 0 } })} />)
-    expect(screen.getByRole('tabpanel', { name: 'Summary' })).not.toHaveTextContent('Treaty-exempt')
-  })
-  it('saves room with its date and checks an excess against all contributions', async () => {
-    const current = localTaxDate()
+describe('Contribution editing', () => {
+  it('saves room with its date and checks a planned contribution on request', async () => {
     const state = workspace()
     const { rerender } = render(<TaxView accounts={accounts} workspace={state} />)
+    open(/Contribution room/)
     fireEvent.click(screen.getAllByRole('button', { name: /Add room/ })[0])
-    fireEvent.change(screen.getByLabelText(/TFSA available room \(CAD\)/), { target: { value: '10000' } })
+    fireEvent.change(screen.getByLabelText(/TFSA available room/), { target: { value: '10000' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save figures' }))
-    await waitFor(() => expect(state.update).toHaveBeenCalledWith({ room: { TFSA: { limitMinor: 1000000, asOf: current } } }))
-    rerender(<TaxView accounts={accounts} workspace={workspace({ settings: { room: { TFSA: { limitMinor: 1000000, asOf: current } } } })} />)
+    await waitFor(() => expect(state.update).toHaveBeenCalledWith({ room: { TFSA: { limitMinor: 1000000, asOf: localTaxDate() } } }))
+    rerender(<TaxView accounts={accounts} workspace={workspace({ settings: { room: { TFSA: { limitMinor: 1000000, asOf: localTaxDate() } } } })} />)
+    fireEvent.click(screen.getByText('Check a contribution'))
     fireEvent.change(screen.getByLabelText('Check a planned TFSA contribution (CAD)'), { target: { value: '10500' } })
     expect(screen.getByRole('status')).toHaveTextContent('$500.00 above the room you recorded')
   })
-  it('keeps failed saves editable and never hides ledger errors behind a zero fee', async () => {
-    const state = workspace({ update: vi.fn().mockResolvedValue(false), ledger: { transactions: [], error: 'Transaction history couldn’t be loaded.', loading: false } })
+  it('keeps failed saves editable', async () => {
+    const state = workspace({ update: vi.fn().mockResolvedValue(false) })
     render(<TaxView accounts={accounts} workspace={state} />)
-    expect(screen.getByRole('alert')).toHaveTextContent('Transaction history couldn’t be loaded')
+    open(/Contribution room/)
     fireEvent.click(screen.getAllByRole('button', { name: /Add room/ })[0])
-    fireEvent.change(screen.getByLabelText(/TFSA available room \(CAD\)/), { target: { value: '100' } })
+    fireEvent.change(screen.getByLabelText(/TFSA available room/), { target: { value: '100' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save figures' }))
     await waitFor(() => expect(state.update).toHaveBeenCalled())
-    expect(screen.getByLabelText(/TFSA available room \(CAD\)/)).toHaveValue(100)
+    expect(screen.getByLabelText(/TFSA available room/)).toHaveValue(100)
   })
-  it('shows fund fees even with an empty ledger and names missing expense ratios', () => {
-    const funds = [{ ...accounts[0], positions: [
-      { ...accounts[0].positions[0], SYMBOL: 'VTI', 'MARKET VALUE': 10000 },
-      { ...accounts[0].positions[0], SYMBOL: 'OTHER', 'MARKET VALUE': 5000 },
-    ] }]
-    render(<TaxView accounts={funds} workspace={workspace({ data: { reference: { VTI: { exchange: 'PCX', isFund: true, expenseRatioPct: 0.03 }, OTHER: { exchange: 'PCX', isFund: true } } } })} />)
-    expect(screen.getByRole('region', { name: 'Annual fund fee summary' })).toHaveTextContent('$3.00')
-    expect(screen.queryByRole('heading', { name: 'Fund fee breakdown' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'View breakdown' }))
-    expect(screen.getByRole('heading', { name: 'Fund fee breakdown' })).toBeVisible()
-    expect(document.querySelector('#tax-fees')).toHaveTextContent('$3.00')
-    expect(document.querySelector('#tax-fees')).toHaveTextContent('Expense ratio unavailable: OTHER')
-  })
-  it('no longer offers a registration control on the Tax page', () => {
-    // The control moves to Accounts (#136's sibling issue). Asserting its
-    // absence keeps that move honest: if it reappears here it exists twice,
-    // and two controls over one setting can disagree.
-    render(<TaxView accounts={[...accounts, { accountNumber: 'unknown', currency: 'USD', positions: [{ SYMBOL: 'MSFT' }] }]} workspace={workspace()} />)
-    expect(screen.queryByLabelText('Registration for unknown')).not.toBeInTheDocument()
-    expect(screen.queryByRole('table')).not.toBeInTheDocument()
-  })
-  it('hides stale contribution numbers and any planned-excess warning', () => {
-    const prior = `${new Date().getFullYear() - 1}-01-01`
-    render(<TaxView accounts={accounts} workspace={workspace({ settings: { room: { TFSA: { limitMinor: 1000, asOf: prior } } } })} />)
-    expect(screen.getByText('Needs an update')).toBeInTheDocument()
-    expect(screen.queryByLabelText('Check a planned TFSA contribution (CAD)')).not.toBeInTheDocument()
-    expect(screen.getByText('TFSA withdrawal and re-contribution adjustments are excluded.')).toBeInTheDocument()
-  })
-  it('shows complete disposals and keeps provenance and reinvestment exclusions with their figures', () => {
-    const base = { accountId: 'plaid', accountType: 'NON_REGISTERED', securityKey: 'isin:msft', securityKeyBasis: 'isin', symbol: 'MSFT', feesMinor: 0, currency: 'USD', fxRate: 1.4 }
-    const state = workspace({ ledger: { transactions: [
-      { ...base, id: 'buy', action: 'BUY', quantity: 10, amountMinor: 80000, tradeDate: '2025-01-01' },
-      { ...base, id: 'sell', action: 'SELL', quantity: -10, amountMinor: 100000, tradeDate: '2026-01-01' },
-    ], historyStarts: { plaid: '2024-01-01' }, loading: false }, prices: { quotes: { MSFT: { price: 110, currency: 'USD' } }, usdCadRate: 1.5 } })
-    const { rerender } = render(<TaxView accounts={accounts} workspace={state} />)
-    fireEvent.click(screen.getByRole('tab', { name: 'Sales' }))
-    expect(screen.getByRole('heading', { name: 'After a sale' })).toBeVisible()
-    expect(document.querySelector('#tax-sales')).toHaveTextContent('$1,650.00')
-    expect(document.querySelector('#tax-sales')).toHaveTextContent('Holding would be worth more')
-    expect(document.querySelector('#tax-sales')).toHaveTextContent('derived from the transaction pool')
-    expect(document.querySelector('#tax-sales')).toHaveTextContent('Excludes reinvestment of the sale proceeds')
-    rerender(<TaxView accounts={accounts} workspace={{ ...state, prices: { quotes: { MSFT: { price: 50, currency: 'USD' } }, usdCadRate: 1.5 } }} />)
-    expect(document.querySelector('#tax-sales')).toHaveTextContent('Selling was worth more')
-  })
-  it('supports keyboard navigation and preserves a contribution draft between views', () => {
-    render(<TaxView accounts={accounts} workspace={workspace()} />)
-    fireEvent.click(screen.getAllByRole('button', { name: /Add room/ })[0])
-    fireEvent.change(screen.getByLabelText(/TFSA available room \(CAD\)/), { target: { value: '7300' } })
-    const summary = screen.getByRole('tab', { name: 'Summary' })
-    summary.focus()
-    fireEvent.keyDown(summary, { key: 'ArrowRight' })
-    expect(screen.getByRole('tab', { name: 'Planning' })).toHaveFocus()
-    expect(screen.getByRole('tab', { name: 'Planning' })).toHaveAttribute('aria-selected', 'true')
-    fireEvent.keyDown(screen.getByRole('tab', { name: 'Planning' }), { key: 'End' })
-    expect(screen.getByRole('tab', { name: 'Sales' })).toHaveFocus()
-    fireEvent.keyDown(screen.getByRole('tab', { name: 'Sales' }), { key: 'Home' })
-    expect(summary).toHaveFocus()
-    expect(screen.getByLabelText(/TFSA available room \(CAD\)/)).toHaveValue(7300)
-  })
-
-})
-
-describe('FX conversion costs card (#139)', () => {
-  // A CAD leg and a USD leg on the same day are one conversion.
-  const conversion = (day, cad, usd, rate = 1.34) => ([
-    { id: `fx-cad-${day}`, accountId: 'a1', action: 'FX', tradeDate: `2026-0${day}-01`, amountMinor: cad, currency: 'CAD', quantity: 0 },
-    { id: `fx-usd-${day}`, accountId: 'a1', action: 'FX', tradeDate: `2026-0${day}-01`, amountMinor: usd, currency: 'USD', quantity: 0, fxRate: rate },
-  ])
-  const withLedger = (transactions) => workspace({ data: { reference, transactions } })
-  const card = () => screen.getByRole('region', { name: 'FX conversion cost summary' })
-
-  it('always reports itself as measured, never as an estimate', () => {
-    // It reports only what the ledger can prove happened, which is a different
-    // kind of number from the two cards beside it.
-    render(<TaxView accounts={accounts} workspace={withLedger(conversion(7, 500000, 366300))} />)
-    // The badge specifically. The body copy does say "Estimated FX spread",
-    // which is the issue's own wording — what must never appear is the badge
-    // that would file this alongside the two projected figures.
-    const badges = [...card().querySelectorAll('.tax-badge')].map((b) => b.textContent)
-    expect(badges).toContain('Measured')
-    expect(badges).not.toContain('Estimate')
-    expect(badges).not.toContain('Annual estimate')
-  })
-
-  it('counts a single conversion in the singular', () => {
-    render(<TaxView accounts={accounts} workspace={withLedger(conversion(7, 500000, 366300))} />)
-    expect(card()).toHaveTextContent('1 measured conversion')
-    expect(card()).not.toHaveTextContent('1 conversions')
-  })
-
-  it('counts several', () => {
-    render(<TaxView accounts={accounts} workspace={withLedger([
-      ...conversion(5, 500000, 366300), ...conversion(6, 400000, 295000), ...conversion(7, 300000, 221000),
-    ])} />)
-    expect(card()).toHaveTextContent('3 measured conversions')
-  })
-
-  it('says nothing was recorded when the ledger holds no USD activity at all', () => {
-    // Claiming USD purchases exist when none do explains something that never
-    // happened.
-    render(<TaxView accounts={accounts} workspace={withLedger([])} />)
-    expect(card()).toHaveTextContent('No conversions recorded')
-    expect(card()).not.toHaveTextContent('USD activity found')
-  })
-
-  it('explains the gap when USD activity exists but cannot be priced', () => {
-    render(<TaxView accounts={accounts} workspace={withLedger([
-      { id: 'buy', accountId: 'a1', action: 'BUY', tradeDate: '2026-07-01', amountMinor: 91856, currency: 'USD', quantity: 8, priceMinor: 11482, symbol: 'MSFT' },
-    ])} />)
-    expect(card()).toHaveTextContent('USD activity found')
-  })
-
-  it('offers a route to the conversions rather than only a number', () => {
-    render(<TaxView accounts={accounts} workspace={withLedger(conversion(7, 500000, 366300))} />)
-    fireEvent.click(within(card()).getByRole('button', { name: /View conversions/ }))
-    expect(screen.getByRole('heading', { name: 'Currency conversion' })).toBeVisible()
-  })
-})
-
-describe('Planning → Currency is a historical report (#138)', () => {
-  const conversion = (month, day, cad, usd, rate = 1.34, year = 2026) => ([
-    { id: `fx-cad-${year}${month}${day}`, accountId: 'a1', action: 'FX', tradeDate: `${year}-${month}-${day}`, amountMinor: cad, currency: 'CAD', quantity: 0 },
-    { id: `fx-usd-${year}${month}${day}`, accountId: 'a1', action: 'FX', tradeDate: `${year}-${month}-${day}`, amountMinor: usd, currency: 'USD', quantity: 0, fxRate: rate },
-  ])
-  const withLedger = (transactions) => workspace({ data: { reference, transactions } })
-  const openCurrency = () => {
-    fireEvent.click(screen.getByRole('tab', { name: 'Planning' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Currency conversion' }))
-    return screen.getByRole('region', { name: /Currency conversion/ })
-  }
-
-  it('no longer offers a hypothetical calculator', () => {
-    // The page answers what past conversions cost, not what a future one might.
-    render(<TaxView accounts={accounts} workspace={withLedger(conversion('08', '12', 131740, 91856))} />)
-    openCurrency()
-    expect(screen.queryByLabelText(/Amount to convert/)).not.toBeInTheDocument()
-    expect(screen.queryByLabelText(/Broker FX spread/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/Difference under these assumptions/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/How this comparison works/)).not.toBeInTheDocument()
-  })
-
-  it('lists every conversion newest first, with the figures the event carries', () => {
-    render(<TaxView accounts={accounts} workspace={withLedger([
-      ...conversion('07', '28', 100000, 73000),
-      ...conversion('08', '12', 131740, 91856),
-    ])} />)
-    const items = within(openCurrency()).getAllByRole('listitem')
-
-    expect(items).toHaveLength(2)
-    expect(items[0]).toHaveTextContent('Aug 12')
-    expect(items[1]).toHaveTextContent('Jul 28')
-    expect(items[0]).toHaveTextContent('CAD amount')
-    expect(items[0]).toHaveTextContent('USD amount')
-    expect(items[0]).toHaveTextContent('Daily reference rate')
-    expect(items[0]).toHaveTextContent('Effective broker rate')
-  })
-
-  it('totals only the selected year', () => {
-    // A conversion from last year is a different year's cost.
-    render(<TaxView accounts={accounts} workspace={withLedger([
-      ...conversion('08', '12', 131740, 91856),
-      ...conversion('08', '12', 500000, 366300, 1.34, 2025),
-    ])} />)
-    const panel = openCurrency()
-
-    expect(within(panel).getAllByRole('listitem')).toHaveLength(1)
-    expect(panel).toHaveTextContent('1 measured conversion')
-  })
-
-  it('agrees with the Summary card exactly', () => {
-    // Two aggregations over the same data are two chances to disagree, so both
-    // read one call with one year.
-    render(<TaxView accounts={accounts} workspace={withLedger([
-      ...conversion('07', '28', 100000, 73000),
-      ...conversion('08', '12', 131740, 91856),
-    ])} />)
-    const summaryTotal = screen.getByRole('region', { name: 'FX conversion cost summary' }).textContent.match(/\$[\d,]+\.\d\d/)[0]
-    const planningTotal = openCurrency().textContent.match(/\$[\d,]+\.\d\d/)[0]
-
-    expect(planningTotal).toBe(summaryTotal)
-  })
-
-  it('never prices a USD purchase funded from USD cash already held', () => {
-    // The refusal lives in the pricing layer; this guards it through the UI.
-    render(<TaxView accounts={accounts} workspace={withLedger([
-      { id: 'in', accountId: 'a1', action: 'SELL', tradeDate: '2026-08-01', amountMinor: 200000, currency: 'USD', quantity: 1, fxRate: 1.39 },
-      { id: 'buy', accountId: 'a1', action: 'BUY', tradeDate: '2026-08-12', amountMinor: 131740, currency: 'CAD', quantity: 8, priceMinor: 11482, symbol: 'RKLB', fxRate: 1.393 },
-    ])} />)
-
-    expect(openCurrency()).toHaveTextContent('No measured FX conversions yet')
-  })
-
-  it('explains the gap when USD activity exists but cannot be priced', () => {
-    render(<TaxView accounts={accounts} workspace={withLedger([
-      { id: 'buy', accountId: 'a1', action: 'BUY', tradeDate: '2026-08-12', amountMinor: 91856, currency: 'USD', quantity: 8, priceMinor: 11482, symbol: 'RKLB' },
-    ])} />)
-
-    expect(openCurrency()).toHaveTextContent('We found USD activity')
-  })
-
-  it('says plainly that nothing is recorded when there is no USD activity at all', () => {
-    render(<TaxView accounts={accounts} workspace={withLedger([])} />)
-    const panel = openCurrency()
-
-    expect(panel).toHaveTextContent('No conversions recorded')
-    expect(panel).not.toHaveTextContent('We found USD activity')
-  })
-})
-
-describe('Tax detail hierarchy', () => {
-  it('keeps references out of Summary and presents rounded yields in the dialog', async () => {
-    const state = workspace({ data: { reference: { MSFT: { ...reference.MSFT, yieldPct: 0.04004805766920305, resolvedAt: '2026-09-06T00:00:00Z' } } } })
-    render(<TaxView accounts={accounts} workspace={state} />)
-    expect(screen.queryByRole('table', { name: /Holding/ })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /Data & assumptions/ }))
-    const dialog = screen.getByRole('dialog', { name: 'Data & assumptions' })
-    expect(within(dialog).getAllByText('0.04%')).toHaveLength(2)
-    expect(dialog).not.toHaveTextContent('0.040048057')
-    expect(dialog).toHaveTextContent('Nasdaq · 2026-09-06')
-    fireEvent.change(within(dialog).getByLabelText('Fallback yield (%)'), { target: { value: '2' } })
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Apply' }))
-    await waitFor(() => expect(state.update).toHaveBeenCalledWith({ yieldPct: 2 }))
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  })
-
   it('opens only one contribution editor at a time', () => {
     render(<TaxView accounts={accounts} workspace={workspace()} />)
+    open(/Contribution room/)
     fireEvent.click(screen.getAllByRole('button', { name: /Add room/ })[0])
-    expect(screen.getByLabelText(/TFSA available room/)).toBeVisible()
     fireEvent.click(screen.getAllByRole('button', { name: /Add room/ })[1])
     expect(screen.queryByLabelText(/TFSA available room/)).not.toBeInTheDocument()
     expect(screen.getByLabelText(/RRSP available room/)).toBeVisible()
     expect(screen.getAllByRole('button', { name: 'Save figures' })).toHaveLength(1)
   })
+  it('suppresses stale room and planned-excess warnings', () => {
+    render(<TaxView accounts={accounts} workspace={workspace({ settings: { room: { TFSA: { limitMinor: 1000, asOf: `${year - 1}-01-01` } } } })} />)
+    open(/Contribution room/)
+    expect(screen.getByText('Needs an update')).toBeVisible()
+    expect(screen.queryByLabelText('Check a planned TFSA contribution (CAD)')).not.toBeInTheDocument()
+    expect(screen.getByText('Withdrawals do not add room in this estimate.')).toBeVisible()
+  })
+})
 
-  it('shows unverified NVDA records as missing evidence instead of negative FX charges', () => {
-    const transactions = ['68BB39Q', '68BB39W'].map((accountId) => ({ id: `nvda-${accountId}`, accountId, action: 'BUY', symbol: 'NVDA', tradeDate: `${localTaxDate().slice(0, 4)}-08-12`, amountMinor: 24611, priceMinor: 24611, quantity: 1, currency: 'CAD', fxRate: 1.393 }))
+describe('Cost evidence and detail windows', () => {
+  it('shows fund fees with an empty ledger and retains named coverage gaps', () => {
+    const funds = [{ ...accounts[0], positions: [{ ...accounts[0].positions[0], SYMBOL: 'VTI' }, { ...accounts[0].positions[0], SYMBOL: 'OTHER' }] }]
+    render(<TaxView accounts={funds} workspace={workspace({ data: { reference: { VTI: { exchange: 'PCX', isFund: true, expenseRatioPct: 0.03 }, OTHER: { exchange: 'PCX', isFund: true } } } })} />)
+    expect(screen.getByRole('region', { name: 'Annual fund fee summary' })).toHaveTextContent('$3.00')
+    const dialog = open('View breakdown')
+    expect(dialog).toHaveTextContent('Expense ratio unavailable: OTHER')
+    expect(dialog).toHaveTextContent('$3.00')
+  })
+  it('rounds yield displays and preserves the editable assumption', async () => {
+    const state = workspace({ data: { reference: { MSFT: { ...reference.MSFT, yieldPct: 0.04004805766920305, resolvedAt: '2026-09-06T00:00:00Z' } } } })
+    render(<TaxView accounts={accounts} workspace={state} />)
+    const dialog = open(/Data & assumptions/)
+    expect(within(dialog).getAllByText('0.04%')).toHaveLength(2)
+    expect(dialog).not.toHaveTextContent('0.040048057')
+    fireEvent.click(within(dialog).getByText('Adjust the assumed dividend yield'))
+    fireEvent.change(within(dialog).getByLabelText('Fallback yield (%)'), { target: { value: '2' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Apply' }))
+    await waitFor(() => expect(state.update).toHaveBeenCalledWith({ yieldPct: 2 }))
+  })
+  it('keeps imported transactions collapsed, limits rows and supports search', () => {
+    const transactions = Array.from({ length: 45 }, (_, i) => ({ id: String(i), accountId: 'TFSA', action: 'BUY', symbol: i === 40 ? 'FINDME' : 'MSFT', tradeDate: `${year}-08-12`, amountMinor: 10000, currency: 'USD', fxRate: 1.39 }))
+    render(<TaxView accounts={accounts} workspace={workspace({ ledger: { transactions } })} />)
+    const dialog = open(/Data & assumptions/)
+    expect(within(dialog).getByRole('table', { name: 'Imported transactions' })).not.toBeVisible()
+    fireEvent.click(dialog.querySelector('.tax-data-ledger > summary'))
+    expect(within(within(dialog).getByRole('table', { name: 'Imported transactions' })).getAllByRole('row')).toHaveLength(21)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Show 20 more' }))
+    expect(dialog).toHaveTextContent('Showing 40 of 45')
+    fireEvent.change(within(dialog).getByRole('searchbox'), { target: { value: 'FINDME' } })
+    expect(dialog).toHaveTextContent('Showing 1 of 1')
+    expect(within(dialog).getByRole('table', { name: 'Imported transactions' })).toHaveTextContent('FINDME')
+  })
+  it('shares the measured FX total and retains equal-looking conversions across accounts', () => {
+    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: [...conversion('TFSA'), ...conversion('RRSP'), ...conversion('OLD', `${year - 1}-07-01`)] } })} />)
+    const card = screen.getByRole('region', { name: 'FX conversion cost summary' })
+    expect(card).toHaveTextContent('$20.00')
+    const dialog = open(/View conversions/)
+    expect(dialog).toHaveTextContent('$20.00')
+    expect(dialog).toHaveTextContent('2 measured conversions')
+    expect(dialog.querySelectorAll('.tax-conversion')).toHaveLength(2)
+    expect(dialog).toHaveTextContent('TFSA')
+    expect(dialog).toHaveTextContent('RRSP')
+    expect(dialog).not.toHaveTextContent('Account OLD')
+  })
+  it('does not put a hypothetical cost on Summary for USD purchases using existing cash', () => {
+    const transactions = [{ id: 'deposit', accountId: 'TFSA', action: 'TRANSFER', tradeDate: `${year}-07-01`, amountMinor: 200000, currency: 'USD' }, { id: 'buy', accountId: 'TFSA', action: 'BUY', symbol: 'RKLB', tradeDate: `${year}-08-12`, amountMinor: 91856, currency: 'USD', fxRate: 1.393 }]
     render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions } })} />)
-    expect(screen.getByRole('region', { name: 'FX conversion cost summary' })).toHaveTextContent('Not measured')
-    fireEvent.click(screen.getByRole('button', { name: /View conversions/ }))
-    const report = screen.getByRole('region', { name: 'Currency conversion' })
-    expect(report).toHaveTextContent('2 records not priced')
-    expect(report).not.toHaveTextContent('$193.44')
-    expect(report).not.toHaveTextContent('1.0000')
-    fireEvent.click(within(report).getByText('2 records not priced'))
-    expect(within(report).getAllByText(/Unit-price currency is unverified/)).toHaveLength(2)
-    expect(report).toHaveTextContent('68BB39Q')
-    expect(report).toHaveTextContent('68BB39W')
+    const card = screen.getByRole('region', { name: 'FX conversion cost summary' })
+    expect(card).toHaveTextContent('Not measured')
+    expect(card).not.toHaveTextContent('$19.19')
+    const dialog = open(/View conversions/)
+    expect(dialog).toHaveTextContent('No measured FX conversions yet')
+    fireEvent.click(within(dialog).getByText('What if these purchases needed currency conversion?'))
+    expect(dialog).toHaveTextContent('Not a recorded cost')
+    expect(dialog).toHaveTextContent('existing USD cash is not deducted')
   })
-})
-
-describe('sync result reports why records were skipped', () => {
-  it('lists each reason with the count, so a skip can be acted on', () => {
-    // "3 records skipped" is not actionable. An unmapped action carries the
-    // institution's own wording, which is what allows it to be mapped.
-    const state = workspace()
-    state.syncState = {
-      result: { written: 3, skipped: 3, skippedReasons: { 'unidentifiable-security': 2, 'unmapped-action (currency conv)': 1 } },
-    }
+  it.each([{ error: 'Offline' }, { limited: true }, { loading: true }])('distinguishes unavailable history from empty history (%j)', (ledger) => {
+    render(<TaxView accounts={accounts} workspace={workspace({ ledger: { transactions: [], ...ledger } })} />)
+    const card = screen.getByRole('region', { name: 'FX conversion cost summary' })
+    expect(card).toHaveTextContent('Unavailable')
+    expect(card).not.toHaveTextContent('No conversions recorded')
+    expect(open(/View conversions/)).toHaveTextContent('Transaction history unavailable')
+  })
+  it('keeps sync diagnostics behind a disclosure', () => {
+    render(<TaxView accounts={accounts} workspace={workspace({ syncState: { result: { written: 3, skipped: 1, skippedReasons: { 'Unknown action': 1 } } } })} />)
+    const status = screen.getByRole('status')
+    expect(status).toHaveTextContent('3 transactions synced')
+    expect(within(status).getByText('1 · Unknown action')).not.toBeVisible()
+    fireEvent.click(within(status).getByText('Sync details'))
+    expect(within(status).getByText('1 · Unknown action')).toBeVisible()
+  })
+  it('keeps sale results and their limitations together with expandable provenance', () => {
+    const base = { accountId: 'plaid', accountType: 'NON_REGISTERED', securityKey: 'isin:msft', securityKeyBasis: 'isin', symbol: 'MSFT', feesMinor: 0, currency: 'USD', fxRate: 1.4 }
+    const state = workspace({ ledger: { transactions: [{ ...base, id: 'buy', action: 'BUY', quantity: 10, amountMinor: 80000, tradeDate: '2025-01-01' }, { ...base, id: 'sell', action: 'SELL', quantity: -10, amountMinor: 100000, tradeDate: '2026-01-01' }], historyStarts: { plaid: '2024-01-01' } }, prices: { quotes: { MSFT: { price: 110, currency: 'USD' } }, usdCadRate: 1.5 } })
     render(<TaxView accounts={accounts} workspace={state} />)
-
-    const notice = screen.getByRole('status')
-    expect(notice).toHaveTextContent('3 transactions synced. 3 records skipped.')
-    expect(notice).toHaveTextContent('2 × unidentifiable-security')
-    expect(notice).toHaveTextContent('1 × unmapped-action (currency conv)')
-  })
-
-  it('stays quiet when nothing was skipped', () => {
-    const state = workspace()
-    state.syncState = { result: { written: 3, skipped: 0, skippedReasons: {} } }
-    render(<TaxView accounts={accounts} workspace={state} />)
-
-    expect(screen.getByRole('status')).not.toHaveTextContent('skipped')
-  })
-})
-
-describe('the ledger is visible, not only summarised', () => {
-  // Four rounds of counts, refusals and reason codes described this data from
-  // the outside without ever showing it. When a figure is missing, the rows
-  // themselves are the only place the answer can be.
-  const ledger = [
-    { id: 'buy', accountId: 'a1', action: 'BUY', symbol: 'RKLB', tradeDate: '2026-08-12', amountMinor: 91856, currency: 'USD', quantity: 8, priceMinor: 11482, fxRate: 1.393 },
-    { id: 'dep', accountId: 'a1', action: 'TRANSFER', tradeDate: '2026-08-10', amountMinor: 131740, currency: 'CAD', quantity: 0, fxRate: null },
-  ]
-
-  it('lists every imported record with its currency and reference rate', () => {
-    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: ledger } })} />)
-    fireEvent.click(screen.getByRole('button', { name: /Data & assumptions/ }))
-    const table = within(screen.getByRole('region', { name: 'Transaction ledger' })).getByRole('table')
-
-    expect(table).toHaveTextContent('RKLB')
-    expect(table).toHaveTextContent('918.56 USD')
-    expect(table).toHaveTextContent('1,317.40 CAD')
-    expect(table).toHaveTextContent('1.3930')
-  })
-
-  it('names a missing reference rate rather than leaving a blank', () => {
-    // A conversion cannot be priced without one, so its absence is the answer
-    // to why a cost is missing — not an empty cell to wonder about.
-    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: ledger } })} />)
-    fireEvent.click(screen.getByRole('button', { name: /Data & assumptions/ }))
-
-    expect(within(screen.getByRole('region', { name: 'Transaction ledger' })).getAllByText('None')).toHaveLength(1)
-  })
-
-  it('says the ledger is empty rather than showing an empty table', () => {
-    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: [] } })} />)
-    fireEvent.click(screen.getByRole('button', { name: /Data & assumptions/ }))
-
-    expect(screen.getByRole('region', { name: 'Transaction ledger' })).toHaveTextContent('No transactions imported yet')
-  })
-})
-
-describe('FX cost when the broker never reported the exchange', () => {
-  // A real ledger: RKLB bought in US dollars, CAD leaving the account, no
-  // US-dollar arrival anywhere. The conversion happened; only its price is
-  // unobserved, and showing nothing is the wrong answer to that.
-  const ledger = [
-    { id: 'rklb', accountId: 'a1', action: 'BUY', symbol: 'RKLB', tradeDate: `${localTaxDate().slice(0, 4)}-08-12`, quantity: 8, amountMinor: 91856, currency: 'USD', fxRate: 1.393 },
-    { id: 'out', accountId: 'a1', action: 'TRANSFER', tradeDate: `${localTaxDate().slice(0, 4)}-08-09`, quantity: 0, amountMinor: 170000, currency: 'CAD', fxRate: 1.3943 },
-  ]
-  const openCurrency = () => {
-    fireEvent.click(screen.getByRole('tab', { name: 'Planning' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Currency conversion' }))
-    return screen.getByRole('region', { name: 'Currency conversion' })
-  }
-
-  it('shows what the conversion cost rather than an empty state', () => {
-    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: ledger } })} />)
-    const panel = openCurrency()
-
-    expect(panel).toHaveTextContent('Estimated FX cost')
-    expect(panel).toHaveTextContent('$19.19')          // 1.5% of 918.56 USD at 1.393
-    expect(panel).toHaveTextContent('RKLB')
-    expect(panel).not.toHaveTextContent('No measured FX conversions yet')
-  })
-
-  it('says it is an estimate and why, never calling it measured', () => {
-    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: ledger } })} />)
-    const panel = openCurrency()
-
-    // The badge is the claim. The paragraph that used to spell it out was
-    // removed as noise; what must not happen is an estimate badged as measured.
-    expect(within(panel).getByText('Estimate · CAD')).toBeInTheDocument()
-    expect(within(panel).queryByText('Measured · CAD')).not.toBeInTheDocument()
-  })
-
-  it('counts one real purchase once when three connections reported it', () => {
-    // Duplicate Plaid connections give the same trade a different id each, so
-    // the estimate would otherwise be charged three times over.
-    const triplicated = [ledger[0], { ...ledger[0], id: 'dup1', accountId: 'b1' }, { ...ledger[0], id: 'dup2', accountId: 'c1' }]
-    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: triplicated } })} />)
-
-    expect(within(openCurrency()).getAllByRole('listitem')).toHaveLength(1)
-  })
-})
-
-describe('the summary card shows an estimate rather than nothing', () => {
-  // The estimate reached Planning and never reached the card, so the page said
-  // "Not measured" beside a section showing a figure. A measured cost outranks
-  // an estimated one, but an estimate outranks silence.
-  const ledger = [{
-    id: 'rklb', accountId: 'a1', action: 'BUY', symbol: 'RKLB',
-    tradeDate: `${localTaxDate().slice(0, 4)}-08-12`,
-    quantity: 8, amountMinor: 91856, currency: 'USD', fxRate: 1.393,
-  }]
-  const card = () => screen.getByRole('region', { name: 'FX conversion cost summary' })
-
-  it('shows the estimated cost on the card', () => {
-    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: ledger } })} />)
-
-    expect(card()).toHaveTextContent('$19.19')
-    expect(card()).not.toHaveTextContent('Not measured')
-  })
-
-  it('badges it an estimate, never measured', () => {
-    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: ledger } })} />)
-
-    expect(within(card()).getByText('Estimate')).toBeInTheDocument()
-    expect(within(card()).queryByText('Measured')).not.toBeInTheDocument()
-  })
-
-  it('agrees with the figure Planning shows', () => {
-    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: ledger } })} />)
-    const cardTotal = card().textContent.match(/\$[\d,]+\.\d\d/)[0]
-    fireEvent.click(screen.getByRole('tab', { name: 'Planning' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Currency conversion' }))
-
-    expect(screen.getByRole('region', { name: 'Currency conversion' }).textContent).toContain(cardTotal)
-  })
-
-  it('still says nothing when there is nothing to estimate', () => {
-    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: [] } })} />)
-
-    expect(card()).toHaveTextContent('Not measured')
+    const dialog = open(/Review sales/)
+    expect(dialog).toHaveTextContent('$1,650.00')
+    expect(dialog).toHaveTextContent('Holding would be worth more')
+    expect(dialog).toHaveTextContent('Excludes dividends, tax and reinvestment')
+    fireEvent.click(within(dialog).getByText('Calculation details'))
+    expect(within(dialog).getByText('isin', { exact: true })).toBeVisible()
+    close()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })

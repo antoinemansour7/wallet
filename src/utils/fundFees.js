@@ -36,6 +36,7 @@ export function summarizeFundFees(rows = [], reference = {}) {
   const refFor = (row) => reference[String(row?.SYMBOL ?? '').trim().toUpperCase()] ?? null
 
   let annualFeeMinor = 0
+  let weightedFeeMinor = 0
   let pricedValueMinor = 0
   let unpricedValueMinor = 0
   const priced = []
@@ -52,12 +53,13 @@ export function summarizeFundFees(rows = [], reference = {}) {
     if (!ref?.isFund) continue
 
     const mer = Number(ref.expenseRatioPct)
-    if (!Number.isFinite(mer) || mer <= 0) {
+    if (ref.expenseRatioPct == null || ref.expenseRatioPct === '' || !Number.isFinite(mer) || mer < 0) {
       unpricedValueMinor += value
       unpriced.push(String(row.SYMBOL ?? '').toUpperCase())
       continue
     }
 
+    weightedFeeMinor += (value * mer) / 100
     annualFeeMinor += Math.round((value * mer) / 100)
     pricedValueMinor += value
     priced.push({ symbol: String(row.SYMBOL ?? '').toUpperCase(), expenseRatioPct: mer, annualFeeMinor: Math.round((value * mer) / 100) })
@@ -69,7 +71,7 @@ export function summarizeFundFees(rows = [], reference = {}) {
     annualFeeMinor,
     // Weighted across the funds whose fees are known — not across the whole
     // portfolio, which would silently include stocks at zero.
-    weightedMerPct: pricedValueMinor > 0 ? Number(((annualFeeMinor / pricedValueMinor) * 100).toFixed(3)) : null,
+    weightedMerPct: pricedValueMinor > 0 ? Number(((weightedFeeMinor / pricedValueMinor) * 100).toFixed(3)) : null,
     pricedValueMinor,
     unpricedValueMinor,
     holdings: priced.sort((a, b) => b.annualFeeMinor - a.annualFeeMinor),

@@ -2,17 +2,13 @@
 
 Issue #124 connects the Tax workspace preserved in commit `287da25` to the engines merged under epic #16. Navigation remains **Overview · Charts · Holdings · Tax · Accounts**. Overview contains a quiet pointer; the account sheet retains its contextual withholding section.
 
-## Simplified workspace
+## Focused workspace
 
-The default **Summary** has three equal-width cards: annual dividend withholding, annual fund expenses, and the current year's measured FX difference. Each uses the same label, amount, currency/period, qualification and action hierarchy. CAD FX measurements remain explicitly CAD even when the portfolio display currency is USD. Annual estimates and historical measurements are not combined into a misleading total.
+The landing page retains three consistent cards for withholding, fund expenses and measured FX costs. Beneath them, **Plan & review** opens Contribution room, Compare accounts or Review sales in individual accessible windows. Fee and currency details open from their cards. There are no secondary Summary/Planning/Sales tabs.
 
-A short data-status row replaces the long inline source list. **Data & assumptions** opens an accessible modal with excluded holdings, the editable fallback yield and a table of per-holding yields, accounts, listings and reference dates. Percentages round to two decimal places for display only. Assumed yields and fund-level limitations remain identified. Missing coverage and assumed-yield qualifications remain beside the summary figure; fund expenses retain their own breakdown and named gaps.
+Assumptions, imported transactions, multi-year comparisons and sale provenance use disclosures. Imported transactions are searchable and initially limited to 20 visible rows. Room edits and planned-contribution checks stay inside their task window. Explicitly closing a tool dismisses its unsaved local draft; failed saves keep the editor open. Current, stale and unknown room states retain the shared calculation rules.
 
-Contribution room spans the available page width, with TFSA and RRSP beside each other on desktop and stacked on mobile. Only one contribution editor can be open at once. Current room, stale-data behavior and planned-contribution checks continue to use the shared engine.
-
-**Planning** presents one tool at a time: account comparison or a historical currency report. The report shares the Summary's measurement object and year. Statement-style conversion rows show dates, account identifiers and the signed difference from the daily reference; expanding a row reveals both currency amounts, both rates and the evidence used. A negative measured difference is labeled below reference, not presented as a negative fee paid. Equal-looking transactions with different stable identities remain separate. **Sales** retains its focused view.
-
-The page uses shared light/dark color tokens, aligned tabular amounts and restrained motion. Keyboard tab navigation, dialog focus trapping/restoration and reduced-motion behavior remain supported. Switching page sections preserves drafts and comparison selections; opening another contribution editor closes the previous one.
+FX scenarios never replace a missing historical figure. Ordinary transfers are not measured conversions; ambiguous same-day FX legs need conversion linkage. Published zero expense ratios are valid, and equal-looking trades in different accounts are retained. See the [September 7 review](../reviews/tax-review-2026-09-07.md) for findings, fixes, remaining data limitations and the prioritized next steps.
 
 ## Page and data flow
 
@@ -21,7 +17,7 @@ The page uses shared light/dark color tokens, aligned tabular amounts and restra
 | Withholding summary and details | `accountTypeOf` reads imported `ACCOUNT TYPE`; `accountWithholding` and `projectWithholding` use `securityReference` | Listing, resolved dividend yield or explicit fallback, reference date, treatment and named gaps |
 | Side-by-side comparison | Same holding and reference passed to `projectWithholding` for two existing accounts | Withholding only, constant value/yield, no compounding; fund-level treatment stays unavoidable |
 | Contribution room | Entered starting room/date plus ledger deposits passed to `roomStatus` and `checkContribution` | Stale room suppresses numbers and warnings; `excludesTfsaRecontribution` stays beside the figure |
-| Currency conversion | One `measureConversionCost` result shared by Summary and the historical Planning report | CAD/USD amounts, account, daily reference, evidence source and unpriced records; no hypothetical calculator |
+| Currency conversion | One `measureConversionCost` result shared by Summary and the historical currency window | CAD/USD amounts, account, daily reference, evidence source and unpriced records; no hypothetical calculator |
 | Fund fees | `summarizeFundFees` reads `securityReference` expense ratios | Annual estimate at current values; weighted across priced funds only; missing MER named; stocks excluded |
 | After a sale | `poolCostBase` disposals feed `saleCounterfactuals` and `summarizeCounterfactuals` | CAD after FX conversion; pool provenance and security-match basis; `excludesReinvestment` travels with the figures |
 

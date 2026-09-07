@@ -1,4 +1,4 @@
-.tax-page, .tax-account-section, .tax-pointer, .tax-data-dialog {
+.tax-page, .tax-account-section, .tax-pointer, .tax-data-dialog, .tax-tool-dialog {
   --tax-ink: rgb(var(--color-ink));
   --tax-muted: rgb(var(--color-ink) / .62);
   --tax-border: rgb(var(--color-ink) / .10);
@@ -8,7 +8,7 @@
   color: var(--tax-ink);
   font-variant-numeric: tabular-nums;
 }
-.dark .tax-page, .dark .tax-account-section, .dark .tax-pointer, .dark .tax-data-dialog { --tax-accent: #a3c6b3; }
+.dark .tax-page, .dark .tax-account-section, .dark .tax-pointer, .dark .tax-data-dialog, .dark .tax-tool-dialog { --tax-accent: #a3c6b3; }
 .tax-page [hidden] { display: none !important; }
 .tax-page { padding-top: 8px; }
 .tax-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 30px; }
@@ -316,3 +316,52 @@
 
 /* Why an import could not take a record, listed so it can be acted on. */
 .tax-skip-reasons { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; opacity: 0.75; }
+
+/* One overview, with each task in its own focused window. */
+.tax-summary-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 32px 0 18px; }
+.tax-summary-heading h2, .tax-tool-list > h2 { font-size: 14px; font-weight: 500; letter-spacing: -.15px; }
+.tax-summary-heading .tax-currency-control { margin-bottom: 0; }
+.tax-data-link { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px 24px; padding: 12px 2px; font-size: 11px; color: var(--tax-muted); }
+.tax-tool-list { margin-top: 30px; }
+.tax-tool-list > h2 { margin-bottom: 12px; }
+.tax-tool-row { display: flex; align-items: center; gap: 18px; width: 100%; min-height: 86px; padding: 20px 4px; border-bottom: 1px solid var(--tax-border); text-align: left; transition: background 160ms; }
+.tax-tool-row:hover { background: var(--tax-soft); }
+.tax-tool-icon { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid var(--tax-border); background: var(--tax-surface); color: var(--tax-accent); border-radius: 12px; flex-shrink: 0; }
+.tax-tool-row > span:nth-child(2) { flex: 1; min-width: 0; }
+.tax-tool-row strong { display: block; font-size: 14px; font-weight: 500; }
+.tax-tool-row small { display: block; font-size: 12px; color: var(--tax-muted); line-height: 1.7; margin-top: 5px; }
+.tax-tool-row > svg { color: var(--tax-muted); flex-shrink: 0; }
+.tax-tool-dialog { max-width: 880px !important; }
+.tax-tool-body { overflow-y: auto; padding: 32px; }
+.tax-tool-body > .tax-card { padding: 0; border: 0; background: transparent; }
+.tax-tool-body .tax-section-heading { padding-right: 28px; align-items: flex-start; }
+.tax-tool-body .tax-section-heading h2 { font-size: 23px; }
+.tax-tool-body .tax-details { margin-top: 20px; }
+.tax-tool-body .tax-details > summary { font-size: 12px; }
+.tax-tool-body .tax-room-grid { grid-template-columns: 1fr; gap: 18px; }
+.tax-tool-body .tax-room-card { padding: 20px; background: transparent; }
+.tax-tool-body .tax-room-card > .tax-room-amount-empty { display: none; }
+.tax-tool-body .tax-room-amount { margin-top: 12px; }
+.tax-tool-dialog :is(button, input, select, summary, a):focus-visible { outline: 2px solid var(--tax-accent); outline-offset: 4px; }
+.tax-tool-dialog button:not(:disabled), .tax-tool-dialog summary { cursor: pointer; }
+.tax-data-assumption { border-bottom: 1px solid var(--tax-border); margin-top: 20px; }
+.tax-data-assumption > summary, .tax-data-ledger > summary { font-size: 13px; cursor: pointer; padding: 16px 0; }
+.tax-data-assumption .tax-data-fallback { border: 0; padding-top: 6px; }
+.tax-data-ledger { border-top: 1px solid var(--tax-border); margin-top: 24px; }
+.tax-data-ledger > summary > span { color: var(--tax-muted); font-size: 11px; margin-left: 8px; }
+.tax-data-ledger > p { color: var(--tax-muted); font-size: 12px; line-height: 1.7; }
+.tax-ledger-search { display: block; font-size: 12px; margin-top: 16px; }
+.tax-ledger-search input { display: block; width: 100%; margin-top: 8px; min-height: 42px; padding: 10px 12px; border: 1px solid var(--tax-border); border-radius: 8px; background: var(--tax-surface); color: var(--tax-ink); }
+.tax-ledger-table td:last-child { white-space: nowrap; }
+.tax-ledger-table td { font-size: 11px; }
+.tax-fx-scenario .tax-fx-total { margin-top: 16px; }
+@media (max-width: 540px) {
+  .tax-summary-heading { margin-top: 24px; }
+  .tax-tool-row { gap: 14px; padding: 18px 0; }
+  .tax-tool-body { padding: 30px 22px; }
+  .tax-tool-body .tax-section-heading { flex-direction: column; gap: 8px; }
+  .tax-tool-body .tax-room-card { padding: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tax-tool-dialog * { animation: none !important; transition: none !important; }
+}
