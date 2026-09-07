@@ -574,6 +574,13 @@ async function handleSyncTransactions(req, res) {
   let written = 0
   let fetched = 0
   let skipped = 0
+  // Every fetched transaction lands in exactly one of these, so the numbers
+  // reconcile. Reporting "81 fetched, 3 written, 3 skipped" leaves 75
+  // unaccounted for and reads like data loss, when in fact they belong to Plaid
+  // accounts that were never enabled here — usually a brokerage connected more
+  // than once, where only the current connection's accounts are active.
+  let notEnabled = 0
+  const skippedReasons = {}
   const errors = []
 
   settled.forEach((result, i) => {
@@ -582,6 +589,10 @@ async function handleSyncTransactions(req, res) {
       written += result.value.written
       fetched += result.value.fetched
       skipped += result.value.skipped
+      notEnabled += result.value.notEnabled ?? 0
+      for (const [reason, count] of Object.entries(result.value.skippedReasons ?? {})) {
+        skippedReasons[reason] = (skippedReasons[reason] || 0) + count
+      }
       return
     }
 
@@ -591,7 +602,7 @@ async function handleSyncTransactions(req, res) {
     errors.push({ itemId: doc.id, institution: doc.data().institution || 'Connected', message })
   })
 
-  return res.status(200).json({ written, fetched, skipped, errors })
+  return res.status(200).json({ written, fetched, skipped, notEnabled, skippedReasons, errors })
 }
 
 // ─── Disconnect ───────────────────────────────────────────────────────────────

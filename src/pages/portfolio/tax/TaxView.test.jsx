@@ -357,3 +357,27 @@ describe('sync result reports why records were skipped', () => {
     expect(screen.getByRole('status')).not.toHaveTextContent('skipped')
   })
 })
+
+describe('a sync result accounts for every fetched transaction', () => {
+  it('names transactions held back because their account is not enabled', () => {
+    // 81 fetched, 3 written, 3 skipped leaves 75 unexplained, which reads like
+    // data loss rather than a setting. They belong to a brokerage connected
+    // more than once, where only the current connection's accounts are active.
+    const state = workspace()
+    state.syncState = { result: { written: 3, fetched: 81, skipped: 3, notEnabled: 75, skippedReasons: {} } }
+    render(<TaxView accounts={accounts} workspace={state} />)
+
+    const notice = screen.getByRole('status')
+    expect(notice).toHaveTextContent('3 transactions synced. 3 records skipped.')
+    expect(notice).toHaveTextContent('75 from accounts not enabled here')
+    expect(notice).toHaveTextContent('connected more than once')
+  })
+
+  it('says nothing about enablement when every account is active', () => {
+    const state = workspace()
+    state.syncState = { result: { written: 3, fetched: 3, skipped: 0, notEnabled: 0, skippedReasons: {} } }
+    render(<TaxView accounts={accounts} workspace={state} />)
+
+    expect(screen.getByRole('status')).not.toHaveTextContent('not enabled')
+  })
+})
