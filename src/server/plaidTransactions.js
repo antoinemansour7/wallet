@@ -378,3 +378,78 @@ export async function syncInvestmentTransactions({
     endDate,
   }
 }
+
+// ─── Removing what a connection left behind ───────────────────────────────────
+
+/**
+ * Transactions outlive the connection that imported them.
+ *
+ * Disconnecting a brokerage deleted its Plaid document and its access token and
+ * left every transaction it had written in place. Nothing ever removed them, so
+ * a reconnected brokerage imported the same trades again under fresh ids and
+ * the ledger accumulated a copy per connection — three, in the account that
+ * exposed this.
+ *
+ * Deletion is by account rather than by item because that is the field a
+ * transaction actually carries. An item knows which accounts it enabled; a
+ * transaction only knows the account it belongs to.
+ */
+async function deleteInChunks(db, refs) {
+  let deleted = 0
+  for (const group of chunk(refs, BATCH_LIMIT)) {
+    const batch = db.batch()
+    for (const ref of group) batch.delete(ref)
+    await batch.commit()
+    deleted += group.length
+  }
+  return deleted
+}
+
+export async function deleteTransactionsForAccounts({ db, uid, accountIds = [] }) {
+  if (!uid || accountIds.length === 0) return { deleted: 0 }
+
+  const wanted = new Set(accountIds.filter(Boolean))
+  const userDoc = db.collection('users').doc(uid)
+  const snapshot = await userDoc.collection('transactions').get()
+  const doomed = snapshot.docs.filter((entry) => wanted.has(entry.data()?.accountId)).map((entry) => entry.ref)
+
+  // The per-account metadata goes with them. `historyStartsAt` describing an
+  // account with no transactions would tell the next import that history
+  // begins somewhere it does not.
+  const accountRefs = [...wanted].map((accountId) => userDoc.collection('accounts').doc(accountId))
+
+  const deleted = await deleteInChunks(db, doomed)
+  await deleteInChunks(db, accountRefs)
+  return { deleted }
+}
+
+/**
+ * Transactions belonging to no account this user still has connected.
+ *
+ * Self-healing, so a ledger already carrying orphans from earlier disconnects
+ * clears itself on the next sync rather than needing anyone to know it is
+ * there.
+ *
+ * `keepAccountIds` must be the accounts of every *current* connection. Passing
+ * a partial list would delete live data, so the caller only prunes when it has
+ * successfully enumerated them all — a sync where every connection failed
+ * prunes nothing, because an empty keep-list is indistinguishable from an
+ * account that owns everything.
+ */
+export async function pruneOrphanedTransactions({ db, uid, keepAccountIds = [] }) {
+  if (!uid || keepAccountIds.length === 0) return { deleted: 0 }
+
+  const keep = new Set(keepAccountIds.filter(Boolean))
+  const userDoc = db.collection('users').doc(uid)
+  const snapshot = await userDoc.collection('transactions').get()
+  const orphans = snapshot.docs.filter((entry) => {
+    const accountId = entry.data()?.accountId
+    // A transaction with no account cannot be attributed and cannot be kept
+    // meaningfully, but it also cannot be proven stale — left alone.
+    return accountId && !keep.has(accountId)
+  })
+
+  const deleted = await deleteInChunks(db, orphans.map((entry) => entry.ref))
+  if (deleted > 0) console.log(`[plaidTransactions] pruned ${deleted} transactions from disconnected accounts`)
+  return { deleted }
+}

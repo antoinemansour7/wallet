@@ -10,7 +10,7 @@ import { getFirestore } from 'firebase-admin/firestore'
 import { getAuth } from 'firebase-admin/auth'
 import { withRunLog } from '../src/server/runLog.js'
 import { writeAccessToken, readAccessToken, deleteAccessToken } from '../src/server/plaidTokens.js'
-import { syncInvestmentTransactions, dedupeEnabledAccounts } from '../src/server/plaidTransactions.js'
+import { syncInvestmentTransactions, dedupeEnabledAccounts, deleteTransactionsForAccounts, pruneOrphanedTransactions } from '../src/server/plaidTransactions.js'
 import { getRatesForDates } from '../src/server/historicalFx.js'
 import { historicalFxCache } from '../src/server/historicalFxCache.js'
 
@@ -201,8 +201,24 @@ async function handleSelectAccounts(req, res) {
   const enabled = accountIds.filter((id) => known.has(id))
   if (enabled.length === 0) return res.status(400).json({ error: 'Select at least one account' })
 
+  // An account dropped from the selection takes its imported transactions with
+  // it. Removing an account and leaving its trades behind means every figure on
+  // the Tax page keeps counting holdings the user has said they do not want,
+  // and a later re-selection imports a second copy of each.
+  const dropped = [...new Set(snap.data().enabledAccountIds || [])].filter((id) => !enabled.includes(id))
+  let removedTransactions = 0
+  if (dropped.length > 0) {
+    try {
+      const result = await deleteTransactionsForAccounts({ db, uid: userId, accountIds: dropped })
+      removedTransactions = result.deleted
+    } catch (err) {
+      // The selection still stands; the next sync's prune finishes the job.
+      console.warn('[plaid:select-accounts] could not remove dropped account data:', err.message)
+    }
+  }
+
   await docRef.update({ enabledAccountIds: enabled })
-  return res.status(200).json({ success: true, enabledAccountIds: enabled })
+  return res.status(200).json({ success: true, enabledAccountIds: enabled, removedTransactions })
 }
 
 // ─── Holdings ─────────────────────────────────────────────────────────────────
@@ -606,7 +622,22 @@ async function handleSyncTransactions(req, res) {
     errors.push({ itemId: doc.id, institution: doc.data().institution || 'Connected', message })
   })
 
-  return res.status(200).json({ written, fetched, skipped, notEnabled, notEnabledAccounts, skippedReasons, errors })
+  // Anything belonging to no current connection is left over from one that was
+  // removed before disconnects cleaned up after themselves. Pruned only when
+  // every connection reported, since a partial list of accounts to keep would
+  // delete live data.
+  let pruned = 0
+  if (errors.length === 0) {
+    const keepAccountIds = docs.flatMap((doc) => doc.data()?.enabledAccountIds || [])
+    try {
+      const result = await pruneOrphanedTransactions({ db, uid: userId, keepAccountIds })
+      pruned = result.deleted
+    } catch (err) {
+      console.warn('[plaid:sync-transactions] prune failed:', err.message)
+    }
+  }
+
+  return res.status(200).json({ written, fetched, skipped, notEnabled, notEnabledAccounts, skippedReasons, pruned, errors })
 }
 
 // ─── Disconnect ───────────────────────────────────────────────────────────────
@@ -684,8 +715,24 @@ async function handleDisconnect(req, res) {
   // is gone is dead weight, and one left behind outlives the connection it
   // belonged to.
   await deleteAccessToken({ db, itemId: resolvedItemId })
+
+  // The transactions this connection imported go with it. Left behind they are
+  // read by every figure on the Tax page as though the account still existed,
+  // and re-importing the brokerage later adds a second copy of each rather
+  // than recognising them.
+  let removedTransactions = 0
+  try {
+    const { enabledAccountIds } = docSnap.data() || {}
+    const result = await deleteTransactionsForAccounts({ db, uid: userId, accountIds: enabledAccountIds || [] })
+    removedTransactions = result.deleted
+  } catch (err) {
+    // The connection is still gone; the ledger is tidied on the next sync's
+    // prune. Failing the disconnect over cleanup would leave a live token.
+    console.warn('[plaid:disconnect] could not remove imported transactions:', err.message)
+  }
+
   await docRef.delete()
-  return res.status(200).json({ success: true })
+  return res.status(200).json({ success: true, removedTransactions })
 }
 
 
