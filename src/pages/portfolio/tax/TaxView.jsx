@@ -166,7 +166,6 @@ function ConversionSection({ measured, estimate, accounts, year, hasUsdActivity 
           </dl>
         </li>)}
       </ul>
-      <p className="tax-notice">Your broker did not report the exchange itself, so this is what the spread would have cost at {estimate.spreadPct}%. It is an estimate, not a measured charge, and is never added to a measured total. Change the assumed spread in Data &amp; assumptions.</p>
     </> : <div className="tax-empty"><span className="tax-empty-symbol" aria-hidden="true">↔</span><h3>No measured FX conversions yet</h3><p>{measured?.unpricedCount ? 'Some transactions need currency details before their FX cost can be measured.' : hasUsdActivity ? 'We found USD activity, but do not have enough information to determine the actual currency conversion cost.' : 'No conversions recorded.'}</p></div>}
     {measured?.unpricedCount > 0 && <details className="tax-details tax-fx-incomplete"><summary>{countLabel(measured.unpricedCount, 'record')} not priced</summary><p>Excluded from the total. A conversion needs both currency amounts and a reference rate.</p>{measured.unpriced?.length > 0 && <ul>{measured.unpriced.map((row, index) => <li key={`${row.accountId}:${row.transactionId}:${index}`}><strong>{row.symbol || 'Transaction'}</strong> · {formatConversionDate(row.tradeDate)} · {accountLabel(row.accountId)}<span>{row.reason === 'unverified-price-currency' ? 'Unit-price currency is unverified; a USD amount cannot be established.' : row.reason === 'insufficient-history' ? 'Earlier cash history is needed.' : 'Daily reference rate is missing.'}</span></li>)}</ul>}</details>}
   </section>
@@ -269,14 +268,6 @@ export default function TaxView({ accounts, workspace, onAddAccount }) {
           what was fetched and what was kept, and that gap reads like data
           loss rather than a setting. */}
       {syncState.result.pruned > 0 && <p>{countLabel(syncState.result.pruned, 'record')} removed from disconnected accounts.</p>}
-      {syncState.result.notEnabled > 0 && <>
-        <p>{syncState.result.notEnabled} from accounts not enabled here. Check Accounts for a brokerage connected more than once.</p>
-        {/* The account ids, so the connection holding the missing holdings can
-            be identified rather than guessed at. */}
-        {Object.keys(syncState.result.notEnabledAccounts ?? {}).length > 0 && <ul className="tax-skip-reasons">
-          {Object.entries(syncState.result.notEnabledAccounts).map(([accountId, count]) => <li key={accountId}>{count} × {accountLabelIn(accounts)(accountId)}</li>)}
-        </ul>}
-      </>}
       {/* A skipped record is only actionable once it says what stopped it. An
           unmapped action carries the institution's own wording, which is the
           thing that lets it be mapped rather than guessed at. */}
@@ -305,11 +296,18 @@ export default function TaxView({ accounts, workspace, onAddAccount }) {
           <div className="tax-metric-footer"><button type="button" className="tax-text-button" aria-expanded={feesOpen} aria-controls="tax-fee-breakdown" onClick={() => setFeesOpen(!feesOpen)}>{feesOpen ? 'Hide breakdown' : 'View breakdown'}<AccountIcon name="chevron" size={14} /></button></div>
         </section>
         <section className="tax-metric" aria-label="FX conversion cost summary" id="tax-fx-summary">
-          <div className="tax-hero-label">FX conversion costs <Badge>Measured</Badge></div>
-          <div className={`tax-hero-amount ${!fx?.conversions.length ? 'tax-amount-empty' : ''}`}>{fx?.conversions.length ? money(fx.totalCostMinor, 'CAD') : 'Not measured'}</div>
+          {/* A measured cost outranks an estimated one, but an estimate
+              outranks silence: the conversion demonstrably happened, and only
+              its price is unobserved. The badge always says which is on show. */}
+          <div className="tax-hero-label">FX conversion costs <Badge>{fx?.conversions.length ? 'Measured' : fxEstimate ? 'Estimate' : 'Measured'}</Badge></div>
+          <div className={`tax-hero-amount ${!fx?.conversions.length && !fxEstimate ? 'tax-amount-empty' : ''}`}>{fx?.conversions.length ? money(fx.totalCostMinor, 'CAD') : fxEstimate ? money(fxEstimate.totalCostMinor, 'CAD') : 'Not measured'}</div>
           <span className="tax-metric-unit">CAD · {taxYear} to date</span>
-          <p>{fx?.conversions.length ? `${countLabel(fx.conversions.length, 'measured conversion')}${fx.complete ? '' : ` · ${fx.unpricedCount} records not priced`}` : fx?.unpricedCount ? 'Currency details needed to measure these transactions.' : hasUsdActivity ? 'USD activity found; conversion amounts are unavailable.' : 'No conversions recorded.'}</p>
-          <div className="tax-metric-note">{fx?.totalCostMinor < 0 ? 'Below the daily reference rate' : 'Compared with the daily reference rate'}</div>
+          <p>{fx?.conversions.length
+            ? `${countLabel(fx.conversions.length, 'measured conversion')}${fx.complete ? '' : ` · ${fx.unpricedCount} records not priced`}`
+            : fxEstimate
+              ? `${countLabel(fxEstimate.purchases.length, 'US-dollar purchase')} at a ${fxEstimate.spreadPct}% assumed spread`
+              : hasUsdActivity ? 'USD activity found; conversion amounts are unavailable.' : 'No conversions recorded.'}</p>
+          <div className="tax-metric-note">{fx?.conversions.length ? (fx.totalCostMinor < 0 ? 'Below the daily reference rate' : 'Compared with the daily reference rate') : fxEstimate ? 'Your broker did not report the exchange' : 'Compared with the daily reference rate'}</div>
           <div className="tax-metric-footer"><button type="button" className="tax-text-button" onClick={() => { setView('planning'); setTool('currency') }}>View conversions <AccountIcon name="arrow" size={14} /></button></div>
         </section>
       </div>

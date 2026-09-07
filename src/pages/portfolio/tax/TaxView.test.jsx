@@ -358,30 +358,6 @@ describe('sync result reports why records were skipped', () => {
   })
 })
 
-describe('a sync result accounts for every fetched transaction', () => {
-  it('names transactions held back because their account is not enabled', () => {
-    // 81 fetched, 3 written, 3 skipped leaves 75 unexplained, which reads like
-    // data loss rather than a setting. They belong to a brokerage connected
-    // more than once, where only the current connection's accounts are active.
-    const state = workspace()
-    state.syncState = { result: { written: 3, fetched: 81, skipped: 3, notEnabled: 75, skippedReasons: {} } }
-    render(<TaxView accounts={accounts} workspace={state} />)
-
-    const notice = screen.getByRole('status')
-    expect(notice).toHaveTextContent('3 transactions synced. 3 records skipped.')
-    expect(notice).toHaveTextContent('75 from accounts not enabled here')
-    expect(notice).toHaveTextContent('connected more than once')
-  })
-
-  it('says nothing about enablement when every account is active', () => {
-    const state = workspace()
-    state.syncState = { result: { written: 3, fetched: 3, skipped: 0, notEnabled: 0, skippedReasons: {} } }
-    render(<TaxView accounts={accounts} workspace={state} />)
-
-    expect(screen.getByRole('status')).not.toHaveTextContent('not enabled')
-  })
-})
-
 describe('the ledger is visible, not only summarised', () => {
   // Four rounds of counts, refusals and reason codes described this data from
   // the outside without ever showing it. When a figure is missing, the rows
@@ -447,8 +423,10 @@ describe('FX cost when the broker never reported the exchange', () => {
     render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: ledger } })} />)
     const panel = openCurrency()
 
+    // The badge is the claim. The paragraph that used to spell it out was
+    // removed as noise; what must not happen is an estimate badged as measured.
     expect(within(panel).getByText('Estimate · CAD')).toBeInTheDocument()
-    expect(panel).toHaveTextContent('did not report the exchange itself')
+    expect(within(panel).queryByText('Measured · CAD')).not.toBeInTheDocument()
   })
 
   it('counts one real purchase once when three connections reported it', () => {
@@ -458,5 +436,46 @@ describe('FX cost when the broker never reported the exchange', () => {
     render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: triplicated } })} />)
 
     expect(within(openCurrency()).getAllByRole('listitem')).toHaveLength(1)
+  })
+})
+
+describe('the summary card shows an estimate rather than nothing', () => {
+  // The estimate reached Planning and never reached the card, so the page said
+  // "Not measured" beside a section showing a figure. A measured cost outranks
+  // an estimated one, but an estimate outranks silence.
+  const ledger = [{
+    id: 'rklb', accountId: 'a1', action: 'BUY', symbol: 'RKLB',
+    tradeDate: `${localTaxDate().slice(0, 4)}-08-12`,
+    quantity: 8, amountMinor: 91856, currency: 'USD', fxRate: 1.393,
+  }]
+  const card = () => screen.getByRole('region', { name: 'FX conversion cost summary' })
+
+  it('shows the estimated cost on the card', () => {
+    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: ledger } })} />)
+
+    expect(card()).toHaveTextContent('$19.19')
+    expect(card()).not.toHaveTextContent('Not measured')
+  })
+
+  it('badges it an estimate, never measured', () => {
+    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: ledger } })} />)
+
+    expect(within(card()).getByText('Estimate')).toBeInTheDocument()
+    expect(within(card()).queryByText('Measured')).not.toBeInTheDocument()
+  })
+
+  it('agrees with the figure Planning shows', () => {
+    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: ledger } })} />)
+    const cardTotal = card().textContent.match(/\$[\d,]+\.\d\d/)[0]
+    fireEvent.click(screen.getByRole('tab', { name: 'Planning' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Currency conversion' }))
+
+    expect(screen.getByRole('region', { name: 'Currency conversion' }).textContent).toContain(cardTotal)
+  })
+
+  it('still says nothing when there is nothing to estimate', () => {
+    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference, transactions: [] } })} />)
+
+    expect(card()).toHaveTextContent('Not measured')
   })
 })
