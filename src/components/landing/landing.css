@@ -209,3 +209,10 @@
 .wa-landing .wa-brokerage-note { margin-inline: auto; }
 /* Muted-on-sage is only 3.89:1; use the approved ink for small text. */
 .wa-feature-currency .wa-feature-number, .wa-feature-currency .wa-feature-copy { color: var(--wa-ink); }
+.wa-account-card .wa-account-metric { font-size: var(--wa-label); margin-bottom: var(--wa-3); }
+.wa-account-facts { display: grid; gap: var(--wa-3); margin-block: var(--wa-6); font-size: var(--wa-label); }
+.wa-account-facts > div { display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--wa-2); }
+.wa-account-facts dd { margin: 0; font-variant-numeric: tabular-nums; }
+/* Tax summaries need room for their basis as well as their amount. */
+.wa-account-board { height: 530px; }
+.wa-one-static .wa-account-board { height: auto; }
