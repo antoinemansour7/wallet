@@ -4,6 +4,7 @@ import ErrorBoundary, { PageFallback } from './components/ErrorBoundary'
 import ProtectedRoute from './components/ProtectedRoute'
 import Navbar from './components/Navbar'
 import Login from './pages/Login'
+import LandingPage from '../app/page'
 import Portfolio from './pages/Portfolio'
 import Research from './pages/Research'
 import History from './pages/History'
@@ -33,6 +34,7 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <Routes>
+          <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<Login />} />
           <Route
             path="/portfolio"
