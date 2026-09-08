@@ -30,3 +30,4 @@
 - 2A: `npm run build` passed. Strict TypeScript noEmit passed for app/page.tsx and all shared landing TS/TSX, using temporary TypeScript 7.0.2 and Vite CSS declarations. Vite reports the existing application bundle-size advisory; no compile failures.
 - 2B: strict noEmit and production build passed. Marquee pauses on hover, keyboard focus and its explicit control; reduced motion shows a wrapping, unduplicated institution list.
 - 2C: strict noEmit and production build passed. Three scroll states keep the narrative pinned and reorder the account cards. The static branch never mounts scroll subscriptions.
+- 2D: strict noEmit and production build passed. Four unequal cards use a 7/5 then 4/8 desktop grid, 2 columns on tablet and 1 on mobile; fine-pointer hover lifts 4px and increases border contrast.

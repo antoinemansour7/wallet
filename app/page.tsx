@@ -5,6 +5,7 @@ import { MotionConfig } from 'framer-motion'
 import Lenis from 'lenis'
 import Brokerages from '../src/components/landing/Brokerages'
 import OneView from '../src/components/landing/OneView'
+import Features from '../src/components/landing/Features'
 import Hero from '../src/components/landing/Hero'
 import { useMedia, timing } from '../src/components/landing/motion'
 import '../src/components/landing/tokens.css'
@@ -24,5 +25,5 @@ export default function LandingPage() {
     const lenis = reduced ? null : new Lenis({ autoRaf: true, anchors: true, duration: timing.slow, easing: t => 1 - Math.pow(1 - t, 3), syncTouch: false })
     return () => { lenis?.destroy(); document.documentElement.style.scrollBehavior = previous }
   }, [reduced])
-  return <MotionConfig reducedMotion="user"><main className="wallai-system wa-landing"><Hero reduced={reduced} /><Brokerages reduced={reduced} /><OneView reduced={reduced} /></main></MotionConfig>
+  return <MotionConfig reducedMotion="user"><main className="wallai-system wa-landing"><Hero reduced={reduced} /><Brokerages reduced={reduced} /><OneView reduced={reduced} /><Features reduced={reduced} /></main></MotionConfig>
 }
