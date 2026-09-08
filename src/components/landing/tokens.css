@@ -19,7 +19,7 @@
   --wa-gutter: clamp(24px, 5vw, 80px); --wa-section: clamp(80px, 9vw, 120px);
   --wa-content: 1280px; --wa-form: 400px;
   --wa-control: 12px; --wa-card: 20px; --wa-showcase: 28px; --wa-pill: 9999px;
-  --wa-fast: 150ms; --wa-base: 300ms; --wa-slow: 600ms; --wa-marquee: 32s;
+  --wa-fast: 150ms; --wa-base: 300ms; --wa-slow: 600ms; --wa-marquee: 32s; --wa-chart: 1500ms;
   --wa-out: cubic-bezier(.22, 1, .36, 1); --wa-in-out: cubic-bezier(.76, 0, .24, 1);
   color-scheme: light; font-family: var(--wa-ui); color: var(--wa-ink); background: var(--wa-cream);
   -webkit-font-smoothing: antialiased;

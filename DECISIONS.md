@@ -55,3 +55,13 @@
 - Playwright/Chromium: widths 375, 760, 768, 1024 and 1440 have no document overflow. Form measures at most 400px. Focus outline is visibly 2px. Screenshots reviewed at desktop and mobile.
 - Browser interaction checks: marquee hover pause and explicit pause; all three sticky account states; bento reveal and -4px lift; both pipeline lines finish drawing; switching reduced motion live removes Lenis, pointer layer and pinning; static content shows all values/cards immediately.
 - Browser login checks: signup query selects signup; invalid email gets local feedback; intercepted Firebase request shows pending/disabled state, maps the error, and associates it with inputs. Exactly one request was intercepted. No real authentication mutation was sent; no browser exceptions occurred.
+
+## Tax-first positioning (follow-up; supersedes the portfolio/research story above)
+
+- Keep the approved green/cream/sage design, font pairing, layouts and motion. Change the product story to the existing Tax & costs workspace; leave the authenticated Tax implementation untouched.
+- Feature audit: TaxView.jsx exposes dividend withholding (recorded 12-month totals or annual estimates), annual fund expenses, FX costs vs a daily reference, entered TFSA/RRSP room less recorded deposits, account-type withholding comparisons, and sale review. Lead with these capabilities rather than the research agents.
+- Hero becomes “Your money. Your costs. Made clear.” The portfolio-return chart becomes account-level withholding bars. Preserve the spring entrance, 1.2s count, 1.5s SVG draw and 80ms headline stagger, without implying that higher costs are a positive investment return.
+- The shared TaxSnapshot is a static presentational component so login can reuse it without importing Motion/Lenis. The hero opts into bar animation and supplies its animated count. No dependency additions.
+- Illustrative annual withholding is $312 (TFSA $156 + RRSP $104 + non-registered $52), annual fund expenses $184, and measured FX costs $96 year to date. These are fabricated preview records, not calculated promises, published tax rates or savings. Keep currencies, time periods and measured/estimated labels separate; do not sum incompatible metrics into a “tax bill.” Account registration alone does not determine withholding.
+- Contribution room previews will explicitly derive from entered starting room and sample recorded deposits, not claim an automatic CRA connection or a statutory limit. Account comparison will describe dividend withholding only, not a recommendation to move investments or a total tax optimization calculation.
+- CTAs continue through the existing signup/login flow to account setup. No fictitious direct Tax route or automatic tax filing is introduced.

@@ -17,7 +17,7 @@ export default function LandingPage() {
   const reduced = useMedia('(prefers-reduced-motion: reduce)')
   useEffect(() => {
     const previousTitle = document.title
-    document.title = 'WallAI — Your investments. All together.'
+    document.title = 'WallAI — Investment tax & costs, made clear.'
     return () => { document.title = previousTitle }
   }, [])
   useEffect(() => {

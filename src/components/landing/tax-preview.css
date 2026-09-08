@@ -1,0 +1,25 @@
+.wa-tax-snapshot { color: var(--wa-cream); font-family: var(--wa-ui); }
+.wa-tax-snapshot-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--wa-2); font-size: var(--wa-label); }
+.wa-tax-snapshot-head > span:first-child { display: flex; align-items: center; gap: var(--wa-2); font-size: var(--wa-small); }
+.wa-tax-snapshot-head > span:last-child { color: var(--wa-mist); }
+.wa-tax-snapshot-head i { width: var(--wa-2); height: var(--wa-2); background: var(--wa-sage); border-radius: var(--wa-pill); }
+.wa-tax-snapshot-label { display: flex; align-items: center; flex-wrap: wrap; gap: var(--wa-3); margin-top: var(--wa-8); font-size: var(--wa-small); }
+.wa-tax-badge { border: 1px solid var(--wa-dark-line); color: var(--wa-sage); border-radius: var(--wa-pill); padding: var(--wa-1) var(--wa-2); font-size: var(--wa-label); }
+.wa-tax-snapshot-amount { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--wa-3); margin-top: var(--wa-4); font-size: var(--wa-balance); line-height: 1.1; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.wa-tax-cents { color: var(--wa-mist); }
+.wa-tax-snapshot-amount small { font-size: var(--wa-label); letter-spacing: 0; color: var(--wa-mist); }
+.wa-tax-snapshot .wa-tax-snapshot-note { margin: var(--wa-3) 0 0; color: var(--wa-mist); font-size: var(--wa-label); line-height: 1.5; }
+.wa-tax-bars { display: grid; gap: var(--wa-4); margin-block: var(--wa-6); }
+.wa-tax-bar-row > div { display: flex; justify-content: space-between; gap: var(--wa-3); margin-bottom: var(--wa-2); font-size: var(--wa-label); color: var(--wa-mist); }
+.wa-tax-bar-row svg { display: block; width: 100%; height: var(--wa-1); border-radius: var(--wa-pill); overflow: hidden; }
+.wa-tax-snapshot-animated .wa-tax-bar-fill { animation: wa-tax-bar-draw var(--wa-chart) var(--wa-base) linear both; }
+.wa-tax-snapshot-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: var(--wa-4); padding-block: var(--wa-5); border-top: 1px solid var(--wa-dark-line); }
+.wa-tax-snapshot-metrics > div { display: flex; flex-direction: column; gap: var(--wa-2); }
+.wa-tax-snapshot-metrics span, .wa-tax-snapshot-metrics small { font-size: var(--wa-label); line-height: 1.5; color: var(--wa-mist); }
+.wa-tax-snapshot-metrics strong { font-size: var(--wa-body-lg); font-weight: 500; font-variant-numeric: tabular-nums; }
+.wa-tax-snapshot-footer { display: flex; gap: var(--wa-3); align-items: center; border-top: 1px solid var(--wa-dark-line); padding-top: var(--wa-4); }
+.wa-tax-snapshot-footer > span { color: var(--wa-sage); font-size: var(--wa-title); }
+.wa-tax-snapshot-footer strong, .wa-tax-snapshot-footer small { display: block; font-size: var(--wa-label); font-weight: 400; line-height: 1.5; }
+.wa-tax-snapshot-footer small { color: var(--wa-mist); margin-top: var(--wa-1); }
+@keyframes wa-tax-bar-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) { .wa-tax-bar-fill { animation: none !important; stroke-dashoffset: 0; } }

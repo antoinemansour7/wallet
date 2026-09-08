@@ -1,6 +1,6 @@
 # WallAI design system
 
-WallAI is a calm, editorial home for Canadian investors. Forest green, warm cream, sage, and serif headlines are its identity. This document replaces the Revolut reference; reference-brand values are not implementation tokens.
+WallAI gives Canadian investors a calm, editorial view of investment tax and costs. The public story leads with the existing Tax & costs workspace: withholding, fund expenses, FX costs, contribution room and account comparisons. Forest green, warm cream, sage, and serif headlines are its identity. This document replaces the Revolut reference; reference-brand values are not implementation tokens.
 
 ## 1. Current implementation and reconciliation
 
@@ -42,7 +42,7 @@ Repeated rules in the old characteristic lists, do/don't list and prompt guide a
 | Generous 14px 32px button padding; no small buttons (4,7) | ADOPT | Minimum 44px targets, normal CTA 52px |
 | Hover opacity .85 for all buttons (4) | ADAPT | Explicit surface/border changes preserve text contrast |
 | Visible 2px focus ring (4,6) | ADAPT | 2px outline with 4px offset, strong green on cream and sage on dark |
-| Dark/light section alternation (4) | ADOPT | Forest hero, cream middle, forest research and closing |
+| Dark/light section alternation (4) | ADOPT | Forest hero, cream middle, forest walkthrough and closing |
 | Cards at 12/20px radius (4,5) | ADAPT | 12px controls, 20px content, 28px hero preview |
 | Zero shadows, depth only through contrast (1,4,6,7,9) | ADAPT | Mostly flat; one subtle forest shadow for lifted illustrative cards |
 | Clean navigation, right-aligned pill, hamburger (4) | ADAPT | Simple anchor navigation; mobile retains brand and CTA without a needless menu |
@@ -92,9 +92,13 @@ Spacing tokens: 4, 8, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 120px. Gutter clam
 
 ## 3. Layout and components
 
-Hero uses three independently masked lines (Your / investments. / All together.) in a full small-viewport-height forest panel, editorial text at left and an illustrative portfolio at right. A fine grid and circular linework use existing tokens. The cream brokerage band is typographic and clearly qualifies connection/import availability. One view holds text and cycles three account positions on desktop; all three account cards are static and fully readable below 761px. Bento is a 12-column asymmetric composition (7/5 then 4/8), 2-column tablet and 1-column mobile. The agent sequence uses three nodes, horizontal on desktop and vertical on mobile. Closing has wide breathing room and one decisive pill CTA. Sample data is visibly labelled and never suggests live returns.
+Hero uses three independently masked lines (Your money. / Your costs. / Made clear.) in a full small-viewport-height forest panel, editorial text at left and a Tax & costs preview at right. Keep the approved circular linework and card treatment. The preview replaces the investment-return chart with withholding bars by account, a $312 annual withholding estimate, $184 estimated annual fund expenses and $96 measured year-to-date FX costs. These are illustrative records; they are not savings or a combined tax liability. Keep the different periods and bases visible.
 
-Login shares the brand, palette, type, buttons and sample card language. The form is at most 400px; email/password fields have persistent borders and distinct focus rings. Pending actions disable repeat submission and announce progress; errors are readable alerts associated with fields. The mobile form takes priority over decorative content.
+The cream brokerage band qualifies connection/import availability. One view retains the three-card scroll stack, now explaining TFSA room, RRSP room and non-registered withholding. Contribution illustrations start with entered room, deduct sample deposits and explicitly say “based on your records.” Bento keeps its 7/5 then 4/8 grid (two-column tablet, one-column mobile), featuring withholding, contribution room, FX costs and fund expenses. The former research-agent band becomes a three-step Connect → Understand → Compare walkthrough. Its moving marker represents account data, not a stock recommendation. Closing invites visitors to understand their investment costs.
+
+Keep the distinction between available measured data and estimates. Do not promise guaranteed savings, complete coverage, CRA synchronization, filing a tax return, or total tax optimization. The actual account simulator compares dividend withholding only. No statutory rates or annual limits are presented in marketing examples.
+
+Login shares the same static TaxSnapshot and tax-focused supporting copy. The form remains at most 400px with its existing authentication, error/loading feedback, visible borders and focus rings. It introduces no scroll/cursor animation and no Motion/Lenis import. Signup remains the existing account-setup flow; the user can then open Tax & costs.
 
 ## 4. Motion
 
@@ -109,13 +113,13 @@ Login shares the brand, palette, type, buttons and sample card language. The for
 | stagger | 60ms | Bento entries |
 | headline-stagger | 80ms | Masked headline lines |
 | count | 1200ms | Hero sample dollar count only |
-| chart | 1500ms | Hero SVG dash offset only |
+| chart | 1500ms | Hero withholding-bar SVG dash offsets only |
 | marquee | 32s | Seamless brokerage loop |
 | spring | stiffness 120, damping 22, mass 1 | Hero card, 24px rise after 300ms |
 | cursor-spring | stiffness 70, damping 24, mass 1 | Pointer gradient lag |
 | lenis | duration .6s, ease-out, native touch | Landing smooth wheel scrolling |
 
-Bento lifts 4px and brightens its border; enters at the viewport's lower 80% boundary (20% viewport penetration), 60ms apart. Sticky account shuffling follows scroll progress, never a timer. Pipeline ticker advances and connectors draw on scroll. Hero reveal and decorative effects run once, except the marquee; it pauses on hover/focus and has an explicit pause control.
+Bento lifts 4px and brightens its border; enters at the viewport's lower 80% boundary (20% viewport penetration), 60ms apart. Sticky account shuffling follows scroll progress, never a timer. The account-data marker advances through Connect, Understand and Compare; connectors draw on scroll. Hero reveal and decorative effects run once, except the marquee; it pauses on hover/focus and has an explicit pause control.
 
 Reduced motion is an alternate static layout: no Lenis instance, no count-up, no mask/slide, no stroke animation, no marquee, no cursor effect and no pinned account section. Values and SVG paths show their final state immediately. Media query changes are observed while mounted. Mobile also disables pointer tracking and pinning. Login form heading uses clamp(36px, 3.2vw, 48px), within the approved display ladder. Brand text is 24px and the mark 28px, inside a 40px tile. Login uses only a 300ms entrance; chart data and account previews are immediate, no hover travel/cursor/scroll effects. Loading uses text (a static status mark under reduced motion).
 
