@@ -148,7 +148,7 @@ function ConversionSection({ measured, estimate, brokerEstimate, accounts, year,
       </ul>
     </> : brokerEstimate ? null : <div className="tax-empty"><span className="tax-empty-symbol" aria-hidden="true">↔</span><h3>No measured FX conversions yet</h3><p>{measured?.unpricedCount ? 'Some transactions need currency details before their FX cost can be measured.' : hasUsdActivity ? 'We found USD activity, but do not have enough information to determine the actual currency conversion cost.' : 'No conversions recorded.'}</p></div>}
     {!unavailable && brokerEstimate && <div className="tax-fx-estimate">
-      <div className="tax-fx-total"><div><span>Estimated conversion fees</span><strong>{money(brokerEstimate.totalCostMinor, 'CAD')} <small>CAD</small></strong></div><p>{countLabel(brokerEstimate.purchases.length, 'USD purchase')}<span>If funded from CAD · 1.5% fee</span></p></div>
+      <div className="tax-fx-total"><div><span>Estimated conversion fees</span><strong>{money(brokerEstimate.totalCostMinor, 'CAD')} <small>CAD</small></strong></div><p>From {countLabel(brokerEstimate.purchases.length, 'USD purchase')}<span>Published 1.5% fee</span></p></div>
       <p className="tax-footnote">A fee estimate, not a measured loss. Your trade confirmation supplies the exact CAD charge and broker rate.</p>
       <ul className="tax-conversion-list">{brokerEstimate.purchases.map((p) => <li key={p.transactionId} className="tax-conversion"><details>
         <summary className="tax-conversion-head"><span className="tax-conversion-icon" aria-hidden="true">↔</span><span className="tax-conversion-identity"><strong>{p.symbol || 'USD purchase'}</strong><small>{formatConversionDate(p.tradeDate)} · {accountLabel(p.accountId)}</small></span><span className="tax-conversion-value"><strong>{money(p.estimatedCostMinor, 'CAD')} <small>CAD</small></strong><small>Estimated fee</small></span><AccountIcon name="chevron" size={14} /></summary>
@@ -241,11 +241,6 @@ export default function TaxView({ accounts, workspace, onAddAccount }) {
     {ledger.error && <p className="tax-error" role="alert">{ledger.error} <button type="button" className="tax-text-button" onClick={workspace.retry}>Try again</button></p>}
     {ledger.limited && <p className="tax-notice">Transaction history is incomplete. Contribution and sale calculations are unavailable until full history is loaded.</p>}
     {syncState.error && <p className="tax-error" role="alert">{syncState.error}</p>}
-    {syncState.result && <div className="tax-notice" role="status">
-      <p>{syncState.result.written} transactions synced.{syncState.result.skipped > 0 ? ` ${syncState.result.skipped} records skipped.` : ''}</p>
-      {(syncState.result.pruned > 0 || Object.keys(syncState.result.skippedReasons ?? {}).length > 0) && <details className="tax-details"><summary>Sync details</summary>{syncState.result.pruned > 0 && <p>{countLabel(syncState.result.pruned, 'record')} removed from disconnected accounts.</p>}<ul>{Object.entries(syncState.result.skippedReasons || {}).map(([reason, count]) => <li key={reason}>{count} · {reason}</li>)}</ul></details>}
-    </div>}
-
     <div className="tax-summary">
       {accounts.length === 0 && <div className="tax-empty"><AccountIcon name="bank" size={24} /><h3>Add your first account</h3><p>See what withholding, fund fees and currency conversion actually cost you.</p>{onAddAccount && <button type="button" className="tax-button" onClick={onAddAccount}>Add an account</button>}</div>}
       <div className="tax-at-a-glance">
@@ -269,7 +264,7 @@ export default function TaxView({ accounts, workspace, onAddAccount }) {
           <div className="tax-hero-label">FX conversion costs <Badge>{historyUnavailable ? 'Unavailable' : showBrokerEstimate ? 'Estimated fee' : fx?.conversions.length ? 'Measured' : 'Not measured'}</Badge></div>
           <div className={`tax-hero-amount ${(!fx?.conversions.length && !showBrokerEstimate) || historyUnavailable ? 'tax-amount-empty' : ''}`}>{historyUnavailable ? 'Unavailable' : fx?.conversions.length ? money(fx.totalCostMinor, 'CAD') : showBrokerEstimate ? money(brokerEstimate.totalCostMinor, 'CAD') : 'Not measured'}</div>
           <span className="tax-metric-unit">CAD · {taxYear} to date</span>
-          <p>{historyUnavailable ? 'Complete transaction history is needed.' : fx?.conversions.length ? `${countLabel(fx.conversions.length, 'measured conversion')}${fx.complete ? '' : ` · ${fx.unpricedCount} records not priced`}` : showBrokerEstimate ? `${countLabel(brokerEstimate.purchases.length, 'USD purchase')} · If funded from CAD` : fx?.unpricedCount ? 'Some records need currency details.' : hasUsdActivity ? 'USD purchases alone do not establish a conversion.' : 'No conversions recorded.'}</p>
+          <p>{historyUnavailable ? 'Complete transaction history is needed.' : fx?.conversions.length ? `${countLabel(fx.conversions.length, 'measured conversion')}${fx.complete ? '' : ` · ${fx.unpricedCount} records not priced`}` : showBrokerEstimate ? `From ${countLabel(brokerEstimate.purchases.length, 'USD purchase')}` : fx?.unpricedCount ? 'Some records need currency details.' : hasUsdActivity ? 'USD purchases alone do not establish a conversion.' : 'No conversions recorded.'}</p>
           <div className="tax-metric-note">{showBrokerEstimate ? '1.5% published fee · Exact FX cost unavailable' : fx?.totalCostMinor < 0 ? 'Below the daily reference rate' : 'Compared with the daily reference rate'}</div>
           <div className="tax-metric-footer"><button type="button" className="tax-text-button" onClick={() => openTool('currency')}>View conversions <AccountIcon name="arrow" size={14} /></button></div>
         </section>

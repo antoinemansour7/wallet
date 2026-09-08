@@ -170,7 +170,8 @@ describe('Cost evidence and detail windows', () => {
     const card = screen.getByRole('region', { name: 'FX conversion cost summary' })
     expect(card).toHaveTextContent('$19.49')
     expect(card).toHaveTextContent('Estimated fee')
-    expect(card).toHaveTextContent('If funded from CAD')
+    expect(card).toHaveTextContent('From 1 USD purchase')
+    expect(card).not.toHaveTextContent('If funded from CAD')
     expect(card).not.toHaveTextContent('Measured')
     const dialog = open(/View conversions/)
     expect(dialog).toHaveTextContent('RKLB')
@@ -184,13 +185,10 @@ describe('Cost evidence and detail windows', () => {
     expect(card).not.toHaveTextContent('No conversions recorded')
     expect(open(/View conversions/)).toHaveTextContent('Transaction history unavailable')
   })
-  it('keeps sync diagnostics behind a disclosure', () => {
+  it('refreshes quietly after a successful sync', () => {
     render(<TaxView accounts={accounts} workspace={workspace({ syncState: { result: { written: 3, skipped: 1, skippedReasons: { 'Unknown action': 1 } } } })} />)
-    const status = screen.getByRole('status')
-    expect(status).toHaveTextContent('3 transactions synced')
-    expect(within(status).getByText('1 · Unknown action')).not.toBeVisible()
-    fireEvent.click(within(status).getByText('Sync details'))
-    expect(within(status).getByText('1 · Unknown action')).toBeVisible()
+    expect(screen.queryByText(/transactions synced/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
   it('keeps sale results and their limitations together with expandable provenance', () => {
     const base = { accountId: 'plaid', accountType: 'NON_REGISTERED', securityKey: 'isin:msft', securityKeyBasis: 'isin', symbol: 'MSFT', feesMinor: 0, currency: 'USD', fxRate: 1.4 }
