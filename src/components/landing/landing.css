@@ -216,3 +216,17 @@
 /* Tax summaries need room for their basis as well as their amount. */
 .wa-account-board { height: 530px; }
 .wa-one-static .wa-account-board { height: auto; }
+.wa-tax-feature-review { margin-top: var(--wa-8); font-size: var(--wa-small); }
+.wa-tax-review-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: var(--wa-2); margin-bottom: var(--wa-3); }
+.wa-tax-review-heading > span:last-child { font-size: var(--wa-label); color: var(--wa-ink); }
+.wa-tax-review-row { display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--wa-2); padding-block: var(--wa-4); border-top: 1px solid var(--wa-line); }
+.wa-tax-review-row strong { font-weight: 500; font-variant-numeric: tabular-nums; }
+.wa-tax-feature-review > p { font-size: var(--wa-label); color: var(--wa-ink); line-height: 1.5; margin-top: var(--wa-3); }
+.wa-tax-room-result { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--wa-3); padding: var(--wa-4); border-radius: var(--wa-control); background: var(--wa-soft); margin-top: var(--wa-3); }
+.wa-tax-room-result strong { font-weight: 500; font-variant-numeric: tabular-nums; }
+.wa-tax-room-result small { font-size: var(--wa-label); }
+.wa-tax-fx-example { width: 100%; text-align: center; margin-top: var(--wa-4); }
+.wa-tax-fx-example strong, .wa-tax-fx-example > span { display: block; }
+.wa-tax-fx-example strong { font: 500 var(--wa-title)/1.2 var(--wa-ui); }
+.wa-tax-fx-example small, .wa-tax-fx-example > span { font-size: var(--wa-label); }
+.wa-tax-fx-example > span { margin-top: var(--wa-2); }
