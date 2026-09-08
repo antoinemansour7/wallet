@@ -33,3 +33,25 @@
 - 2D: strict noEmit and production build passed. Four unequal cards use a 7/5 then 4/8 desktop grid, 2 columns on tablet and 1 on mobile; fine-pointer hover lifts 4px and increases border contrast.
 - 2E: strict noEmit and production build passed. The ticker and both connector dash offsets follow section scroll progress; mobile uses a vertical rail, reduced motion a static labelled sequence.
 - 2F: strict noEmit and production build passed. Closing CTA and footer complete all six sections. Every conversion link reaches /login?mode=signup, and all navigation anchors have real targets.
+
+## Final reconciliation and review adjustments
+
+- Browser inspection showed “Your investments.” wraps into two visual lines at both target sizes. Give each of the three visual headline lines its own mask and 80ms stagger instead of letting two lines share one animation.
+- Bento intersection inset is measured in viewport-height pixels. IntersectionObserver percentage root margins are width-relative, which would trigger at the wrong height on a wide monitor.
+- Show sample account weights to two decimals (37.56%, 48.58%, 13.86%) so the labels total 100%. Values still total the hero's $128,450.
+- Lazy-load the root landing route so /login does not fetch Motion or Lenis. This adds Suspense to the already necessary routing edit, without changing other destinations.
+- Reuse the same shared wordmark on login and landing. Existing login's Navbar logo depended on unrelated app styling; a dedicated brand component keeps both public pages consistent.
+- All signup CTAs use /login?mode=signup; login now initializes its existing signup mode from that query parameter. Returning users still enter signin at /login.
+- Pending actions retain the existing authentication methods, with a synchronous in-flight guard against duplicate requests, a live progress message and disabled controls. Error text is associated with the fields. Local email and signup-password checks avoid avoidable failed requests.
+- Login uses static sample charts and a static loading mark alongside live status text. There is no timer, animated chart, hover travel, Lenis or cursor subscription on that route.
+- When the OS reduced-motion setting changes, remount only the landing content into its static/animated variant. This prevents interrupted count-ups or offscreen reveals from leaving partial values/hidden content.
+- Final visual/contrast review: the paragraph reset overrode the brokerage note's automatic side margins; restore its container alignment. Muted #686f63 on sage measures 3.89:1, so the sage bento card uses ink for its small copy. The input border against cream measures 3.19:1; mist text on the green panel measures 6.19:1.
+
+## Completed validation
+
+- All six section gates passed strict TypeScript noEmit and Vite production build before their commits.
+- Final app build passes; the landing now ships as a separate ~182kB (58kB gzip) JavaScript chunk. Vite still reports the pre-existing large authenticated-app bundle advisory.
+- Existing full test suite: 74 files, 950 tests passed. Existing login/auth behavior and global motion rules remain covered. ESLint passes for src/App.jsx and src/pages/Login.jsx.
+- Playwright/Chromium: widths 375, 760, 768, 1024 and 1440 have no document overflow. Form measures at most 400px. Focus outline is visibly 2px. Screenshots reviewed at desktop and mobile.
+- Browser interaction checks: marquee hover pause and explicit pause; all three sticky account states; bento reveal and -4px lift; both pipeline lines finish drawing; switching reduced motion live removes Lenis, pointer layer and pinning; static content shows all values/cards immediately.
+- Browser login checks: signup query selects signup; invalid email gets local feedback; intercepted Firebase request shows pending/disabled state, maps the error, and associates it with inputs. Exactly one request was intercepted. No real authentication mutation was sent; no browser exceptions occurred.

@@ -3,9 +3,9 @@ import { motion, useMotionValueEvent, useScroll, useTransform, type MotionValue 
 import { useMedia } from './motion'
 
 const accounts = [
-  { name: 'TFSA', caption: 'Room for your next chapter.', value: '$48,250.00', detail: 'Your tax-free savings, in the picture.', allocation: '38% of your portfolio', holdings: ['VFV', 'XEQT', 'SHOP'], icon: 'T' },
-  { name: 'RRSP', caption: 'A longer view, made clearer.', value: '$62,400.00', detail: 'Keep tomorrow in view, alongside today.', allocation: '49% of your portfolio', holdings: ['VEQT', 'VTI', 'XBB'], icon: 'R' },
-  { name: 'Non-registered', caption: 'The rest of your possibilities.', value: '$17,800.00', detail: 'Your investments beyond registered accounts.', allocation: '14% of your portfolio', holdings: ['RY', 'CNR', 'CASH'], icon: 'N' },
+  { name: 'TFSA', caption: 'Room for your next chapter.', value: '$48,250.00', detail: 'Your tax-free savings, in the picture.', allocation: '37.56% of your portfolio', holdings: ['VFV', 'XEQT', 'SHOP'], icon: 'T' },
+  { name: 'RRSP', caption: 'A longer view, made clearer.', value: '$62,400.00', detail: 'Keep tomorrow in view, alongside today.', allocation: '48.58% of your portfolio', holdings: ['VEQT', 'VTI', 'XBB'], icon: 'R' },
+  { name: 'Non-registered', caption: 'The rest of your possibilities.', value: '$17,800.00', detail: 'Your investments beyond registered accounts.', allocation: '13.86% of your portfolio', holdings: ['RY', 'CNR', 'CASH'], icon: 'N' },
 ]
 function AccountContent({ index }: { index: number }) {
   const account = accounts[index]

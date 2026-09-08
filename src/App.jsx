@@ -1,13 +1,15 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import ErrorBoundary, { PageFallback } from './components/ErrorBoundary'
 import ProtectedRoute from './components/ProtectedRoute'
 import Navbar from './components/Navbar'
 import Login from './pages/Login'
-import LandingPage from '../app/page'
 import Portfolio from './pages/Portfolio'
 import Research from './pages/Research'
 import History from './pages/History'
+
+const LandingPage = lazy(() => import('../app/page'))
 
 function AppLayout({ children }) {
   // Keyed on the route: a crash on Portfolio should not follow you to
@@ -34,7 +36,7 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <Routes>
-          <Route path="/" element={<LandingPage />} />
+          <Route path="/" element={<Suspense fallback={null}><LandingPage /></Suspense>} />
           <Route path="/login" element={<Login />} />
           <Route
             path="/portfolio"

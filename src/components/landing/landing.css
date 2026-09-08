@@ -205,3 +205,7 @@
 .wa-footer nav a:hover { color: var(--wa-sage); }
 .wa-footer > span { font-size: var(--wa-label); color: var(--wa-mist); }
 @media (max-width: 760px) { .wa-closing-content { padding-block: var(--wa-section); } .wa-closing-content > p:not(.wa-eyebrow) { font-size: var(--wa-body); } .wa-footer { gap: var(--wa-6); } .wa-footer nav { width: 100%; order: 2; justify-content: space-between; gap: var(--wa-4); font-size: var(--wa-label); } }
+/* Keep the container margin after the scoped paragraph reset. */
+.wa-landing .wa-brokerage-note { margin-inline: auto; }
+/* Muted-on-sage is only 3.89:1; use the approved ink for small text. */
+.wa-feature-currency .wa-feature-number, .wa-feature-currency .wa-feature-copy { color: var(--wa-ink); }

@@ -8,6 +8,7 @@ const chart = 'M0 154 L20 146 L40 151 L60 130 L80 138 L100 124 L120 129 L140 112
 function PortfolioCard({ reduced }: { reduced: boolean }) {
   const valueRef = useRef<HTMLSpanElement>(null)
   useEffect(() => {
+    if (valueRef.current) valueRef.current.textContent = '128,450'
     if (reduced) return
     const control = animate(0, 128450, {
       duration: timing.count, delay: timing.base, ease: easeOut,
@@ -51,7 +52,7 @@ export default function Hero({ reduced }: { reduced: boolean }) {
     <header className="wa-nav wa-container"><Brand /><nav aria-label="Main navigation"><a href="#one-view">The big picture</a><a href="#agents">Meet your agents</a></nav><a href="/login" className="wa-button wa-button-outline">Log in <span aria-hidden="true">↗</span></a></header>
     <div className="wa-hero-grid wa-container">
       <div className="wa-hero-copy"><p className="wa-eyebrow"><span /> A little clarity goes a long way</p>
-        <h1 id="hero-title">{['Your investments.', 'All together.'].map((line, i) => <span className="wa-mask" key={line}><motion.span initial={reduced ? false : { y: '110%' }} animate={{ y: 0 }} transition={{ duration: reduced ? 0 : timing.slow, delay: i * timing.headline, ease: easeOut }}>{line}</motion.span></span>)}</h1>
+        <h1 id="hero-title">{['Your', 'investments.', 'All together.'].map((line, i) => <span className="wa-mask" key={line}><motion.span initial={reduced ? false : { y: '110%' }} animate={{ y: 0 }} transition={{ duration: reduced ? 0 : timing.slow, delay: i * timing.headline, ease: easeOut }}>{line}</motion.span></span>)}</h1>
         <p className="wa-intro">A home for your portfolio. A team for your research.<br className="wa-desktop-break" /> A clearer view of what comes next.</p>
         <a className="wa-button wa-button-light" href="/login?mode=signup">Find your perspective <span aria-hidden="true">↗</span></a>
         <p className="wa-hero-note">Free during beta. Your money stays with your brokerage.</p>

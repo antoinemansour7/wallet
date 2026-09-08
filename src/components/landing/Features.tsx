@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { easeOut, timing, useMedia } from './motion'
 
@@ -21,8 +22,14 @@ const features = [
 ]
 export default function Features({ reduced }: { reduced: boolean }) {
   const fine = useMedia('(hover: hover) and (pointer: fine)')
+  const [inset, setInset] = useState(() => Math.round(window.innerHeight * .2))
+  useEffect(() => {
+    const resize = () => setInset(Math.round(window.innerHeight * .2))
+    window.addEventListener('resize', resize, { passive: true })
+    return () => window.removeEventListener('resize', resize)
+  }, [])
   return <section id="features" className="wa-features wa-container" aria-labelledby="features-title"><div className="wa-feature-heading"><div><p className="wa-eyebrow"><span /> 02 / A little more insight</p><h2 id="features-title">Less noise.<br />More knowing.</h2></div><p className="wa-section-copy">The details that matter, with the room to make sense of them.</p></div>
-    <motion.div className="wa-bento" initial={reduced ? false : 'hidden'} whileInView="visible" viewport={{ once: true, margin: '0px 0px -20% 0px', amount: 'some' }} variants={{ visible: { transition: { staggerChildren: reduced ? 0 : timing.stagger } } }}>
+    <motion.div className="wa-bento" initial={reduced ? false : 'hidden'} whileInView="visible" viewport={{ once: true, margin: `0px 0px -${inset}px 0px`, amount: 'some' }} variants={{ visible: { transition: { staggerChildren: reduced ? 0 : timing.stagger } } }}>
       {features.map(feature => <motion.article key={feature.number} className={`wa-feature ${feature.className}`} variants={{ hidden: { opacity: 0, y: 24 }, visible: { opacity: 1, y: 0, transition: { duration: reduced ? 0 : timing.slow, ease: easeOut } } }} whileHover={!reduced && fine ? { y: -4, transition: { duration: timing.fast } } : undefined}><span className="wa-feature-number">{feature.number} /</span><h3>{feature.title}</h3><p className="wa-feature-copy">{feature.text}</p>{feature.art}</motion.article>)}
     </motion.div>
   </section>

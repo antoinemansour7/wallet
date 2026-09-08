@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getAuthErrorMessage } from '../context/authErrors'
-import { Logo } from '../components/Navbar'
+import Brand from '../components/landing/Brand'
+import '../components/landing/tokens.css'
 import './Login.css'
 
 const MODES = {
@@ -32,13 +33,15 @@ export default function Login() {
   const { user, signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword } = useAuth()
   const navigate = useNavigate()
 
-  const [mode, setMode] = useState('signin')
+  const [searchParams] = useSearchParams()
+  const [mode, setMode] = useState(() => searchParams.get('mode') === 'signup' ? 'signup' : 'signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [pending, setPending] = useState('')
+  const inFlight = useRef(false)
   const emailRef = useRef(null)
   const headingRef = useRef(null)
   const previousMode = useRef(mode)
@@ -66,6 +69,8 @@ export default function Login() {
   }
 
   const run = async (kind, action) => {
+    if (inFlight.current) return
+    inFlight.current = true
     setError('')
     setNotice('')
     setPending(kind)
@@ -74,6 +79,7 @@ export default function Login() {
     } catch (err) {
       setError(getAuthErrorMessage(err, kind === 'reset' ? 'signin' : mode))
     } finally {
+      inFlight.current = false
       setPending('')
     }
   }
@@ -81,8 +87,14 @@ export default function Login() {
   const handleSubmit = (event) => {
     event.preventDefault()
     if (busy) return
+    if (!emailRef.current?.validity.valid) {
+      setError('Enter a valid email address.'); emailRef.current?.focus(); return
+    }
+    if (!password || (mode === 'signup' && password.length < 6)) {
+      setError(mode === 'signup' ? 'Use at least 6 characters for your password.' : 'Enter your password.'); return
+    }
     run(mode, () => (
-      mode === 'signin' ? signInWithEmail(email, password) : signUpWithEmail(email, password)
+      mode === 'signin' ? signInWithEmail(email.trim(), password) : signUpWithEmail(email.trim(), password)
     ))
   }
 
@@ -91,6 +103,9 @@ export default function Login() {
       setError('Enter your email address first, then choose Forgot password.')
       emailRef.current?.focus()
       return
+    }
+    if (!emailRef.current?.validity.valid) {
+      setError('Enter a valid email address.'); emailRef.current?.focus(); return
     }
     run('reset', async () => {
       await resetPassword(email.trim())
@@ -103,9 +118,9 @@ export default function Login() {
   const busy = Boolean(pending)
 
   return (
-    <main className="login-shell">
+    <main className="wallai-system login-shell">
       <header className="login-brand">
-        <Logo size={36} inverted />
+        <Brand />
         <span className="login-beta"><span /> Beta</span>
       </header>
 
@@ -132,6 +147,8 @@ export default function Login() {
                     spellCheck={false}
                     required
                     disabled={busy}
+                    aria-invalid={Boolean(error)}
+                    aria-describedby={error ? "login-error" : undefined}
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
                     placeholder="you@example.com"
@@ -156,6 +173,8 @@ export default function Login() {
                       required
                       minLength={6}
                       disabled={busy}
+                      aria-invalid={Boolean(error)}
+                      aria-describedby={error ? "login-error" : undefined}
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
                       placeholder={mode === 'signup' ? 'At least 6 characters' : 'Enter your password'}
@@ -165,6 +184,7 @@ export default function Login() {
                       type="button"
                       onClick={() => setShowPassword((value) => !value)}
                       aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      disabled={busy}
                       aria-pressed={showPassword}
                       className="login-password-toggle"
                     >
@@ -174,8 +194,8 @@ export default function Login() {
                 </Field>
               </div>
 
-              {error && <div role="alert" className="login-feedback login-error">{error}</div>}
-              {notice && <div role="status" className="login-feedback login-notice">{notice}</div>}
+              {error && <div id="login-error" role="alert" className="login-feedback login-error">{error}</div>}
+              {(busy || notice) && <div role="status" aria-live="polite" className="login-feedback login-notice">{busy ? (pending === 'google' ? 'Opening Google…' : pending === 'reset' ? 'Sending reset link…' : copy.pending) : notice}</div>}
 
               <button type="submit" disabled={busy} className="login-submit">
                 <span>{pending === mode ? copy.pending : copy.submit}</span>
@@ -212,11 +232,6 @@ export default function Login() {
       </section>
 
       <section className="login-story" aria-labelledby="login-heading">
-        <div className="login-sculpture" aria-hidden="true">
-          {Array.from({ length: 12 }, (_, index) => (
-            <span key={index} style={{ '--ring': index }} />
-          ))}
-        </div>
         <div className="login-story-content">
           <div className="login-intro">
             <p className="login-eyebrow"><span /> Your personal portfolio</p>
@@ -291,16 +306,16 @@ function PortfolioPreview() {
           <svg viewBox="0 0 484 170" preserveAspectRatio="none" role="img" aria-label={`Sample portfolio value ${data.period}, up ${data.change}`}>
             <defs>
               <linearGradient id="login-chart-fill" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%" stopColor="#d6e8aa" stopOpacity="0.2" />
-                <stop offset="100%" stopColor="#d6e8aa" stopOpacity="0" />
+                <stop offset="0%" stopColor="var(--wa-sage)" stopOpacity="0.2" />
+                <stop offset="100%" stopColor="var(--wa-sage)" stopOpacity="0" />
               </linearGradient>
             </defs>
             {[40, 85, 130].map((y) => <line key={y} x1="0" y1={y} x2="484" y2={y} className="login-chart-guide" />)}
             <g key={range}>
               <path d={`${path} L476 170 L8 170 Z`} fill="url(#login-chart-fill)" className="login-chart-area" />
-              <path d={path} fill="none" stroke="#d6e8aa" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" pathLength="1" className="login-chart-line" />
-              <circle cx="476" cy="24" r="8" fill="#d6e8aa" fillOpacity="0.12" className="login-chart-end" />
-              <circle cx="476" cy="24" r="3.5" fill="#e3efc4" className="login-chart-end" />
+              <path d={path} fill="none" stroke="var(--wa-sage)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" pathLength="1" className="login-chart-line" />
+              <circle cx="476" cy="24" r="8" fill="var(--wa-sage)" fillOpacity="0.12" className="login-chart-end" />
+              <circle cx="476" cy="24" r="3.5" fill="var(--wa-sage)" className="login-chart-end" />
             </g>
           </svg>
           <div className="login-chart-labels"><span>{data.start}</span><span>{data.end}</span></div>

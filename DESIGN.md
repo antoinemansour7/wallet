@@ -64,7 +64,7 @@ Implementation mirror: `src/components/landing/tokens.css` and `motion.ts`. Publ
 | sage | #d8e4bb | Accent, primary CTA on forest, chart |
 | soft | #eaf1e3 | Secondary light card |
 | mist | #c6d0c6 | Muted text on dark |
-| muted | #686f63 | Muted text on light |
+| muted | #686f63 | Muted text on cream/soft (use ink on sage) |
 | line | #d8dbd2 | Light dividers |
 | border | #858e79 | Visible control border |
 | focus | #64806a | Focus ring on light |
@@ -92,7 +92,7 @@ Spacing tokens: 4, 8, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 120px. Gutter clam
 
 ## 3. Layout and components
 
-Hero uses a full small-viewport-height forest panel, editorial text at left and an illustrative portfolio at right. A fine grid and circular linework use existing tokens. The cream brokerage band is typographic and clearly qualifies connection/import availability. One view holds text and cycles three account positions on desktop; all three account cards are static and fully readable below 761px. Bento is a 12-column asymmetric composition (7/5 then 4/8), 2-column tablet and 1-column mobile. The agent sequence uses three nodes, horizontal on desktop and vertical on mobile. Closing has wide breathing room and one decisive pill CTA. Sample data is visibly labelled and never suggests live returns.
+Hero uses three independently masked lines (Your / investments. / All together.) in a full small-viewport-height forest panel, editorial text at left and an illustrative portfolio at right. A fine grid and circular linework use existing tokens. The cream brokerage band is typographic and clearly qualifies connection/import availability. One view holds text and cycles three account positions on desktop; all three account cards are static and fully readable below 761px. Bento is a 12-column asymmetric composition (7/5 then 4/8), 2-column tablet and 1-column mobile. The agent sequence uses three nodes, horizontal on desktop and vertical on mobile. Closing has wide breathing room and one decisive pill CTA. Sample data is visibly labelled and never suggests live returns.
 
 Login shares the brand, palette, type, buttons and sample card language. The form is at most 400px; email/password fields have persistent borders and distinct focus rings. Pending actions disable repeat submission and announce progress; errors are readable alerts associated with fields. The mobile form takes priority over decorative content.
 
@@ -117,7 +117,7 @@ Login shares the brand, palette, type, buttons and sample card language. The for
 
 Bento lifts 4px and brightens its border; enters at the viewport's lower 80% boundary (20% viewport penetration), 60ms apart. Sticky account shuffling follows scroll progress, never a timer. Pipeline ticker advances and connectors draw on scroll. Hero reveal and decorative effects run once, except the marquee; it pauses on hover/focus and has an explicit pause control.
 
-Reduced motion is an alternate static layout: no Lenis instance, no count-up, no mask/slide, no stroke animation, no marquee, no cursor effect and no pinned account section. Values and SVG paths show their final state immediately. Media query changes are observed while mounted. Mobile also disables pointer tracking and pinning. Login uses only a 300ms entrance; chart data and account previews are immediate, no hover travel/cursor/scroll effects. Loading uses text (a static status mark under reduced motion).
+Reduced motion is an alternate static layout: no Lenis instance, no count-up, no mask/slide, no stroke animation, no marquee, no cursor effect and no pinned account section. Values and SVG paths show their final state immediately. Media query changes are observed while mounted. Mobile also disables pointer tracking and pinning. Login form heading uses clamp(36px, 3.2vw, 48px), within the approved display ladder. Brand text is 24px and the mark 28px, inside a 40px tile. Login uses only a 300ms entrance; chart data and account previews are immediate, no hover travel/cursor/scroll effects. Loading uses text (a static status mark under reduced motion).
 
 ## 5. Implementation boundaries
 
