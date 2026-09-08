@@ -78,3 +78,39 @@
 .wa-marquee-static ul { justify-content: center; flex-wrap: wrap; gap: var(--wa-6); }
 @keyframes wa-marquee { to { transform: translateX(-50%); } }
 @media (prefers-reduced-motion: reduce) { .wa-marquee-track { width: 100%; transform: none; } .wa-marquee ul { flex-wrap: wrap; gap: var(--wa-6); } }
+.wa-one { position: relative; }
+.wa-one-sticky { height: 260svh; }
+.wa-one-stage { display: grid; grid-template-columns: 1fr 1fr; gap: var(--wa-20); align-items: center; padding-block: var(--wa-section); }
+.wa-one-sticky .wa-one-stage { position: sticky; top: 0; height: 100svh; min-height: 660px; }
+.wa-one-copy .wa-eyebrow { margin-bottom: var(--wa-6); color: var(--wa-muted); }
+.wa-section-copy { font-size: var(--wa-body-lg); line-height: 1.6; color: var(--wa-muted); max-width: 460px; }
+.wa-one-copy .wa-section-copy { margin-top: var(--wa-6); }
+.wa-account-steps { display: flex; flex-direction: column; gap: var(--wa-5); margin-block: var(--wa-8); padding: 0; list-style: none; }
+.wa-account-steps li { display: flex; gap: var(--wa-4); align-items: baseline; padding-left: var(--wa-4); border-left: 2px solid var(--wa-line); color: var(--wa-muted); transition: border-color var(--wa-base), color var(--wa-base); }
+.wa-account-steps li[data-active='true'] { border-color: var(--wa-forest); color: var(--wa-ink); }
+.wa-account-steps li > span { font-size: var(--wa-label); }
+.wa-account-steps strong { font-size: var(--wa-small); font-weight: 500; }
+.wa-account-steps p { margin-top: var(--wa-1); font-size: var(--wa-label); }
+.wa-text-link { display: inline-flex; align-items: center; gap: var(--wa-6); min-height: 44px; font-size: var(--wa-small); font-weight: 500; border-bottom: 1px solid var(--wa-border); }
+.wa-text-link:hover { color: var(--wa-muted); }
+.wa-account-board { position: relative; height: 450px; margin-right: var(--wa-6); }
+.wa-account-card { position: absolute; inset: 0 0 auto; padding: var(--wa-8); border-radius: var(--wa-card); border: 1px solid var(--wa-line); background: var(--wa-soft); box-shadow: var(--wa-shadow); transform-origin: 50% 100%; }
+.wa-account-0 { background: var(--wa-forest); color: var(--wa-cream); border-color: var(--wa-dark-line); }
+.wa-account-1 { background: var(--wa-sage); }
+.wa-account-top { display: flex; align-items: center; gap: var(--wa-3); margin-bottom: var(--wa-8); font-size: var(--wa-label); }
+.wa-account-top > span:last-child { margin-left: auto; }
+.wa-account-symbol { display: grid; place-items: center; border: 1px solid currentColor; border-radius: var(--wa-control); width: var(--wa-10); height: var(--wa-10); font: var(--wa-body-lg) var(--wa-display); }
+.wa-account-card .wa-account-value { font-size: var(--wa-title); font-family: var(--wa-ui); font-variant-numeric: tabular-nums; margin-block: var(--wa-3); }
+.wa-account-detail { font-size: var(--wa-small); line-height: 1.5; }
+.wa-account-0 .wa-account-detail { color: var(--wa-mist); }
+.wa-account-holdings { display: flex; gap: var(--wa-2); margin-block: var(--wa-6); }
+.wa-account-holdings span { padding: var(--wa-1) var(--wa-3); border: 1px solid var(--wa-border); border-radius: var(--wa-pill); font-size: var(--wa-label); }
+.wa-account-0 .wa-account-holdings span { border-color: var(--wa-dark-line); }
+.wa-account-bottom { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--wa-2); border-top: 1px solid var(--wa-border); padding-top: var(--wa-4); font-size: var(--wa-label); }
+.wa-account-0 .wa-account-bottom { border-color: var(--wa-dark-line); color: var(--wa-mist); }
+.wa-stack-note { position: absolute; bottom: 0; left: 0; width: 100%; text-align: center; font-size: var(--wa-label); color: var(--wa-muted); }
+.wa-one-static .wa-account-board { height: auto; margin: 0; display: grid; gap: var(--wa-6); }
+.wa-one-static .wa-account-card { position: relative; }
+@media (max-width: 1024px) { .wa-one-stage { gap: var(--wa-10); } .wa-account-card { padding: var(--wa-6); } }
+@media (max-width: 760px) { .wa-one-stage { grid-template-columns: 1fr; gap: var(--wa-12); } .wa-section-copy { font-size: var(--wa-body); } }
+@media (max-height: 700px) and (min-width: 761px) { .wa-one-sticky .wa-one-stage { min-height: 560px; padding-block: var(--wa-8); } .wa-account-steps { gap: var(--wa-3); margin-block: var(--wa-5); } }
