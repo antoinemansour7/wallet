@@ -61,3 +61,20 @@
   .wa-account-summary .wa-mini-icon { width: var(--wa-6); } .wa-account-summary > span:last-child { display: none; }
   .wa-balance { font-size: 36px; } .wa-gain > span { display: block; margin: var(--wa-1) 0 0; }
 }
+.wa-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+.wa-brokerages { padding-block: var(--wa-10); border-bottom: 1px solid var(--wa-line); }
+.wa-brokerage-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--wa-4); }
+.wa-brokerage-heading h2 { font: 400 var(--wa-small)/1.5 var(--wa-ui); color: var(--wa-muted); letter-spacing: 0; }
+.wa-marquee-control { min-height: 44px; display: flex; align-items: center; gap: var(--wa-3); font-size: var(--wa-label); border-radius: var(--wa-control); padding-inline: var(--wa-3); }
+.wa-marquee-control:hover { background: var(--wa-soft); }
+.wa-marquee { overflow: hidden; margin-block: var(--wa-6); }
+.wa-marquee-track { display: flex; width: max-content; animation: wa-marquee var(--wa-marquee) linear infinite; }
+.wa-marquee ul { display: flex; align-items: center; margin: 0; padding: 0; list-style: none; }
+.wa-marquee li { display: flex; align-items: center; gap: var(--wa-4); padding-inline: var(--wa-8); white-space: nowrap; font-size: var(--wa-body-lg); font-weight: 500; letter-spacing: -.02em; }
+.wa-marquee li > span { color: var(--wa-focus); font-size: var(--wa-title); }
+.wa-marquee:hover .wa-marquee-track, .wa-brokerages:focus-within .wa-marquee-track, .wa-marquee[data-paused='true'] .wa-marquee-track { animation-play-state: paused; }
+.wa-brokerage-note { font-size: var(--wa-label); color: var(--wa-muted); line-height: 1.5; }
+.wa-marquee-static .wa-marquee-track { width: 100%; animation: none; }
+.wa-marquee-static ul { justify-content: center; flex-wrap: wrap; gap: var(--wa-6); }
+@keyframes wa-marquee { to { transform: translateX(-50%); } }
+@media (prefers-reduced-motion: reduce) { .wa-marquee-track { width: 100%; transform: none; } .wa-marquee ul { flex-wrap: wrap; gap: var(--wa-6); } }
