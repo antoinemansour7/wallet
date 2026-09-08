@@ -32,3 +32,4 @@
 - 2C: strict noEmit and production build passed. Three scroll states keep the narrative pinned and reorder the account cards. The static branch never mounts scroll subscriptions.
 - 2D: strict noEmit and production build passed. Four unequal cards use a 7/5 then 4/8 desktop grid, 2 columns on tablet and 1 on mobile; fine-pointer hover lifts 4px and increases border contrast.
 - 2E: strict noEmit and production build passed. The ticker and both connector dash offsets follow section scroll progress; mobile uses a vertical rail, reduced motion a static labelled sequence.
+- 2F: strict noEmit and production build passed. Closing CTA and footer complete all six sections. Every conversion link reaches /login?mode=signup, and all navigation anchors have real targets.
