@@ -156,6 +156,8 @@ async function handleExchangeToken(req, res) {
     type: a.type,
     subtype: a.subtype,
     mask: a.mask,
+    persistentAccountId: a.persistent_account_id ?? null,
+    balanceCurrency: a.balances?.iso_currency_code ?? null,
   }))
 
   // Not every institution honours account_filters — Wealthsimple returns the
@@ -205,7 +207,9 @@ async function handleSelectAccounts(req, res) {
   // it. Removing an account and leaving its trades behind means every figure on
   // the Tax page keeps counting holdings the user has said they do not want,
   // and a later re-selection imports a second copy of each.
-  const dropped = [...new Set(snap.data().enabledAccountIds || [])].filter((id) => !enabled.includes(id))
+  const dropped = [...new Set(snap.data().enabledAccountIds ?? [...known])].filter((id) => !enabled.includes(id))
+  const added = enabled.some((id) => !(snap.data().enabledAccountIds ?? [...known]).includes(id))
+  await docRef.update({ enabledAccountIds: enabled, ...(added ? { lastSyncedAt: null } : {}) })
   let removedTransactions = 0
   if (dropped.length > 0) {
     try {
@@ -217,7 +221,6 @@ async function handleSelectAccounts(req, res) {
     }
   }
 
-  await docRef.update({ enabledAccountIds: enabled })
   return res.status(200).json({ success: true, enabledAccountIds: enabled, removedTransactions })
 }
 
@@ -531,6 +534,7 @@ async function handleHoldings(req, res) {
  */
 async function syncTransactionsForItem({ client, db, uid, doc, resolveFxRates, since = null, enabledAccountIds }) {
   const effectiveEnabled = enabledAccountIds ?? doc.data().enabledAccountIds
+  if (Array.isArray(effectiveEnabled) && effectiveEnabled.length === 0) return { written: 0, fetched: 0, skipped: 0, notEnabled: 0 }
 
   const accessToken = await readAccessToken({ db, uid, itemId: doc.id, legacyData: doc.data() })
   if (!accessToken) throw new Error(`No access token for Plaid item ${doc.id}`)
@@ -541,6 +545,8 @@ async function syncTransactionsForItem({ client, db, uid, doc, resolveFxRates, s
     db,
     uid,
     enabledAccountIds: effectiveEnabled,
+    institution: doc.data().institution ?? null,
+    connection: { itemId: doc.id, selection: doc.data().enabledAccountIds ?? null },
     accountTypeFor: mapAccountType,
     resolveFxRates,
     since,
@@ -579,7 +585,7 @@ async function handleSyncTransactions(req, res) {
   const enabledByItem = dedupeEnabledAccounts(
     plaidDocs.docs.map((d) => {
       const data = d.data()
-      return { itemId: d.id, institution: data.institution, accounts: data.accounts || [], enabledAccountIds: data.enabledAccountIds }
+      return { ...data, itemId: d.id, accounts: data.accounts || [] }
     }),
   )
 
@@ -628,9 +634,13 @@ async function handleSyncTransactions(req, res) {
   // delete live data.
   let pruned = 0
   if (errors.length === 0) {
-    const keepAccountIds = docs.flatMap((doc) => doc.data()?.enabledAccountIds || [])
+    // Enumerate ALL current connections even for an item-only sync. Keep
+    // duplicate connections until their rows have been reconciled explicitly:
+    // a matching account mask does not prove every historical row is a copy.
+    const unknownSelection = plaidDocs.docs.some((doc) => doc.data().enabledAccountIds == null && !doc.data().accounts?.length)
+    const keepAccountIds = unknownSelection ? [] : plaidDocs.docs.flatMap((doc) => doc.data().enabledAccountIds ?? doc.data().accounts.map((a) => a.id))
     try {
-      const result = await pruneOrphanedTransactions({ db, uid: userId, keepAccountIds })
+      const result = await pruneOrphanedTransactions({ db, uid: userId, keepAccountIds, verifyConnections: true })
       pruned = result.deleted
     } catch (err) {
       console.warn('[plaid:sync-transactions] prune failed:', err.message)
@@ -720,10 +730,12 @@ async function handleDisconnect(req, res) {
   // read by every figure on the Tax page as though the account still existed,
   // and re-importing the brokerage later adds a second copy of each rather
   // than recognising them.
+  await docRef.delete()
   let removedTransactions = 0
   try {
-    const { enabledAccountIds } = docSnap.data() || {}
-    const result = await deleteTransactionsForAccounts({ db, uid: userId, accountIds: enabledAccountIds || [] })
+    const data = docSnap.data() || {}
+    const accountIds = [...new Set([...(data.enabledAccountIds || []), ...(data.accounts || []).map((a) => a.id)])]
+    const result = await deleteTransactionsForAccounts({ db, uid: userId, accountIds })
     removedTransactions = result.deleted
   } catch (err) {
     // The connection is still gone; the ledger is tidied on the next sync's
@@ -731,7 +743,6 @@ async function handleDisconnect(req, res) {
     console.warn('[plaid:disconnect] could not remove imported transactions:', err.message)
   }
 
-  await docRef.delete()
   return res.status(200).json({ success: true, removedTransactions })
 }
 
@@ -772,14 +783,23 @@ async function handleScheduledSync(req, res) {
   const items = await db.collectionGroup('plaid').get()
   if (items.empty) return res.status(200).json({ items: 0, written: 0, errors: [] })
 
+  const byUser = new Map()
+  for (const doc of items.docs) {
+    const uid = doc.ref.parent.parent?.id
+    byUser.set(uid, [...(byUser.get(uid) || []), { ...doc.data(), itemId: doc.id }])
+  }
+  const ownership = new Map([...byUser].map(([uid, docs]) => [uid, dedupeEnabledAccounts(docs)]))
   const settled = await Promise.allSettled(items.docs.map(async (doc) => {
     const uid = doc.ref.parent.parent?.id
     if (!uid) throw new Error(`Plaid item ${doc.id} has no owning user`)
 
+    const enabledAccountIds = ownership.get(uid).get(doc.id)
+    if (enabledAccountIds?.length === 0) return { uid, itemId: doc.id, written: 0, fetched: 0 }
     const result = await syncTransactionsForItem({
       client, db, uid, doc, resolveFxRates, since: doc.data()?.lastSyncedAt ?? null,
+      enabledAccountIds,
     })
-    await doc.ref.set({ lastSyncedAt: new Date().toISOString() }, { merge: true })
+    await doc.ref.update({ lastSyncedAt: new Date().toISOString() })
     return { uid, itemId: doc.id, ...result }
   }))
 

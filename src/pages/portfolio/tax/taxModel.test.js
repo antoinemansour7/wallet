@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { contributionView, saleReview, taxAccountType, taxOverview } from './taxModel'
+import { contributionInputs, contributionView, saleReview, taxAccountType, taxOverview } from './taxModel'
 
 const holding = (symbol = 'MSFT', currency = 'USD', value = 10000) => ({ SYMBOL: symbol, DESCRIPTION: 'Company', 'ACCOUNT CURRENCY': currency, 'MARKET VALUE': value })
 const account = (number, type, positions) => ({ accountNumber: number, currency: 'USD', positions: positions.map((row) => ({ ...row, 'ACCOUNT TYPE': type })) })
@@ -53,4 +53,13 @@ describe('shared tax adapters', () => {
     expect(saleReview(trades, {}, { MSFT: { price: 110, currency: 'USD' } }, null).comparisons).toEqual([])
     expect(saleReview(trades, {}, { MSFT: { price: 110, currency: 'USD', cacheStatus: 'stale' } }, 1.5).comparisons).toEqual([])
   })
+})
+
+// Incoming brokerage transfers are not evidence of a fresh contribution.
+it('withholds contribution room for an unreviewed broker transfer', () => {
+  const input = contributionInputs('TFSA', { limitMinor: 700000, asOf: '2026-01-01' }, [], [
+    { accountType: 'TFSA', accountId: 'broker', source: 'plaid', action: 'TRANSFER', providerSubtype: 'transfer', cashDirection: 'in', amountMinor: -3980000, currency: 'CAD', tradeDate: '2026-09-03' },
+  ])
+  expect(input.room).toBeNull()
+  expect(input.unreviewedTransfers).toHaveLength(1)
 })

@@ -5,7 +5,7 @@ import Modal, { ModalClose } from '../../../components/Modal'
 import { projectWithholding } from '../../../utils/withholdingTax'
 import { summarizeFundFees } from '../../../utils/fundFees'
 import { toMinorUnits } from '../../../utils/money'
-import { measureConversionCost, estimateConversionCost } from '../../../utils/conversionCost'
+import { measureConversionCost, estimateConversionCost, estimateWealthsimpleFxFees } from '../../../utils/conversionCost'
 import { accountTypeLabel, contributionView, localTaxDate, money, saleReview, taxAccountType, taxOverview } from './taxModel'
 import './Tax.css'
 
@@ -84,7 +84,7 @@ function ContributionCard({ type, record, disabled, onSave, accounts, workspace,
   const today = localTaxDate()
   const view = contributionView(type, record, accounts, workspace.ledger.transactions, workspace.settings, planned)
   const room = view.result
-  const unavailable = workspace.ledger.loading || workspace.ledger.error || workspace.ledger.limited || view.missingFx
+  const unavailable = workspace.ledger.loading || workspace.ledger.error || workspace.ledger.limited || view.missingFx || view.unreviewedTransfers.length > 0
   const current = room && !room.stale && !unavailable
   const startEdit = () => { setDraft({ amount: Number.isFinite(record?.limitMinor) ? record.limitMinor / 100 : record?.room ?? '', asOf: record?.asOf || today }); onEdit() }
   const submit = async (e) => { e.preventDefault(); if (await onSave({ limitMinor: toMinorUnits(draft.amount), asOf: draft.asOf })) onCancel() }
@@ -96,7 +96,7 @@ function ContributionCard({ type, record, disabled, onSave, accounts, workspace,
       <div className="tax-actions"><button className="tax-button" disabled={disabled} type="submit">{disabled ? 'Saving…' : 'Save figures'}</button><button className="tax-text-button" type="button" onClick={onCancel}>Cancel</button></div>
     </form> : <>
       <strong className={`tax-room-amount ${!record ? 'tax-room-amount-empty' : ''} ${current && room.remainingMinor < 0 ? 'tax-negative' : ''}`}>{current ? money(room.remainingMinor) : room?.stale || view.needsMigration ? 'Needs an update' : record ? 'Not available' : 'Not set'} <small>{current ? 'CAD remaining' : ''}</small></strong>
-      <p>{current ? `Your room as of ${room.asOf}, less ${money(room.depositedMinor)} in recorded deposits across your ${type} accounts.` : room?.stale ? `Your last figure is from ${room.asOf}. Enter this year’s room before checking a contribution.` : view.needsMigration ? 'Confirm your saved room and date. Deposits now come from transaction history; the old manually entered contribution total is not deducted again.' : view.missingFx ? 'A deposit needs its historical exchange rate before room can be checked.' : record && unavailable ? 'Complete transaction history is needed to check this figure.' : `Enter the available room from your ${type === 'TFSA' ? 'CRA account' : 'notice of assessment'}.`}</p>
+      <p>{current ? `Your room as of ${room.asOf}, less ${money(room.depositedMinor)} in recorded deposits across your ${type} accounts.` : room?.stale ? `Your last figure is from ${room.asOf}. Enter this year’s room before checking a contribution.` : view.needsMigration ? 'Confirm your saved room and date. Deposits now come from transaction history; the old manually entered contribution total is not deducted again.' : view.unreviewedTransfers.length ? 'An incoming transfer needs review against your statement before contribution room can be calculated.' : view.missingFx ? 'A deposit needs its historical exchange rate before room can be checked.' : record && unavailable ? 'Complete transaction history is needed to check this figure.' : `Enter the available room from your ${type === 'TFSA' ? 'CRA account' : 'notice of assessment'}.`}</p>
       {current && <details className="tax-details"><summary>Check a contribution</summary><Field label={`Check a planned ${type} contribution (CAD)`}><input type="number" min="0" step="0.01" placeholder="0.00" value={planned} onChange={(e) => setPlanned(e.target.value)} /></Field>{view.check && <p role="status" className={view.check.exceeds ? 'tax-notice tax-negative' : 'tax-notice'}>{view.check.exceeds ? `${money(view.check.excessMinor)} above the room you recorded.` : `${money(view.check.remainingAfterMinor)} would remain based on your records.`}</p>}</details>}
       {type === 'TFSA' && room?.excludesTfsaRecontribution && <p className="tax-footnote">Withdrawals do not add room in this estimate.</p>}
     </>}
@@ -109,7 +109,7 @@ function ContributionSection({ workspace, accounts }) {
   return <section className="tax-card" id="tax-room"><SectionHeading title="Contribution room" subtitle="Across your TFSA and RRSP accounts." aside={<Badge>CAD</Badge>} />
     <div className="tax-room-grid">{['TFSA', 'RRSP'].map((type) => <ContributionCard editing={editingType === type} onEdit={() => setEditingType(type)} onCancel={() => setEditingType((current) => current === type ? null : current)} key={type} type={type} record={settings.room?.[type]} disabled={loading || saving || loadFailed} accounts={accounts} workspace={workspace}
       onSave={(record) => update({ room: { ...settings.room, [type]: record } })} />)}</div>
-    <details className="tax-details"><summary>How room is calculated</summary><p className="tax-footnote">Based on your entered room and the available ledger. Incoming transfers are counted as deposits; review transfers between registered accounts and contributions outside this app against your records. New-year room is not added automatically.</p>
+    <details className="tax-details"><summary>How room is calculated</summary><p className="tax-footnote">Based on your entered room and the available ledger. Broker deposits count as contributions. Other incoming transfers require statement review; direct transfers between registered accounts may not use room. New-year room is not added automatically.</p>
     <div className="tax-source-links"><a href={CRA_TFSA} target="_blank" rel="noreferrer">TFSA rules ↗</a><a href={CRA_RRSP} target="_blank" rel="noreferrer">RRSP room ↗</a></div></details>
   </section>
 }
@@ -120,11 +120,11 @@ const accountLabelIn = (accounts = []) => (id) => {
   return account?.accountNumber || (id ? `Account ${String(id).slice(-8)}` : 'Account unavailable')
 }
 
-function ConversionSection({ measured, estimate, accounts, year, hasUsdActivity, unavailable }) {
+function ConversionSection({ measured, estimate, brokerEstimate, accounts, year, hasUsdActivity, unavailable }) {
   const conversions = measured?.conversions ?? []
   const accountLabel = accountLabelIn(accounts)
   return <section className="tax-card" id="tax-conversion" aria-label="Currency conversion">
-    <SectionHeading title="Currency conversion" subtitle={`Your ${year} activity, compared with the daily reference rate.`} aside={<Badge>CAD · {year}</Badge>} />
+    <SectionHeading title="Currency conversion" subtitle={brokerEstimate && !conversions.length ? `Estimated fees on your ${year} USD purchases.` : `Your ${year} activity, compared with the daily reference rate.`} aside={<Badge>CAD · {year}</Badge>} />
     {unavailable ? <div className="tax-empty"><h3>Transaction history unavailable</h3><p>Load complete history to review currency conversions.</p></div> : conversions.length > 0 ? <>
       <div className="tax-fx-total">
         <div><span>{measured.totalCostMinor < 0 ? 'Below daily reference' : 'FX cost vs daily reference'}</span><strong>{money(measured.totalCostMinor, 'CAD')} <small>CAD</small></strong></div>
@@ -146,8 +146,17 @@ function ConversionSection({ measured, estimate, accounts, year, hasUsdActivity,
           </dl><p className="tax-footnote">Rates are CAD per USD. {c.source === 'trade-embedded' ? 'Derived from the trade’s verified currency amounts and recorded USD balance; assumes no cash before the available history.' : 'Based on paired CAD and USD FX records in this account on the same date.'} This comparison uses a daily reference, not an intraday execution quote.</p></div>
         </details></li>)}
       </ul>
-    </> : <div className="tax-empty"><span className="tax-empty-symbol" aria-hidden="true">↔</span><h3>No measured FX conversions yet</h3><p>{measured?.unpricedCount ? 'Some transactions need currency details before their FX cost can be measured.' : hasUsdActivity ? 'We found USD activity, but do not have enough information to determine the actual currency conversion cost.' : 'No conversions recorded.'}</p></div>}
-    {!unavailable && estimate && <details className="tax-details tax-fx-scenario"><summary>What if these purchases needed currency conversion?</summary>
+    </> : brokerEstimate ? null : <div className="tax-empty"><span className="tax-empty-symbol" aria-hidden="true">↔</span><h3>No measured FX conversions yet</h3><p>{measured?.unpricedCount ? 'Some transactions need currency details before their FX cost can be measured.' : hasUsdActivity ? 'We found USD activity, but do not have enough information to determine the actual currency conversion cost.' : 'No conversions recorded.'}</p></div>}
+    {!unavailable && brokerEstimate && <div className="tax-fx-estimate">
+      <div className="tax-fx-total"><div><span>Estimated conversion fees</span><strong>{money(brokerEstimate.totalCostMinor, 'CAD')} <small>CAD</small></strong></div><p>{countLabel(brokerEstimate.purchases.length, 'USD purchase')}<span>If funded from CAD · 1.5% fee</span></p></div>
+      <p className="tax-footnote">A fee estimate, not a measured loss. Your trade confirmation supplies the exact CAD charge and broker rate.</p>
+      <ul className="tax-conversion-list">{brokerEstimate.purchases.map((p) => <li key={p.transactionId} className="tax-conversion"><details>
+        <summary className="tax-conversion-head"><span className="tax-conversion-icon" aria-hidden="true">↔</span><span className="tax-conversion-identity"><strong>{p.symbol || 'USD purchase'}</strong><small>{formatConversionDate(p.tradeDate)} · {accountLabel(p.accountId)}</small></span><span className="tax-conversion-value"><strong>{money(p.estimatedCostMinor, 'CAD')} <small>CAD</small></strong><small>Estimated fee</small></span><AccountIcon name="chevron" size={14} /></summary>
+        <div className="tax-conversion-body"><dl className="tax-conversion-detail"><div><dt>Purchase amount</dt><dd>{money(p.usdMinor, 'USD')} USD</dd></div><div><dt>Daily reference rate</dt><dd>{p.midRate.toFixed(4)}</dd></div></dl><p className="tax-footnote">Assumes the full purchase was converted from CAD. The broker’s actual exchange rate is unavailable.</p></div>
+      </details></li>)}</ul>
+      <details className="tax-details"><summary>How this estimate works</summary><p>{brokerEstimate.assumption}</p><a href={brokerEstimate.sourceUrl} target="_blank" rel="noreferrer">Wealthsimple fee schedule ↗</a></details>
+    </div>}
+    {!unavailable && estimate && !brokerEstimate && <details className="tax-details tax-fx-scenario"><summary>What if these purchases needed currency conversion?</summary>
       <p>{estimate.assumption}</p><div className="tax-fx-total"><div><span>Scenario · {estimate.spreadPct}% assumed spread</span><strong>{money(estimate.totalCostMinor, 'CAD')} <small>CAD</small></strong></div><p>{countLabel(estimate.purchases.length, 'USD purchase')}<span>Not a recorded cost</span></p></div>
     </details>}
     {!unavailable && measured?.unpricedCount > 0 && <details className="tax-details tax-fx-incomplete"><summary>{countLabel(measured.unpricedCount, 'record')} not priced</summary><p>Excluded from the total. A conversion needs both currency amounts and a reference rate.</p>{measured.unpriced?.length > 0 && <ul>{measured.unpriced.map((row, index) => <li key={`${row.accountId}:${row.transactionId}:${index}`}><strong>{row.symbol || 'Transaction'}</strong> · {formatConversionDate(row.tradeDate)} · {accountLabel(row.accountId)}<span>{row.reason === 'unverified-price-currency' ? 'Unit-price currency is unverified; a USD amount cannot be established.' : row.reason === 'insufficient-history' ? 'Earlier cash history is needed.' : 'Daily reference rate is missing.'}</span></li>)}</ul>}</details>}
@@ -217,6 +226,8 @@ export default function TaxView({ accounts, workspace, onAddAccount }) {
     () => estimateConversionCost({ transactions: data.transactions, year: taxYear, spreadPct: settings.brokerSpreadPct, measured: fx, asOf }),
     [data.transactions, taxYear, settings.brokerSpreadPct, fx, asOf],
   )
+  const brokerEstimate = useMemo(() => estimateWealthsimpleFxFees({ transactions: data.transactions, year: taxYear, asOf, measured: fx }), [data.transactions, taxYear, asOf, fx])
+  const showBrokerEstimate = !fx?.conversions.length && !!brokerEstimate
   const hasUsdActivity = (data.transactions ?? []).some((t) => String(t?.currency ?? '').toUpperCase() === 'USD')
   const [dataOpen, setDataOpen] = useState(false)
   return <div className="tax-page">
@@ -255,11 +266,11 @@ export default function TaxView({ accounts, workspace, onAddAccount }) {
           <div className="tax-metric-footer"><button type="button" className="tax-text-button" onClick={() => openTool('fees')}>View breakdown<AccountIcon name="chevron" size={14} /></button></div>
         </section>
         <section className="tax-metric" aria-label="FX conversion cost summary" id="tax-fx-summary">
-          <div className="tax-hero-label">FX conversion costs <Badge>{historyUnavailable ? 'Unavailable' : 'Measured'}</Badge></div>
-          <div className={`tax-hero-amount ${!fx?.conversions.length || historyUnavailable ? 'tax-amount-empty' : ''}`}>{historyUnavailable ? 'Unavailable' : fx?.conversions.length ? money(fx.totalCostMinor, 'CAD') : 'Not measured'}</div>
+          <div className="tax-hero-label">FX conversion costs <Badge>{historyUnavailable ? 'Unavailable' : showBrokerEstimate ? 'Estimated fee' : fx?.conversions.length ? 'Measured' : 'Not measured'}</Badge></div>
+          <div className={`tax-hero-amount ${(!fx?.conversions.length && !showBrokerEstimate) || historyUnavailable ? 'tax-amount-empty' : ''}`}>{historyUnavailable ? 'Unavailable' : fx?.conversions.length ? money(fx.totalCostMinor, 'CAD') : showBrokerEstimate ? money(brokerEstimate.totalCostMinor, 'CAD') : 'Not measured'}</div>
           <span className="tax-metric-unit">CAD · {taxYear} to date</span>
-          <p>{historyUnavailable ? 'Complete transaction history is needed.' : fx?.conversions.length ? `${countLabel(fx.conversions.length, 'measured conversion')}${fx.complete ? '' : ` · ${fx.unpricedCount} records not priced`}` : fx?.unpricedCount ? 'Some records need currency details.' : hasUsdActivity ? 'USD purchases alone do not establish a conversion.' : 'No conversions recorded.'}</p>
-          <div className="tax-metric-note">{fx?.totalCostMinor < 0 ? 'Below the daily reference rate' : 'Compared with the daily reference rate'}</div>
+          <p>{historyUnavailable ? 'Complete transaction history is needed.' : fx?.conversions.length ? `${countLabel(fx.conversions.length, 'measured conversion')}${fx.complete ? '' : ` · ${fx.unpricedCount} records not priced`}` : showBrokerEstimate ? `${countLabel(brokerEstimate.purchases.length, 'USD purchase')} · If funded from CAD` : fx?.unpricedCount ? 'Some records need currency details.' : hasUsdActivity ? 'USD purchases alone do not establish a conversion.' : 'No conversions recorded.'}</p>
+          <div className="tax-metric-note">{showBrokerEstimate ? '1.5% published fee · Exact FX cost unavailable' : fx?.totalCostMinor < 0 ? 'Below the daily reference rate' : 'Compared with the daily reference rate'}</div>
           <div className="tax-metric-footer"><button type="button" className="tax-text-button" onClick={() => openTool('currency')}>View conversions <AccountIcon name="arrow" size={14} /></button></div>
         </section>
       </div>
@@ -277,7 +288,7 @@ export default function TaxView({ accounts, workspace, onAddAccount }) {
       {tool === 'room' && <ContributionSection workspace={workspace} accounts={accounts} />}
       {tool === 'accounts' && <WithholdingSimulator accounts={accounts} settings={settings} currency={currency} reference={data.reference} />}
       {tool === 'fees' && <FeesSection accounts={accounts} reference={data.reference} loading={referenceLoading} />}
-      {tool === 'currency' && <ConversionSection measured={fx} estimate={fxEstimate} accounts={accounts} year={taxYear} hasUsdActivity={hasUsdActivity} unavailable={historyUnavailable} />}
+      {tool === 'currency' && <ConversionSection brokerEstimate={brokerEstimate} measured={fx} estimate={fxEstimate} accounts={accounts} year={taxYear} hasUsdActivity={hasUsdActivity} unavailable={historyUnavailable} />}
       {tool === 'sales' && <SalesSection ledger={ledger} prices={prices} />}
     </div></Modal>
     <footer className="tax-footer"><span>Estimates, not a tax return.</span><div><button type="button" onClick={workspace.retry}>Refresh data</button><a href={TREATY} target="_blank" rel="noreferrer">Canada–US treaty ↗</a></div></footer>

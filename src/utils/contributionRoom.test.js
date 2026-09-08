@@ -21,6 +21,16 @@ const deposit = (overrides = {}) => ({
 })
 
 describe('depositsSince', () => {
+  it('counts broker deposits without treating withdrawals and institutional transfers as contributions', () => {
+    const total = depositsSince({ accountId: 'tfsa-1', asOf: '2026-01-01', transactions: [
+      deposit({ source: 'plaid', providerSubtype: 'deposit', cashDirection: 'in', amountMinor: -170000 }),
+      deposit({ source: 'plaid', providerSubtype: 'deposit', cashDirection: 'in', amountMinor: -50000 }),
+      deposit({ source: 'plaid', providerSubtype: 'withdrawal', cashDirection: 'out', amountMinor: 50000 }),
+      deposit({ source: 'plaid', providerSubtype: 'transfer', cashDirection: 'in', amountMinor: -3980000 }),
+    ] })
+    expect(total).toBe(220000)
+  })
+
   it('counts contributions on or after the date the room was accurate', () => {
     const total = depositsSince({
       transactions: [

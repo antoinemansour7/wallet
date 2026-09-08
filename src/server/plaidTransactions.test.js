@@ -35,6 +35,24 @@ describe('dedupeEnabledAccounts', () => {
     expect([...map.values()].flat().sort()).toEqual(['jrky', 'ps07A'])
   })
 
+  it('keeps the existing owner when reconnect returns a smaller account id', () => {
+    const map = dedupeEnabledAccounts([
+      { ...item('old', 'Broker', [acct('z', '1234')], ['z']), connectedAt: '2026-01-01' },
+      { ...item('new', 'Broker', [acct('a', '1234')], ['a']), connectedAt: '2026-09-07' },
+    ])
+    expect(map.get('old')).toEqual(['z'])
+    expect(map.get('new')).toEqual([])
+  })
+
+  it('does not merge accounts on names or ambiguous masks', () => {
+    const map = dedupeEnabledAccounts([
+      item('a', 'Broker', [acct('a1', '1234'), acct('a2', '1234'), { id: 'a3', name: 'TFSA' }], ['a1', 'a2', 'a3']),
+      item('b', 'Broker', [acct('b1', '1234'), { id: 'b2', name: 'TFSA' }], ['b1', 'b2']),
+    ])
+    expect(map.get('a')).toEqual(['a1', 'a2', 'a3'])
+    expect(map.get('b')).toEqual(['b1', 'b2'])
+  })
+
   it('does not collapse the same mask across different institutions', () => {
     const map = dedupeEnabledAccounts([
       item('i1', 'Wealthsimple', [acct('w', '17K9')], ['w']),
@@ -135,15 +153,14 @@ describe('fetchAllInvestmentTransactions', () => {
     expect([...result.securities.keys()]).toEqual(['sec1', 'sec2'])
   })
 
-  it('stops on an empty page even when the total disagrees', async () => {
+  it('rejects an incomplete response instead of recording full coverage', async () => {
     // A total that overstates reality would otherwise spin forever.
     const { client, calls } = fakeClient([
       { investment_transactions: [txn()], total_investment_transactions: 999 },
       { investment_transactions: [], total_investment_transactions: 999 },
     ])
 
-    const result = await fetchAllInvestmentTransactions({ client, accessToken: 't', startDate: 'a', endDate: 'b', pageSize: 1 })
-    expect(result.transactions).toHaveLength(1)
+    await expect(fetchAllInvestmentTransactions({ client, accessToken: 't', startDate: 'a', endDate: 'b', pageSize: 1 })).rejects.toThrow('incomplete transaction history')
     expect(calls).toHaveLength(2)
   })
 
@@ -479,7 +496,7 @@ describe('removing what a connection left behind', () => {
   // of each. One real ledger ended up holding every trade three times.
   const fakeDb = (transactions) => {
     const deleted = []
-    const docs = transactions.map((data, i) => ({ data: () => data, ref: { id: `t${i}` } }))
+    const docs = transactions.map((data, i) => ({ data: () => ({ source: 'plaid', ...data }), ref: { id: `t${i}` } }))
     return {
       deleted,
       db: {
@@ -532,6 +549,14 @@ describe('removing what a connection left behind', () => {
 
     expect(result.deleted).toBe(1)
     expect(deleted).toEqual(['t1'])
+  })
+
+  it('preserves manual records even when their account is disconnected', async () => {
+    const { db, deleted } = fakeDb([{ accountId: 'orphan', source: 'manual' }, { accountId: 'orphan', source: 'csv' }])
+    await pruneOrphanedTransactions({ db, uid: 'u1', keepAccountIds: ['live'] })
+    await deleteTransactionsForAccounts({ db, uid: 'u1', accountIds: ['orphan'] })
+    expect(deleted).not.toContain('t0')
+    expect(deleted).not.toContain('t1')
   })
 
   it('prunes nothing when the accounts to keep are unknown', async () => {

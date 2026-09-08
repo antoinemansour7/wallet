@@ -72,9 +72,8 @@ export function incrementalWindow(lastSyncedAt, now = new Date(), { overlapDays 
  * Walks every page rather than stopping at the first.
  *
  * `total_investment_transactions` is the count for the whole window, not the
- * page, so it is the loop's bound. Guarding on a page coming back empty as
- * well means a total that disagrees with reality ends the loop instead of
- * spinning against it.
+ * page, so it is the loop's bound. Inconsistent counts or overlapping pages
+ * fail the import before any records or coverage claims are written.
  */
 export async function fetchAllInvestmentTransactions({ client, accessToken, startDate, endDate, pageSize = PAGE_SIZE }) {
   const transactions = []
@@ -84,6 +83,7 @@ export async function fetchAllInvestmentTransactions({ client, accessToken, star
   let offset = 0
   let total = Infinity
   let pages = 0
+  const seen = new Set()
 
   while (offset < total) {
     const response = await client.investmentsTransactionsGet({
@@ -99,10 +99,21 @@ export async function fetchAllInvestmentTransactions({ client, accessToken, star
     for (const security of data.securities || []) securities.set(security.security_id, security)
     for (const account of data.accounts || []) accounts.set(account.account_id, account)
 
+    const reportedTotal = data.total_investment_transactions
+    if (!Number.isInteger(reportedTotal) || reportedTotal < 0 || (pages > 0 && reportedTotal !== total)) {
+      throw new Error('Plaid transaction count changed or is missing; retry the complete sync')
+    }
+    for (const row of page) {
+      if (!row.investment_transaction_id || seen.has(row.investment_transaction_id)) throw new Error('Plaid returned overlapping transaction pages; retry the complete sync')
+      seen.add(row.investment_transaction_id)
+    }
+    if (transactions.length + page.length > reportedTotal || (!page.length && transactions.length < reportedTotal)) {
+      throw new Error('Plaid returned incomplete transaction history; retry the complete sync')
+    }
     transactions.push(...page)
     pages += 1
 
-    total = Number.isFinite(data.total_investment_transactions) ? data.total_investment_transactions : transactions.length
+    total = reportedTotal
     if (page.length === 0) break
     offset += page.length
   }
@@ -137,7 +148,7 @@ export function securityContext(security) {
  * window has to see them, because buying back in an RRSP denies a loss taken
  * in a cash account.
  */
-export function buildLedgerRecords({ transactions, securities, accounts, enabledAccountIds, accountTypeFor, fxFor }) {
+export function buildLedgerRecords({ transactions, securities, accounts, enabledAccountIds, accountTypeFor, fxFor, institution = null }) {
   const isEnabled = (accountId) => !enabledAccountIds || enabledAccountIds.includes(accountId)
 
   const records = []
@@ -168,6 +179,8 @@ export function buildLedgerRecords({ transactions, securities, accounts, enabled
       security,
       accountId: raw.account_id,
       accountType: account && accountTypeFor ? accountTypeFor(account) : null,
+      accountBalanceCurrency: account?.balances?.iso_currency_code ?? null,
+      institution,
       fx: fxFor ? fxFor(raw) : null,
     })
 
@@ -178,6 +191,7 @@ export function buildLedgerRecords({ transactions, securities, accounts, enabled
       const context = { security, accountId: raw.account_id }
       skipped.push({
         id: raw.investment_transaction_id,
+        accountId: raw.account_id,
         reason: normalizationFailure(raw, context) ?? 'unclassifiable',
         // The wording the institution used, so an unmapped action can be
         // mapped rather than guessed at.
@@ -199,7 +213,7 @@ export function buildLedgerRecords({ transactions, securities, accounts, enabled
  * under different Plaid account ids (the mask is identical). Left alone, each
  * item syncs its own copy and every transaction is written once per item — the
  * duplication that put three trades into the ledger as six. An account is
- * identified by (institution, mask, subtype); the smallest account id wins, so
+ * identified by (institution, mask, subtype); the oldest connection wins (account id breaks ties), so
  * the choice is deterministic and a re-sync always keeps the same side.
  *
  * `items`: [{ itemId, institution, accounts: [{ id, mask, subtype }],
@@ -207,15 +221,26 @@ export function buildLedgerRecords({ transactions, securities, accounts, enabled
  * ids with cross-item duplicates removed.
  */
 export function dedupeEnabledAccounts(items = []) {
-  const identify = (institution, acct) => [
-    String(institution ?? '').trim().toLowerCase(),
-    String(acct.mask || acct.officialName || acct.name || acct.id).trim().toLowerCase(),
-    String(acct.subtype ?? '').trim().toLowerCase(),
-  ].join('|')
+  const identify = (institution, acct) => {
+    if (acct.persistentAccountId) return `persistent:${institution}:${acct.persistentAccountId}`
+    if (!institution || !acct.mask || !acct.subtype) return `account:${acct.id}`
+    return [String(institution).trim().toLowerCase(), String(acct.mask).trim().toLowerCase(), String(acct.subtype).trim().toLowerCase()].join('|')
+  }
+  // Plaid explicitly allows non-unique masks. A collision within one item
+  // cannot identify an account, so retain all accounts with that identity.
+  const ambiguous = new Set()
+  for (const item of items) {
+    const seen = new Set()
+    for (const acct of item.accounts || []) {
+      const key = identify(item.institution, acct)
+      if (seen.has(key)) ambiguous.add(key)
+      seen.add(key)
+    }
+  }
 
   const enabledIds = (item) => new Set(item.enabledAccountIds || (item.accounts || []).map((a) => a.id))
 
-  // Deterministic winner per real account across every item (smallest id).
+  // Deterministic owner per real account across every item.
   const winner = new Map()
   for (const item of items) {
     const enabled = enabledIds(item)
@@ -223,7 +248,10 @@ export function dedupeEnabledAccounts(items = []) {
       if (!enabled.has(acct.id)) continue
       const key = identify(item.institution, acct)
       const current = winner.get(key)
-      if (current === undefined || acct.id < current) winner.set(key, acct.id)
+      // Keep the established connection when a fresh Link returns smaller IDs.
+      // Otherwise ownership flips and imports a new copy beside the old one.
+      const order = `${item.connectedAt || '0000'}|${acct.id}`
+      if (!current || order < current.order) winner.set(key, { id: acct.id, order })
     }
   }
 
@@ -233,7 +261,7 @@ export function dedupeEnabledAccounts(items = []) {
     const enabled = enabledIds(item)
     for (const acct of item.accounts || []) {
       if (!enabled.has(acct.id)) continue
-      if (winner.get(identify(item.institution, acct)) !== acct.id) drop.add(acct.id)
+      if (!ambiguous.has(identify(item.institution, acct)) && winner.get(identify(item.institution, acct))?.id !== acct.id) drop.add(acct.id)
     }
   }
 
@@ -273,31 +301,46 @@ function chunk(items, size) {
   return out
 }
 
-export async function writeLedgerRecords({ db, uid, records, historyStartsAt = {} }) {
+export async function writeLedgerRecords({ db, uid, records, historyStartsAt = {}, coverage = {}, connection = null }) {
   if (!uid) throw new Error('writeLedgerRecords requires a uid')
 
   const userDoc = db.collection('users').doc(uid)
   const transactions = userDoc.collection('transactions')
 
+  // A disconnect/selection change must invalidate an already-running import.
+  // Read and write in one transaction so a concurrent connection edit retries
+  // this check before any ledger batch can land.
+  const commit = async (write) => {
+    if (!connection) { const batch = db.batch(); write(batch); await batch.commit(); return }
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(userDoc.collection('plaid').doc(connection.itemId))
+      if (!snap.exists || JSON.stringify(snap.data().enabledAccountIds ?? null) !== JSON.stringify(connection.selection ?? null)) {
+        throw new Error('Connection changed during sync; retry with the current accounts')
+      }
+      write(tx)
+    })
+  }
   let written = 0
   for (const group of chunk(records || [], BATCH_LIMIT)) {
-    const batch = db.batch()
-    for (const record of group) batch.set(transactions.doc(record.id), record)
-    await batch.commit()
+    await commit((batch) => {
+      for (const record of group) batch.set(transactions.doc(record.id), record)
+    })
     written += group.length
   }
 
-  const accountIds = Object.keys(historyStartsAt)
+  const accountIds = [...new Set([...Object.keys(historyStartsAt), ...Object.keys(coverage)])]
   for (const group of chunk(accountIds, BATCH_LIMIT)) {
-    const batch = db.batch()
-    for (const accountId of group) {
-      batch.set(
-        userDoc.collection('accounts').doc(accountId),
-        { historyStartsAt: historyStartsAt[accountId] },
-        { merge: true },
-      )
-    }
-    await batch.commit()
+    await commit((batch) => {
+      for (const accountId of group) {
+        batch.set(
+          userDoc.collection('accounts').doc(accountId),
+          { ...(historyStartsAt[accountId] ? { historyStartsAt: historyStartsAt[accountId] } : {}),
+            ...(coverage[accountId] ? { latestImport: coverage[accountId],
+              ...(!coverage[accountId].complete || historyStartsAt[accountId] ? { importComplete: coverage[accountId].complete } : {}) } : {}) },
+          { merge: true },
+        )
+      }
+    })
   }
 
   return { written }
@@ -334,8 +377,9 @@ export async function resolveFxForTransactions(transactions, resolveFxRates) {
  * only runs when `fxFor` was not already supplied.
  */
 export async function syncInvestmentTransactions({
-  client, accessToken, db, uid, enabledAccountIds, accountTypeFor, fxFor, resolveFxRates, now, since = null,
+  client, accessToken, db, uid, enabledAccountIds, accountTypeFor, fxFor, resolveFxRates, now, since = null, institution = null, connection = null,
 }) {
+  if (Array.isArray(enabledAccountIds) && enabledAccountIds.length === 0) return { written: 0, fetched: 0, skipped: 0, notEnabled: 0, pages: 0 }
   const { startDate, endDate } = since ? incrementalWindow(since, now) : defaultWindow(now)
 
   const { transactions, securities, accounts, pages } = await fetchAllInvestmentTransactions({
@@ -345,7 +389,7 @@ export async function syncInvestmentTransactions({
   const resolvedFxFor = fxFor || (resolveFxRates ? await resolveFxForTransactions(transactions, resolveFxRates) : undefined)
 
   const { records, skipped, notEnabled, notEnabledAccounts } = buildLedgerRecords({
-    transactions, securities, accounts, enabledAccountIds, accountTypeFor, fxFor: resolvedFxFor,
+    transactions, securities, accounts, enabledAccountIds, accountTypeFor, fxFor: resolvedFxFor, institution,
   })
 
   const accountIds = [...accounts.keys()].filter((id) => !enabledAccountIds || enabledAccountIds.includes(id))
@@ -358,7 +402,14 @@ export async function syncInvestmentTransactions({
   // one. A re-sync therefore leaves the recorded start alone.
   const historyStartsAt = since ? {} : historyStartsAtFor({ accountIds, startDate })
 
-  const { written } = await writeLedgerRecords({ db, uid, records, historyStartsAt })
+  const coverage = Object.fromEntries(accountIds.map((accountId) => [accountId, {
+    startDate, endDate, fetched: transactions.filter((t) => t.account_id === accountId).length,
+    imported: records.filter((t) => t.accountId === accountId).length,
+    skipped: skipped.filter((t) => t.accountId === accountId).length,
+    complete: !skipped.some((t) => t.accountId === accountId),
+    basis: 'provider-window', // Not proof of the account's opening date or opening cash.
+  }]))
+  const { written } = await writeLedgerRecords({ db, uid, records, historyStartsAt, coverage, connection })
 
   return {
     written,
@@ -411,7 +462,7 @@ export async function deleteTransactionsForAccounts({ db, uid, accountIds = [] }
   const wanted = new Set(accountIds.filter(Boolean))
   const userDoc = db.collection('users').doc(uid)
   const snapshot = await userDoc.collection('transactions').get()
-  const doomed = snapshot.docs.filter((entry) => wanted.has(entry.data()?.accountId)).map((entry) => entry.ref)
+  const doomed = snapshot.docs.filter((entry) => entry.data()?.source === 'plaid' && wanted.has(entry.data()?.accountId)).map((entry) => entry.ref)
 
   // The per-account metadata goes with them. `historyStartsAt` describing an
   // account with no transactions would tell the next import that history
@@ -436,7 +487,7 @@ export async function deleteTransactionsForAccounts({ db, uid, accountIds = [] }
  * prunes nothing, because an empty keep-list is indistinguishable from an
  * account that owns everything.
  */
-export async function pruneOrphanedTransactions({ db, uid, keepAccountIds = [] }) {
+export async function pruneOrphanedTransactions({ db, uid, keepAccountIds = [], verifyConnections = false }) {
   if (!uid || keepAccountIds.length === 0) return { deleted: 0 }
 
   const keep = new Set(keepAccountIds.filter(Boolean))
@@ -446,10 +497,33 @@ export async function pruneOrphanedTransactions({ db, uid, keepAccountIds = [] }
     const accountId = entry.data()?.accountId
     // A transaction with no account cannot be attributed and cannot be kept
     // meaningfully, but it also cannot be proven stale — left alone.
-    return accountId && !keep.has(accountId)
+    return entry.data()?.source === 'plaid' && accountId && !keep.has(accountId)
   })
 
-  const deleted = await deleteInChunks(db, orphans.map((entry) => entry.ref))
+  let deleted = 0
+  if (verifyConnections) {
+    for (const group of chunk(orphans, BATCH_LIMIT)) {
+      deleted += await db.runTransaction(async (tx) => {
+        // The initial list can become stale while another connection syncs.
+        // Protect both current connection membership and each row being removed.
+        const connections = await tx.get(userDoc.collection('plaid'))
+        const items = connections.docs.map((d) => d.data())
+        if (items.some((d) => d.enabledAccountIds == null && !d.accounts?.length)) return 0
+        const active = new Set(items.flatMap((d) => d.enabledAccountIds ?? d.accounts.map((a) => a.id)))
+        if (!active.size) return 0
+        const current = await Promise.all(group.map((d) => tx.get(d.ref)))
+        let count = 0
+        current.forEach((snap, i) => {
+          const row = snap.data()
+          if (snap.exists && row?.source === 'plaid' && row.accountId && !active.has(row.accountId)) {
+            tx.delete(group[i].ref)
+            count += 1
+          }
+        })
+        return count
+      })
+    }
+  } else deleted = await deleteInChunks(db, orphans.map((entry) => entry.ref))
   if (deleted > 0) console.log(`[plaidTransactions] pruned ${deleted} transactions from disconnected accounts`)
   return { deleted }
 }
