@@ -1,6 +1,7 @@
 import { digest } from './archive.js'
 import { issuerId } from './securityMaster.js'
 import { createEvidence, archiveEvidence } from './evidence.js'
+import { comparableInstantFacts, computeFundamentalFeatures, improvementPriority, summarizeImprovement } from './fundamentals.js'
 
 const FORMS = new Set(['10-Q', '10-Q/A', '10-K', '10-K/A', '8-K', '8-K/A', '4', '4/A'])
 const day = 86400000
@@ -156,7 +157,17 @@ export async function ingestIssuer(archive, master, cik, { client = createSecCli
       publicAt: document.publicAt, firstSeenAt: document.firstSeenAt, extractionCompletedAt, availableAt: extractionCompletedAt, facts: currentFacts }
     await archive.put('facts', digest([filing.accession, factsDocument.sha256]), factRecord, `facts:${issuer}`, extractionCompletedAt)
     const priorRecords = await archive.list(`facts:${issuer}`, extractionCompletedAt)
-    const quarters = comparableQuarterlyFacts(priorRecords.flatMap((r) => r.facts), filing.publicAt).filter((f) => f.accession === filing.accession)
+    const historicFacts = priorRecords.flatMap((r) => r.facts)
+    // Features need the surrounding quarters to compute growth and
+    // acceleration; observedFacts stays scoped to what this filing reported.
+    const allQuarters = comparableQuarterlyFacts(historicFacts, filing.publicAt)
+    const quarters = allQuarters.filter((f) => f.accession === filing.accession)
+    // A filing that reported no quarterly facts of its own must not be
+    // described using an older quarter's numbers.
+    const fundamentals = quarters.length
+      ? computeFundamentalFeatures({ quarterly: allQuarters, instant: comparableInstantFacts(historicFacts, filing.publicAt) })
+      : { features: [], contamination: [], periodEnd: null, priorPeriodEnd: null }
+    const improvement = summarizeImprovement(fundamentals)
     const excerpt = plain(bytes).slice(0, 1500) || `SEC ${filing.form} disclosure ${filing.accession}`
     const families = filing.form.startsWith('4') ? ['insider'] : filing.form.startsWith('8-K') ? ['fundamentals'] : ['filing_changes', ...(quarters.length ? ['fundamentals'] : [])]
     for (const security of securities) for (const family of families) {
@@ -164,8 +175,16 @@ export async function ingestIssuer(archive, master, cik, { client = createSecCli
         source: { documentId: document.id, accession: filing.accession, url: primaryUrl, excerpt, factSnapshotId: factsDocument.id, completeSubmissionId: complete.id, exhibitIds: result.documents.filter((d) => d.accession === filing.accession && /^EX-99/.test(d.form)).map((d) => d.id) },
         publicAt: document.publicAt, firstSeenAt: document.firstSeenAt, extractionCompletedAt,
         observedFacts: family === 'fundamentals' ? quarters.slice(0, 60) : [],
-        interpretation: { thesis: 'New primary disclosure available for detailed review; investment implications have not been determined.', adverse: false, needsReview: true },
-        measurements: { attention: null }, priority: family === 'fundamentals' && quarters.some((f) => f.priorComparable) ? 60 : 40 })
+        interpretation: family === 'fundamentals' && improvement
+          // Derived from the observed facts, so it lives in interpretation and
+          // never in observedFacts. Every feature cites the filings behind it.
+          ? { thesis: improvement, adverse: false, needsReview: true,
+            features: fundamentals.features, contamination: fundamentals.contamination,
+            periodEnd: fundamentals.periodEnd, priorPeriodEnd: fundamentals.priorPeriodEnd }
+          : { thesis: 'New primary disclosure available for detailed review; investment implications have not been determined.', adverse: false, needsReview: true },
+        measurements: { attention: null },
+        priority: family === 'fundamentals' && improvement ? improvementPriority(fundamentals)
+          : family === 'fundamentals' && quarters.some((f) => f.priorComparable) ? 40 : 30 })
       result.evidence.push(await archiveEvidence(archive, evidence))
     }
     result.lastCompletedAccession = filing.accession
