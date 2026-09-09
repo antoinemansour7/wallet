@@ -80,3 +80,9 @@
 - Production-browser checks at 375, 760, 768, 1024 and 1440px confirm no horizontal overflow, form width at most 400px, visible 2px input focus outlines, three static account cards under reduced motion, four tax features, three walkthrough steps, and valid section links.
 - Native scrolling check: a trusted 500px wheel input is not prevented, reaches scrollY=500 by the 100ms observation, and remains there after another 650ms. This confirms removal of the former easing tail in Chromium; it is not a hardware-independent frame-rate guarantee.
 - Final browser pass also verifies section-link navigation, all three stack orders, the 4px bento hover lift, finished walkthrough connectors, live reduced-motion switching, and signup routing. No browser exceptions. Desktop/mobile screenshots reviewed; the login preview stays static and compact.
+
+## Restore the original visuals, with Tax component content
+
+- User correction: the first design and animations were preferred. Restore the original hero portfolio card verbatim from cda2889, including the $128,450 count, one-year rising stock/portfolio chart, 1.5s line draw, spring entrance, account strip and orbital framing. Restore the original headline treatment and wording; keep tax-focused supporting copy and CTA. The chart remains explicitly an illustrative portfolio, never a claimed tax saving.
+- Replace Connect/Understand/Compare with actual Tax components—Withholding, Fund expenses and FX costs—in the original three-agent card design. Preserve the original scroll progress mapping, individual card entrances, connecting strokes and moving pill. Label the pill CAD rather than presenting a stock recommendation; call these components, not new autonomous agents.
+- Keep the native wheel/touch scrolling fix, reduced-motion alternatives, tax-focused bento/account content and compact login. This is a targeted visual restoration, not a reset of the responsiveness or authentication improvements.

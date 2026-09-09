@@ -92,9 +92,9 @@ Spacing tokens: 4, 8, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 120px. Gutter clam
 
 ## 3. Layout and components
 
-Hero uses three independently masked lines (Your money. / Your costs. / Made clear.) in a full small-viewport-height forest panel, editorial text at left and a Tax & costs preview at right. Keep the approved circular linework and card treatment. The preview replaces the investment-return chart with withholding bars by account, a $312 annual withholding estimate, $184 estimated annual fund expenses and $96 measured year-to-date FX costs. These are illustrative records; they are not savings or a combined tax liability. Keep the different periods and bases visible.
+Hero restores the original three independently masked lines (Your / investments. / All together.) and portfolio preview: $128,450 CAD, an illustrative one-year gain, a 1.5s rising chart stroke, and the attached three-account strip. Preserve the original composition, spring entrance, count-up and orbital linework. Supporting copy and CTA explain Tax & costs. The rising line represents illustrative portfolio value, not tax savings or rising tax costs.
 
-The cream brokerage band qualifies connection/import availability. One view retains the three-card scroll stack, now explaining TFSA room, RRSP room and non-registered withholding. Contribution illustrations start with entered room, deduct sample deposits and explicitly say “based on your records.” Bento keeps its 7/5 then 4/8 grid (two-column tablet, one-column mobile), featuring withholding, contribution room, FX costs and fund expenses. The former research-agent band becomes a three-step Connect → Understand → Compare walkthrough. Its moving marker represents account data, not a stock recommendation. Closing invites visitors to understand their investment costs.
+The cream brokerage band qualifies connection/import availability. One view retains the three-card scroll stack, now explaining TFSA room, RRSP room and non-registered withholding. Contribution illustrations start with entered room, deduct sample deposits and explicitly say “based on your records.” Bento keeps its 7/5 then 4/8 grid (two-column tablet, one-column mobile), featuring withholding, contribution room, FX costs and fund expenses. The original three-agent card composition and scroll sequence now introduce three actual Tax components: Withholding, Fund expenses and FX costs. Retain the connecting lines, scroll-driven card entrances and travelling pill, labelled CAD. These are component descriptions, not setup steps or claims of autonomous tax agents. Closing invites visitors to understand their investment costs.
 
 Keep the distinction between available measured data and estimates. Do not promise guaranteed savings, complete coverage, CRA synchronization, filing a tax return, or total tax optimization. The actual account simulator compares dividend withholding only. No statutory rates or annual limits are presented in marketing examples.
 
@@ -113,13 +113,13 @@ Login shares the same static TaxSnapshot and tax-focused supporting copy. The fo
 | stagger | 60ms | Bento entries |
 | headline-stagger | 80ms | Masked headline lines |
 | count | 1200ms | Hero sample dollar count only |
-| chart | 1500ms | Hero withholding-bar SVG dash offsets only |
+| chart | 1500ms | Hero portfolio-chart SVG dash offset only |
 | marquee | 32s | Seamless brokerage loop |
 | spring | stiffness 120, damping 22, mass 1 | Hero card, 24px rise after 300ms |
 | cursor-spring | stiffness 70, damping 24, mass 1 | Pointer gradient lag |
 | lenis | duration .3s, ease-out; native wheel and touch | Explicit section-link navigation only |
 
-Bento lifts 4px and brightens its border; enters at the viewport's lower 80% boundary (20% viewport penetration), 60ms apart. Sticky account shuffling follows scroll progress, never a timer. The account-data marker advances through Connect, Understand and Compare; connectors draw on scroll. Hero reveal and decorative effects run once, except the marquee; it pauses on hover/focus and has an explicit pause control.
+Bento lifts 4px and brightens its border; enters at the viewport's lower 80% boundary (20% viewport penetration), 60ms apart. Sticky account shuffling follows scroll progress, never a timer. The CAD marker advances through Withholding, Fund expenses and FX costs; connectors draw on scroll. Hero reveal and decorative effects run once, except the marquee; it pauses on hover/focus and has an explicit pause control.
 
 Reduced motion is an alternate static layout: no Lenis instance, no count-up, no mask/slide, no stroke animation, no marquee, no cursor effect and no pinned account section. Values and SVG paths show their final state immediately. Media query changes are observed while mounted. Mobile also disables pointer tracking and pinning. Login form heading uses clamp(36px, 3.2vw, 48px), within the approved display ladder. Brand text is 24px and the mark 28px, inside a 40px tile. Login uses only a 300ms entrance; chart data and account previews are immediate, no hover travel/cursor/scroll effects. Loading uses text (a static status mark under reduced motion).
 
