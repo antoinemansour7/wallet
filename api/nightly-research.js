@@ -12,6 +12,7 @@ import { runCatalystAgent } from '../src/server/agents/catalystAgent.js'
 import { runExaDiscovery } from '../src/server/agents/exaDiscoveryAgent.js'
 import { sendPickAlerts } from '../src/server/agents/slackAgent.js'
 import { getMarketRegime, regimeSizeMultiplier } from '../src/server/marketRegime.js'
+import { cycleStart, isSameCycle, mergePicksByScore, pickScore } from '../src/server/researchCycle.js'
 
 const RESEARCH_KEY = 'research:latest'
 const RESEARCH_TTL = 48 * 60 * 60 // 48 hours
@@ -255,8 +256,28 @@ export default async function handler(req, res) {
   const dateKey = new Date().toISOString().slice(0, 10)
   const generatedAt = new Date().toISOString()
 
+  // Carry the best of the cycle forward. A run between scheduled runs should
+  // improve the board, not replace it, so every pick made since the last
+  // scheduled hour competes on finalScore for the same five slots.
+  let carried = []
+  if (redis) {
+    try {
+      const prior = await redis.get(RESEARCH_KEY)
+      if (prior?.picks?.length && isSameCycle(prior.generatedAt)) {
+        carried = prior.picks
+        console.log(`[nightly-research] cycle since ${cycleStart().toISOString()} holds ${carried.length} picks:`
+          + ` ${carried.map((p) => `${p.ticker}@${pickScore(p)}`).join(', ')}`)
+      }
+    } catch (err) {
+      console.error('[nightly-research] reading the cycle board failed:', err.message)
+      errors.push({ step: 'cycle-read', error: err.message })
+    }
+  }
+
   // Stamp the tape onto each pick, so a later calibration can ask what the
-  // regime was on the day it was made without reconstructing it.
+  // regime was on the day it was made without reconstructing it. Only this
+  // run's picks are stamped; carried picks keep the regime of the run that
+  // made them.
   const stamp = (list) => (regime
     ? list.map((p) => ({
       ...p,
@@ -266,9 +287,11 @@ export default async function handler(req, res) {
     }))
     : list)
 
+  const boardFrom = (list) => mergePicksByScore(carried, stamp(list))
+
   const buildPayload = (list, extra = {}) => ({
     generatedAt,
-    picks: stamp(list),
+    picks: boardFrom(list),
     regime,
     articles,
     signalCount: signals.length,
@@ -294,14 +317,16 @@ export default async function handler(req, res) {
       const newest = await redis.lindex(HISTORY_INDEX_KEY, 0)
       if (newest !== dateKey) await redis.lpush(HISTORY_INDEX_KEY, dateKey)
       await redis.ltrim(HISTORY_INDEX_KEY, 0, HISTORY_MAX_ENTRIES - 1)
-      console.log(`[nightly-research] stored ${tickers.length} picks ahead of report generation`)
+      console.log(`[nightly-research] stored ${partial.picks.length} picks ahead of report generation`)
     } catch (err) {
       console.error('[nightly-research] pre-report store failed:', err.message)
       errors.push({ step: 'store-partial', error: err.message })
     }
   }
 
-  // Step 4: generate research reports
+  // Step 4: generate research reports for this run's tickers only. A carried
+  // pick already has the report its own run wrote, and regenerating it would
+  // spend the run's longest leg rewriting work that is already done.
   let picks = tickers
   if (tickers.length > 0) {
     try {
@@ -315,6 +340,7 @@ export default async function handler(req, res) {
 
   // Step 5: store the completed run, replacing the pre-report payload
   const payload = buildPayload(picks)
+  const board = payload.picks
 
   if (redis) {
     await redis.set(RESEARCH_KEY, payload, { ex: RESEARCH_TTL })
@@ -330,7 +356,7 @@ export default async function handler(req, res) {
     // Shadow tracking: the top-15 board candidates that didn't make the cut.
     // Tracked like real picks (but never shown) to ~3x the learning data
     // behind setup/source win rates.
-    const pickedSet = new Set(picks.map((p) => p.ticker))
+    const pickedSet = new Set(board.map((p) => p.ticker))
     const shadowPicks = shadowBoard
       .filter((item) => !pickedSet.has(item.ticker) && Number.isFinite(item.price) && item.price > 0)
       .map((item) => ({
@@ -352,10 +378,11 @@ export default async function handler(req, res) {
     console.warn('[nightly-research] Redis not configured — results not persisted')
   }
 
-  // Step 6: Send Slack alerts
-  if (picks.length > 0) {
+  // Step 6: Send Slack alerts. The board, not this run's picks — the alert
+  // should say what is on screen, which mid-cycle may include a carried pick.
+  if (board.length > 0) {
     try {
-      await sendPickAlerts(picks)
+      await sendPickAlerts(board)
     } catch (err) {
       console.error('[nightly-research] slack alert failed:', err.message)
       errors.push({ step: 'slack', error: err.message })
@@ -366,13 +393,17 @@ export default async function handler(req, res) {
     errors,
     signals: signals.length,
     articles: articles.length,
-    picks: picks.length,
+    picks: board.length,
     tickers: tickers.map((t) => t.ticker),
   })
 
   return res.status(200).json({
     stored: Boolean(redis),
-    picks: picks.length,
+    picks: board.length,
+    // What this run contributed vs what the cycle already held, so a rerun's
+    // effect on the board is legible from the response alone.
+    board: board.map((p) => p.ticker),
+    carried: carried.map((p) => p.ticker),
     signalCount: signals.length,
     tweetCount: signals.length,
     queryCount: queries.length,
