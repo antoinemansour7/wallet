@@ -165,15 +165,18 @@ describe('experiment arm is assigned at decision time', () => {
 })
 
 // The backlog, not the code path, is what decides whether the experiment ever
-// gets forward observations, so the drain rate is a deployment setting.
+// gets forward observations. With several staggered daily runs scheduled in
+// vercel.json, the default budget is sized to drain that backlog rather than to
+// the one-run-a-day pilot rate.
 describe('ingestion budget', () => {
-  it('defaults to the low-cost pilot rate', () => {
+  it('defaults to a backlog-draining rate', () => {
     expect(ingestIssuerBudget(undefined)).toBe(DEFAULT_INGEST_MAX_ISSUERS)
-    expect(DEFAULT_INGEST_MAX_ISSUERS).toBe(5)
+    expect(DEFAULT_INGEST_MAX_ISSUERS).toBe(40)
   })
 
-  it('accepts a raised budget', () => {
+  it('accepts an overridden budget', () => {
     expect(ingestIssuerBudget('40')).toBe(40)
+    expect(ingestIssuerBudget('5')).toBe(5)
   })
 
   it.each(['', '   ', 'lots', '0', '-3', '2.5'])('falls back rather than stopping ingestion on %j', (value) => {

@@ -108,20 +108,28 @@ export function quietCondition({ attention, repricingPercent } = {}) {
 }
 
 /**
- * Issuers whose filings are ingested per daily run.
+ * Issuers whose filings are ingested per run.
  *
- * The default stays at the low-cost five the pilot was scoped around. It is
- * configurable because the backlog is the thing that decides whether the #107
- * experiment ever gets forward observations: the daily index enqueues every
- * issuer that filed, which runs to hundreds a day, while five are drained. At
- * that ratio the queue diverges and the fundamentals stream stays empty
- * indefinitely. Raising this spends more SEC requests and function time, so it
- * is a deployment decision rather than a default.
+ * The pilot's original five assumed one run a day. At that rate the queue
+ * diverges: the daily index enqueues every universe issuer that filed, which
+ * runs to hundreds a day, so five drained leaves the backlog growing and the
+ * fundamentals stream never receives a forward observation — a filing ingested
+ * more than 14 days after it was filed is past the candidate-eligibility window
+ * and is archived without ever becoming a pick. `vercel.json` now schedules
+ * several staggered daily foundation runs, and this budget is raised to match,
+ * so the drain rate clears the 927-deep backlog in weeks rather than months and
+ * then keeps pace with arrivals.
+ *
+ * The per-run loop is still bounded by the 240s work deadline and its 45s
+ * guard, so this is a ceiling the run reaches only when the queued issuers are
+ * cheap; a large filer's Company Facts download is what actually paces a run.
+ * Lower it via RESEARCH_INGEST_MAX_ISSUERS to cap SEC requests and function
+ * time on a tighter budget.
  *
  * The empty string is rejected before conversion because Number('') is 0, which
  * would silently stop ingestion altogether.
  */
-export const DEFAULT_INGEST_MAX_ISSUERS = 5
+export const DEFAULT_INGEST_MAX_ISSUERS = 40
 export function ingestIssuerBudget(raw = process.env.RESEARCH_INGEST_MAX_ISSUERS) {
   if (raw == null || String(raw).trim() === '') return DEFAULT_INGEST_MAX_ISSUERS
   const configured = Number(raw)

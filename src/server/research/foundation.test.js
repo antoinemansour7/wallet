@@ -344,12 +344,26 @@ describe('low-cost reference ingestion', () => {
       expect(fetchImpl).not.toHaveBeenCalled()
     } finally { vi.unstubAllEnvs() }
   })
-  it('runs ingestion daily with room for Hobby timing jitter before research', () => {
+  it('drains the backlog with several staggered daily ingestion runs, still Hobby-compatible', () => {
     const config = JSON.parse(readFileSync(new URL('../../../vercel.json', import.meta.url), 'utf8'))
-    const cron = (path) => config.crons.find((entry) => entry.path === path).schedule.split(' ')
-    const ingestion = cron('/api/research-foundation'), research = cron('/api/nightly-research')
-    expect(ingestion).toEqual(['0', '4', '*', '*', '*'])
-    expect(Number(research[1]) - Number(ingestion[1])).toBeGreaterThanOrEqual(2)
+    const fields = (entry) => entry.schedule.split(' ')
+    const ingestion = config.crons.filter((entry) => entry.path === '/api/research-foundation')
+    const research = fields(config.crons.find((entry) => entry.path === '/api/nightly-research'))
+    // More than one run a day is the whole point — the pilot's single 04:00 run
+    // could not keep pace with SEC arrivals.
+    expect(ingestion.length).toBeGreaterThanOrEqual(4)
+    // Each entry must itself be a once-per-day expression or Hobby rejects the
+    // deployment; minute and hour are fixed, day/month/weekday are wildcards.
+    const hours = ingestion.map((entry) => {
+      const [minute, hour, dom, month, dow] = fields(entry)
+      expect(minute).toBe('0')
+      expect([dom, month, dow]).toEqual(['*', '*', '*'])
+      return Number(hour)
+    }).sort((a, b) => a - b)
+    // At least one run lands well before the 07:00 ranking, and no two runs are
+    // close enough for Hobby's within-the-hour jitter to make them collide.
+    expect(Math.min(...hours)).toBeLessThanOrEqual(Number(research[1]) - 2)
+    for (let i = 1; i < hours.length; i++) expect(hours[i] - hours[i - 1]).toBeGreaterThanOrEqual(2)
     expect(config.functions['api/research-foundation.js'].maxDuration).toBe(300)
   })
 })
