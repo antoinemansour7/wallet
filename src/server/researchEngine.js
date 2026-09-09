@@ -29,7 +29,7 @@ function parseRssItems(xml) {
       title:       get('title'),
       link:        get('link'),
       pubDate:     get('pubDate'),
-      description: get('description').slice(0, 300),
+      description: safeTruncate(get('description'), 300),
       source:      'Yahoo Finance',
     })
   }
@@ -76,6 +76,7 @@ export async function fetchAllYahooNews() {
 // ─── Claude Sonnet: extract tickers ───────────────────────────────────────────
 
 import Anthropic from '@anthropic-ai/sdk'
+import { safeTruncate } from './textSafety.js'
 import { fetchMarketQuotes } from './marketQuotes.js'
 import { extractTickersFromText } from './xSignals.js'
 import { formatRegimeForPrompt } from './marketRegime.js'
@@ -640,9 +641,10 @@ async function getRankedSignalBoard(signals, articles, { discoveryHealthy = true
 
 function sanitizeSignalText(text) {
   if (!text) return ''
-  return String(text)
-    .replace(/^(ignore|forget|disregard|override|return|you are|you must|system:|assistant:).*/gim, '[redacted]')
-    .slice(0, 300)
+  return safeTruncate(
+    String(text).replace(/^(ignore|forget|disregard|override|return|you are|you must|system:|assistant:).*/gim, '[redacted]'),
+    300,
+  )
 }
 
 export function summarizeSignalsForPrompt(signals, articles, options = {}) {
@@ -671,7 +673,7 @@ export function summarizeSignalsForPrompt(signals, articles, options = {}) {
     catalyst: item.catalystSignals,
     negative: item.negativeSignals,
     screener: item.screenerMentions,
-    sample: sanitizeSignalText(item.snippets?.[0]).slice(0, 140),
+    sample: safeTruncate(sanitizeSignalText(item.snippets?.[0]), 140),
   }))
   const boardText = JSON.stringify(boardJson, null, 2)
 
@@ -834,7 +836,7 @@ export function buildMacroContextBlock(signals) {
     const age = !Number.isFinite(ageH) ? '?'
       : ageH < 24 ? `${Math.round(ageH)}h`
       : `${Math.round(ageH / 24)}d`
-    const body = post.text.replace(/\s+/g, ' ').slice(0, 300)
+    const body = safeTruncate(post.text.replace(/\s+/g, ' '), 300)
     return `  [@${post.username}, ${age} ago] ${body}`
   })
 
@@ -1050,7 +1052,7 @@ export function postProcessCandidates(parsed, signalBoard, technicals = new Map(
       const setupAdjustment = setupPerformanceAdjustment(summary?.setupType ?? 'momentum', performanceStats)
       const sourceAdjustment = sourcePerformanceAdjustment(summary?.sources ?? [], performanceStats)
       return {
-        reason: typeof tickerObj.reason === 'string' ? tickerObj.reason.slice(0, 2000) : '',
+        reason: typeof tickerObj.reason === 'string' ? safeTruncate(tickerObj.reason, 2000) : '',
         conviction: tickerObj.conviction,
         modelVersion: RESEARCH_MODEL_VERSION,
         techAdjustment,
@@ -1323,7 +1325,7 @@ Attention mentions: ${tickerObj.signalCount ?? 0}
 Supporting sources: ${JSON.stringify(tickerObj.sources || [])}`
   }
   const context = [
-    tickerObj.reason ? `Signal thesis: ${tickerObj.reason}` : '',
+    tickerObj.reason ? `Signal thesis: ${sanitizeSignalText(tickerObj.reason)}` : '',
     tickerObj.setupType ? `Setup type: ${tickerObj.setupType}` : '',
     tickerObj.price ? `Share price: ${tickerObj.price}` : '',
     tickerObj.priceBand ? `Price band: ${tickerObj.priceBand}` : '',
@@ -1334,7 +1336,7 @@ Supporting sources: ${JSON.stringify(tickerObj.sources || [])}`
   ].filter(Boolean).join('\n')
 
   const snippetBlock = (tickerObj.snippets || []).slice(0, 3)
-    .map((s) => `- "${sanitizeSignalText(s).slice(0, 200)}"`)
+    .map((s) => `- "${safeTruncate(sanitizeSignalText(s), 200)}"`)
     .join('\n')
 
   return `Generate a comprehensive Deep Research Report on ${ticker}. Cover these sections:

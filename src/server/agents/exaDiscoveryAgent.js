@@ -6,6 +6,7 @@
 
 import Exa from 'exa-js'
 import { extractTickersFromText } from '../xSignals.js'
+import { safeTruncate } from '../textSafety.js'
 
 const DISCOVERY_QUERIES = [
   {
@@ -133,7 +134,7 @@ export async function runExaDiscovery({ topThemes = [], topTickers = [] } = {}) 
       for (const ticker of tickers.slice(0, 3)) {
         signals.push({
           id: `exa:${query.id}:${article.url || ''}:${ticker}`,
-          text: `[Exa] ${article.title || ''} — ${(article.text || '').slice(0, 200)}`,
+          text: `[Exa] ${article.title || ''} — ${safeTruncate(article.text || '', 200)}`,
           username: 'exa-discovery',
           createdAt: article.publishedDate || new Date().toISOString(),
           url: article.url || null,
