@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { SearchSpot } from '../components/illustrations'
 import { loadLocalPortfolio } from '../utils/portfolioStorage'
 import { IS_PREVIEW, PREVIEW_RESEARCH } from '../preview/mockMode'
 import { flattenAccountRows } from '../utils/accountPortfolio'
 import RegimeGauge from './research/RegimeGauge'
 import PickCard from './research/PickCard'
+import ResearchSources from './research/ResearchSources'
+import '../components/landing/tokens.css'
+import './Research.css'
 
 // Picks below this are kept off the main list. They are still shown on request
 // rather than hidden outright — the header used to read "2 picks" on a night the
@@ -13,7 +15,7 @@ import PickCard from './research/PickCard'
 const CONVICTION_THRESHOLD = 6
 
 function formatTime(dateStr) {
-  if (!dateStr) return null
+  if (!dateStr || !Number.isFinite(Date.parse(dateStr))) return null
   try {
     return new Date(dateStr).toLocaleString('en-US', {
       month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
@@ -23,41 +25,10 @@ function formatTime(dateStr) {
   }
 }
 
-/** What actually fed the run — the counts already in the payload. */
-function SignalTrail({ research }) {
-  const x = research?.xBreakdown
-  const parts = [
-    // Pipeline stage names meant nothing to a reader. Each label now says what
-    // was actually read, not which part of the system read it.
-    x?.accountSignals != null && { label: 'Posts from traders we follow', value: x.accountSignals },
-    x?.searchSignals != null && { label: 'Other posts found by searching', value: x.searchSignals },
-    research?.articles?.length ? { label: 'News articles', value: research.articles.length } : null,
-    research?.queryCount ? { label: 'Searches run', value: research.queryCount } : null,
-  ].filter(Boolean)
-
-  if (parts.length === 0) return null
-
-  return (
-    <div className="rounded-2xl border border-ink/[0.05] bg-wall-surface/60 px-5 py-4">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink/40">What we read last night</p>
-      {/* Two columns so this reads the same in a 320px rail as it does full width. */}
-      <div className="mt-3.5 grid grid-cols-2 gap-x-4 gap-y-3.5">
-        {parts.map((p) => (
-          <div key={p.label}>
-            <p className="font-mono text-[19px] font-semibold tabular leading-none text-ink/85">
-              {p.value.toLocaleString()}
-            </p>
-            <p className="mt-1.5 text-[12px] text-ink/40">{p.label}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 export default function Research() {
   const [research, setResearch] = useState(null)
   const [loadingResearch, setLoadingResearch] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [showBelow, setShowBelow] = useState(false)
   const [livePrices, setLivePrices] = useState({})
   const [sizing, setSizing] = useState(null)
@@ -65,6 +36,8 @@ export default function Research() {
   const { user } = useAuth()
 
   async function loadResearch() {
+    setLoadingResearch(true)
+    setLoadError(false)
     // /api/get-research needs the nightly pipeline behind it. In preview the
     // page would otherwise sit on its empty state, which is the one view that
     // shows nothing about how the copy reads.
@@ -81,11 +54,12 @@ export default function Research() {
       ])
       if (!researchRes.ok) throw new Error(`HTTP ${researchRes.status}`)
       const data = await researchRes.json()
-      const regime = regimeRes?.ok ? (await regimeRes.json()).regime : null
+      const regimeData = regimeRes?.ok ? await regimeRes.json().catch(() => null) : null
+      const regime = regimeData?.regime ?? null
       setResearch({ ...data, regime })
     } catch (err) {
       console.error('[Research] failed to load research:', err.message)
-      setResearch({ empty: true, picks: [], signalCount: 0, generatedAt: null })
+      setLoadError(true)
     } finally {
       setLoadingResearch(false)
     }
@@ -113,7 +87,7 @@ export default function Research() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbols }),
       })
-      if (!res.ok) return
+      if (!res.ok) { setLivePrices({}); return }
 
       const data = await res.json()
       const at = new Date().toISOString()
@@ -130,6 +104,7 @@ export default function Research() {
       }
       setLivePrices(next)
     } catch {
+      setLivePrices({})
       // A failed refresh leaves the stored figures showing, and the card says
       // when they were taken. Silence is fine; a wrong number is not.
     }
@@ -175,7 +150,7 @@ export default function Research() {
     const all = research?.picks ?? []
     return {
       picks: all.filter((p) => p.conviction >= CONVICTION_THRESHOLD),
-      below: all.filter((p) => p.conviction < CONVICTION_THRESHOLD),
+      below: all.filter((p) => !(p.conviction >= CONVICTION_THRESHOLD)),
     }
   }, [research])
 
@@ -183,162 +158,57 @@ export default function Research() {
   const timeLabel = formatTime(research?.generatedAt)
   const hasAnything = picks.length + below.length > 0
 
+  const allPicks = research?.picks ?? []
+  const rankFor = (pick) => allPicks.indexOf(pick) + 1
+  const hasRun = Boolean(research?.generatedAt)
+
   return (
-    <div className="relative min-h-screen overflow-hidden bg-wall-bg">
-      <div className="glow-orb absolute -top-72 left-1/2 h-[520px] w-[520px] -translate-x-1/2" />
-      <div className="relative mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-14">
-
-        <header className="mb-7">
-          <div className="flex items-baseline justify-between gap-4">
-            <h1 className="text-[28px] font-semibold tracking-[-0.03em] text-ink sm:text-[34px]">Research</h1>
-            {timeLabel && (
-              <span className="flex shrink-0 items-center gap-2 text-[12.5px] text-ink/40">
-                <span className="h-1.5 w-1.5 rounded-full bg-gain/70" />
-                {timeLabel}
-              </span>
-            )}
-          </div>
-          <p className="mt-2 text-[15px] leading-relaxed text-ink/50">
-            {hasAnything
-              ? `${picks.length + below.length} idea${picks.length + below.length === 1 ? '' : 's'}, picked overnight from ${signalCount.toLocaleString()} posts, articles and stock screens`
-              : 'Ideas picked overnight from posts, articles and stock screens'}
-          </p>
-        </header>
-
-        {/* Two columns above lg: the picks carry the page, the rail holds the
-            context that used to stack underneath them and leave a 672px column
-            marooned in the middle of a wide screen. Grid placement rather than
-            source order, so a phone still reads conditions → picks → context. */}
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start lg:gap-6">
-
-        <div className="lg:col-start-2 lg:row-start-1">
-          {!loadingResearch && <RegimeGauge regime={research?.regime} defaultOpen />}
+    <div className="wallai-system research-workspace">
+      <header className="research-briefing">
+        <div className="research-container">
+          <div className="research-briefing-meta"><p className="research-eyebrow"><span /> Research / Latest briefing</p><span className="research-run-date">{loadingResearch ? 'Opening your briefing…' : timeLabel ? <><span className="research-status-dot" />Last run · <time dateTime={research.generatedAt}>{timeLabel}</time></> : loadError ? 'Briefing unavailable' : 'Awaiting first run'}</span></div>
+          <div className="research-briefing-heading"><div><h1>Your research briefing.</h1><p>{loadingResearch ? 'Bringing the ideas and evidence together.' : loadError ? 'Your latest research could not be loaded.' : picks.length ? `${picks.length} idea${picks.length === 1 ? '' : 's'} worth a closer look.` : hasRun ? 'A completed scan. A selective shortlist.' : 'A closer look at what’s moving the market.'}</p></div><a href="#research-ideas" className="research-briefing-link">Explore the ideas <span aria-hidden="true">↓</span></a></div>
+          <dl className="research-run-stats">
+            <div><dt>Ideas found</dt><dd>{loadingResearch || loadError ? '—' : allPicks.length}<small>{!loadingResearch && !loadError && below.length > 0 ? `${below.length} below threshold` : 'In this run'}</small></dd></div>
+            <div><dt>Signals reviewed</dt><dd>{loadingResearch || loadError ? '—' : signalCount.toLocaleString()}<small>Posts & stock screens</small></dd></div>
+            <div><dt>News articles</dt><dd>{loadingResearch || loadError || !Array.isArray(research?.articles) ? '—' : research.articles.length.toLocaleString()}<small>Read for context</small></dd></div>
+          </dl>
         </div>
+      </header>
 
-        <div className="lg:col-start-1 lg:row-start-1 lg:row-span-3">
-        {loadingResearch ? (
-          <div className="space-y-2.5">
-            {[...Array(3)].map((_, i) => (
-              <div key={i} className="h-[78px] animate-pulse rounded-2xl border border-ink/[0.05] bg-wall-surface" />
-            ))}
-          </div>
-        ) : !hasAnything ? (
-          <div className="flex flex-col items-center rounded-2xl border border-dashed border-ink/[0.08] py-16 text-center">
-            <SearchSpot />
-            <p className="mt-3 text-[14px] text-ink/50">{research?.generatedAt ? 'No qualifying ideas this run' : 'No picks yet'}</p>
-            <p className="mt-1 text-[12px] text-ink/30">{research?.generatedAt ? 'The research criteria did not produce a recommendation.' : 'New research appears after the next scheduled market scan.'}</p>
-          </div>
-        ) : (
-          <>
-            <div className="space-y-2.5">
-              {/* Lead with the top pick already open: the page opens on an
-                  argument rather than on a row you have to discover is
-                  clickable, and it balances the context rail beside it. */}
-              {picks.map((pick, i) => (
-                <PickCard
-                  key={pick.ticker}
-                  pick={pick}
-                  rank={i + 1}
-                  defaultOpen={i === 0}
-                  live={livePrices[pick.ticker]}
-                  generatedAt={research?.generatedAt}
-                />
-              ))}
-            </div>
+      <div className="research-container">
+        <nav className="research-contents" aria-label="In this briefing"><span>In this briefing</span><a href="#research-ideas">01 <span>The ideas</span></a><a href="#research-market">02 <span>The backdrop</span></a><a href="#research-sources">03 <span>The sources</span></a></nav>
+        <div className="research-layout">
+          <section id="research-ideas" className="research-ideas" aria-labelledby="research-ideas-title" aria-busy={loadingResearch}>
+            <div className="research-section-heading"><div><p className="research-eyebrow">01 / The shortlist</p><h2 id="research-ideas-title">Worth your attention.</h2></div><span className="research-order-note">In research ranking order</span></div>
+            {loadingResearch ? <div role="status" className="research-loading"><span className="sr-only">Loading research</span>{[0, 1, 2].map((index) => <div key={index} className="research-skeleton" aria-hidden="true"><span /><span /><span /></div>)}</div>
+              : loadError ? <div className="research-empty" role="alert"><span aria-hidden="true">↻</span><h3>We couldn’t load your briefing.</h3><p>Try again to reconnect to the latest research.</p><button type="button" className="research-primary-button" onClick={loadResearch}>Try again</button></div>
+              : !hasAnything ? <div className="research-empty"><span aria-hidden="true">✳</span><h3>{hasRun ? 'No qualifying ideas this run' : 'No picks yet'}</h3><p>{hasRun ? 'The research criteria did not produce a recommendation.' : 'New research appears after the next scheduled market scan.'}</p>{hasRun && <p className="research-muted">The scan is complete. There’s no need to force an idea.</p>}</div>
+              : <>
+                {picks.map((pick, index) => <PickCard key={pick.ticker} pick={pick} rank={rankFor(pick)} featured={index === 0} defaultOpen={index === 0} live={livePrices[pick.ticker]} generatedAt={research?.generatedAt} />)}
+                {picks.length === 0 && <div className="research-empty"><span aria-hidden="true">○</span><h3>Nothing looked strong enough tonight</h3><p>{below.length} weaker idea{below.length === 1 ? '' : 's'} below, if you want to look anyway.</p></div>}
+                {below.length > 0 && <div className="research-below">
+                  <div><p className="research-eyebrow">Below the conviction threshold</p><p>Below {CONVICTION_THRESHOLD}/10 or not scored. Kept here for a fuller view of the run.</p></div>
+                  <button type="button" className="research-text-button" onClick={() => setShowBelow((value) => !value)} aria-expanded={showBelow} aria-controls="research-below-list">{showBelow ? 'Hide the weaker ideas' : `Show ${below.length} weaker idea${below.length === 1 ? '' : 's'}`}<span aria-hidden="true">{showBelow ? '−' : '+'}</span></button>
+                  {showBelow && <div id="research-below-list">{below.map((pick) => <PickCard key={pick.ticker} pick={pick} rank={rankFor(pick)} live={livePrices[pick.ticker]} generatedAt={research?.generatedAt} />)}</div>}
+                </div>}
+              </>}
+          </section>
 
-            {picks.length === 0 && (
-              <div className="rounded-2xl border border-dashed border-ink/[0.08] px-5 py-8 text-center">
-                <p className="text-[13px] text-ink/50">Nothing looked strong enough tonight</p>
-                <p className="mt-1 text-[12px] text-ink/30">
-                  {below.length} weaker idea{below.length === 1 ? '' : 's'} below, if you want to look anyway
-                </p>
-              </div>
-            )}
-
-            {below.length > 0 && (
-              <div className="mt-3">
-                <button
-                  type="button"
-                  onClick={() => setShowBelow((v) => !v)}
-                  aria-expanded={showBelow}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-ink/[0.05] py-2.5 text-[11.5px] text-ink/35 transition-colors duration-motion-short hover:border-ink/[0.10] hover:text-ink/60"
-                >
-                  {showBelow ? 'Hide the weaker ideas' : `Show ${below.length} weaker idea${below.length === 1 ? '' : 's'}`}
-                  <svg
-                    width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                    className={`transition-transform duration-motion-short ${showBelow ? 'rotate-180' : ''}`}
-                  >
-                    <path d="M6 9l6 6 6-6" />
-                  </svg>
-                </button>
-
-                {showBelow && (
-                  <div className="motion-enter mt-2.5 space-y-2.5 opacity-70">
-                    {below.map((pick, i) => (
-                      <PickCard
-                        key={pick.ticker}
-                        pick={pick}
-                        rank={picks.length + i + 1}
-                        live={livePrices[pick.ticker]}
-                        generatedAt={research?.generatedAt}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </>
-        )}
+          <aside className="research-context" aria-label="Research context">
+            <div id="research-market">{!loadingResearch && <RegimeGauge regime={research?.regime} />}</div>
+            {!loadingResearch && picks.length > 0 && user && <section className="research-sizing" aria-labelledby="research-sizing-title">
+              <span className="research-sizing-symbol" aria-hidden="true">↔</span><p className="research-eyebrow">Your portfolio, in context</p><h2 id="research-sizing-title">How would these fit?</h2><p>Consider existing holdings, overlap and concentration before adding a position.</p>
+              {(!sizing || sizing.error) && <button type="button" onClick={() => loadPositionSizing(picks)} disabled={sizingLoading} className="research-primary-button">{sizingLoading ? 'Analyzing…' : sizing?.error ? 'Try sizing again' : 'Size against my portfolio'}<span aria-hidden="true">↗</span></button>}
+              {sizingLoading && <span role="status" className="sr-only">Analyzing your portfolio</span>}
+              {sizing?.error && <p role="alert" className="research-negative">{sizing.error}</p>}
+              {sizing?.picks?.length > 0 && <div className="research-allocation" aria-live="polite"><p className="research-eyebrow">Suggested allocation</p><p className="research-allocation-total">${sizing.totalSuggestedAllocation?.toLocaleString()} <span>· {sizing.allocationPct}%</span></p>{sizing.picks.map((suggestion) => <div className="research-allocation-pick" key={suggestion.ticker}><div><h3>{suggestion.ticker}</h3><span>{suggestion.suggestedPct}% · ${suggestion.suggestedAmount?.toLocaleString()}</span></div><p>{suggestion.reasoning}</p>{suggestion.overlap && <p>Existing overlap · {suggestion.overlap}</p>}{suggestion.warning && <p className="research-negative">{suggestion.warning}</p>}</div>)}</div>}
+            </section>}
+            {!loadingResearch && hasRun && <div className="research-reading-note"><span aria-hidden="true">↗</span><p>Read the case.<br /><strong>Then challenge it.</strong></p><span>Every idea includes the reasoning and the risks reported by the research run.</span></div>}
+          </aside>
         </div>
-
-        {picks.length > 0 && user && (
-          <div className="lg:col-start-2 lg:row-start-2">
-            {!sizing && (
-              <button
-                onClick={() => loadPositionSizing(picks)}
-                disabled={sizingLoading}
-                className="w-full rounded-xl border border-ink/[0.07] bg-wall-surface py-3.5 text-[13.5px] font-medium text-ink/65 transition-colors duration-motion-short hover:border-ink/[0.14] hover:text-ink/90 disabled:opacity-50"
-              >
-                {sizingLoading ? 'Analyzing…' : 'Size against my portfolio'}
-              </button>
-            )}
-
-            {sizing?.error && <p className="mt-3 text-[12px] text-loss/70">{sizing.error}</p>}
-
-            {sizing?.picks?.length > 0 && (
-              <div className="mt-5">
-                <div className="mb-2.5 flex items-baseline justify-between">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink/35">Suggested allocation</p>
-                  <p className="font-mono text-[12px] tabular text-ink/60">
-                    ${sizing.totalSuggestedAllocation?.toLocaleString()}
-                    <span className="text-ink/30"> · {sizing.allocationPct}%</span>
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  {sizing.picks.map((sp) => (
-                    <div key={sp.ticker} className="rounded-xl border border-ink/[0.06] bg-wall-surface px-4 py-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-[13.5px] font-semibold text-ink">{sp.ticker}</span>
-                        <span className="font-mono text-[12px] tabular text-gain">
-                          {sp.suggestedPct}% · ${sp.suggestedAmount?.toLocaleString()}
-                        </span>
-                      </div>
-                      <p className="mt-1.5 text-[11.5px] leading-[1.7] text-ink/50">{sp.reasoning}</p>
-                      {sp.warning && <p className="mt-1.5 text-[11.5px] text-loss/70">{sp.warning}</p>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="lg:col-start-2 lg:row-start-3">
-          {!loadingResearch && hasAnything && <SignalTrail research={research} />}
-        </div>
-
-        </div>
+        {!loadingResearch && !loadError && <ResearchSources research={research} />}
+        <footer className="research-page-foot"><span>WallAI / Research</span><span>Live prices refresh approximately every five minutes.</span></footer>
       </div>
     </div>
   )
