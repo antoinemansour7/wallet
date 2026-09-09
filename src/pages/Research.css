@@ -2,14 +2,36 @@
 .wallai-system.research-workspace {
   --rw-paper: var(--wa-cream); --rw-surface: var(--wa-soft); --rw-text: var(--wa-ink);
   --rw-muted: var(--wa-muted); --rw-line: var(--wa-line); --rw-accent: var(--wa-forest);
+  --rw-accent-hover: var(--wa-panel); --rw-on-accent: var(--wa-cream);
   --rw-negative: var(--wa-error); --rw-risk: var(--wa-error-bg);
+  /* The briefing is an inverted band: dark green on cream paper. Its roles are
+     separate from the page's because the band carries its own foreground. */
+  --rw-band: var(--wa-forest); --rw-band-text: var(--wa-cream);
+  --rw-band-muted: var(--wa-mist); --rw-band-accent: var(--wa-sage);
+  --rw-band-line: var(--wa-dark-line);
   min-height: calc(100svh - 64px); background: var(--rw-paper); color: var(--rw-text);
   font-size: var(--wa-small); line-height: 1.6;
 }
+/* Dark mode follows the app, not the landing page. index.css settles this for
+   the whole product — brand green is a light-mode identity, so on dark the
+   brand roles resolve to neutral (white accent, lifted near-black surfaces) and
+   colour is left to gain/loss, which is data rather than chrome. This page was
+   painting --wa-forest #203c2d over the app's #0a0a0c ground, so it read as a
+   green slab under a black navbar. It now takes the same tokens every other
+   page does. Light mode is untouched. */
 .dark .research-workspace {
-  --rw-paper: var(--wa-forest); --rw-surface: var(--wa-panel); --rw-text: var(--wa-cream);
-  --rw-muted: var(--wa-mist); --rw-line: var(--wa-dark-line); --rw-accent: var(--wa-sage);
-  --rw-negative: var(--wa-error-border); --rw-risk: var(--wa-panel); color-scheme: dark;
+  --rw-paper: rgb(var(--color-wall-bg)); --rw-surface: rgb(var(--color-wall-elevated));
+  --rw-text: rgb(var(--color-text-primary)); --rw-muted: rgb(var(--color-text-secondary));
+  --rw-line: rgb(var(--color-border)); --rw-accent: rgb(var(--color-accent));
+  --rw-accent-hover: rgb(var(--color-accent-2)); --rw-on-accent: rgb(var(--color-brand-on));
+  --rw-negative: rgb(var(--color-loss)); --rw-risk: rgb(var(--color-wall-elevated));
+  /* The band cannot invert against a near-black page, so it lifts instead:
+     wall-surface over wall-bg, the same step the portfolio cards use. */
+  --rw-band: rgb(var(--color-wall-surface)); --rw-band-text: rgb(var(--color-text-primary));
+  --rw-band-muted: rgb(var(--color-text-secondary));
+  --rw-band-accent: rgb(var(--color-text-secondary));
+  --rw-band-line: rgb(var(--color-border));
+  color-scheme: dark;
 }
 .research-workspace :is(h1,h2,h3,h4,p,dl,dd,ul) { margin: 0; }
 .research-workspace :is(ul) { list-style: none; padding: 0; }
@@ -25,24 +47,24 @@
 .research-muted { color: var(--rw-muted); }
 .research-workspace .research-positive { color: var(--rw-accent); }
 .research-workspace .research-negative { color: var(--rw-negative); }
-.research-briefing { background: var(--wa-forest); color: var(--wa-cream); padding-top: var(--wa-8); }
+.research-briefing { background: var(--rw-band); color: var(--rw-band-text); padding-top: var(--wa-8); }
 .research-briefing-meta { display: flex; align-items: center; justify-content: space-between; gap: var(--wa-4); }
-.research-briefing .research-eyebrow { color: var(--wa-sage); display: flex; align-items: center; gap: var(--wa-3); }
-.research-briefing .research-eyebrow > span { width: var(--wa-6); height: 1px; background: var(--wa-sage); }
-.research-run-date { display: flex; align-items: center; flex-wrap: wrap; gap: var(--wa-2); color: var(--wa-mist); font-size: var(--wa-label); }
-.research-status-dot { width: 5px; height: 5px; background: var(--wa-sage); border-radius: var(--wa-pill); }
+.research-briefing .research-eyebrow { color: var(--rw-band-accent); display: flex; align-items: center; gap: var(--wa-3); }
+.research-briefing .research-eyebrow > span { width: var(--wa-6); height: 1px; background: var(--rw-band-accent); }
+.research-run-date { display: flex; align-items: center; flex-wrap: wrap; gap: var(--wa-2); color: var(--rw-band-muted); font-size: var(--wa-label); }
+.research-status-dot { width: 5px; height: 5px; background: var(--rw-band-accent); border-radius: var(--wa-pill); }
 .research-briefing-heading { display: flex; align-items: end; justify-content: space-between; gap: var(--wa-6); padding-block: var(--wa-6) var(--wa-8); }
 .research-briefing h1 { font: 400 clamp(36px, 4.1vw, 56px)/1.14 var(--wa-display); letter-spacing: -.035em; }
-.research-briefing-heading p { margin-top: var(--wa-3); color: var(--wa-mist); font-size: var(--wa-body); }
-.research-briefing-link { display: flex; align-items: center; gap: var(--wa-8); min-height: 44px; color: var(--wa-sage); font-size: var(--wa-small); white-space: nowrap; text-decoration: none; border-bottom: 1px solid var(--wa-dark-line); }
-.research-briefing-link:hover { color: var(--wa-cream); border-color: var(--wa-sage); }
-.research-briefing :is(a,button):focus-visible { outline-color: var(--wa-sage); }
-.research-run-stats { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--wa-dark-line); }
+.research-briefing-heading p { margin-top: var(--wa-3); color: var(--rw-band-muted); font-size: var(--wa-body); }
+.research-briefing-link { display: flex; align-items: center; gap: var(--wa-8); min-height: 44px; color: var(--rw-band-accent); font-size: var(--wa-small); white-space: nowrap; text-decoration: none; border-bottom: 1px solid var(--rw-band-line); }
+.research-briefing-link:hover { color: var(--rw-band-text); border-color: var(--rw-band-accent); }
+.research-briefing :is(a,button):focus-visible { outline-color: var(--rw-band-accent); }
+.research-run-stats { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--rw-band-line); }
 .research-run-stats > div { padding: var(--wa-5) 0; }
-.research-run-stats > div + div { border-left: 1px solid var(--wa-dark-line); padding-left: var(--wa-8); }
-.research-run-stats dt { color: var(--wa-mist); font-size: var(--wa-label); }
-.research-run-stats dd { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--wa-3); color: var(--wa-cream); font-size: 27px; line-height: 1.5; font-variant-numeric: tabular-nums; letter-spacing: -.035em; }
-.research-run-stats small { color: var(--wa-mist); font-size: 11px; letter-spacing: 0; }
+.research-run-stats > div + div { border-left: 1px solid var(--rw-band-line); padding-left: var(--wa-8); }
+.research-run-stats dt { color: var(--rw-band-muted); font-size: var(--wa-label); }
+.research-run-stats dd { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--wa-3); color: var(--rw-band-text); font-size: 27px; line-height: 1.5; font-variant-numeric: tabular-nums; letter-spacing: -.035em; }
+.research-run-stats small { color: var(--rw-band-muted); font-size: 11px; letter-spacing: 0; }
 .research-contents { display: flex; align-items: center; gap: var(--wa-8); padding-block: var(--wa-3); border-bottom: 1px solid var(--rw-line); font-size: var(--wa-label); }
 .research-contents > span { margin-right: auto; color: var(--rw-muted); }
 .research-contents a { display: flex; align-items: center; gap: var(--wa-2); min-height: 44px; color: var(--rw-muted); text-decoration: none; }
@@ -149,9 +171,8 @@
 .research-sizing-symbol { display: block; color: var(--rw-accent); font-size: 28px; margin-bottom: var(--wa-3); }
 .research-sizing h2 { margin-block: var(--wa-2) var(--wa-3); font: 400 28px/1.2 var(--wa-display); letter-spacing: -.025em; }
 .research-sizing > p:not(.research-eyebrow) { color: var(--rw-muted); font-size: 12px; }
-.research-primary-button { display: flex; justify-content: center; align-items: center; gap: var(--wa-4); padding: var(--wa-3) var(--wa-5); min-height: 48px; border-radius: var(--wa-pill); background: var(--wa-forest); color: var(--wa-cream); font-size: 12px; font-weight: 500; }
-.dark .research-primary-button { background: var(--wa-sage); color: var(--wa-forest); }
-.research-primary-button:hover:not(:disabled) { background: var(--wa-panel); color: var(--wa-cream); }
+.research-primary-button { display: flex; justify-content: center; align-items: center; gap: var(--wa-4); padding: var(--wa-3) var(--wa-5); min-height: 48px; border-radius: var(--wa-pill); background: var(--rw-accent); color: var(--rw-on-accent); font-size: 12px; font-weight: 500; }
+.research-primary-button:hover:not(:disabled) { background: var(--rw-accent-hover); color: var(--rw-on-accent); }
 .research-sizing > button { width: 100%; margin-block: var(--wa-5) var(--wa-3); }
 .research-allocation { margin-top: var(--wa-5); }
 .research-allocation-total { font-size: 25px; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
@@ -251,4 +272,7 @@
 }
 /* The disclosure remains a full touch target at intermediate desktop widths. */
 @media (min-width: 901px) { .research-idea-heading { grid-template-columns: minmax(0, 1fr) auto 70px 44px; } .research-expand { width: 44px; } }
-.dark .research-workspace :is(a,button):focus-visible { outline-color: var(--wa-sage); }
+/* The shared .wallai-system focus ring is a mid-green from the landing palette.
+   On the app's near-black it would be the last piece of green chrome left, so
+   dark takes the workspace accent instead. Light keeps the shared ring. */
+.dark .research-workspace :is(a,button,input):focus-visible { outline-color: var(--rw-accent); }
