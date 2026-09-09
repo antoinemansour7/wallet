@@ -1,4 +1,4 @@
-import { HORIZON_POLICY_VERSION, strategyPolicy } from './research/policy.js'
+import { HORIZON_POLICY_VERSION, strategyPolicy, declaredHorizons, assertDeclaredHorizon } from './research/policy.js'
 // Versioned, forward-observed evaluation. These are hypothetical fills, not
 // executed trades; changing this policy must start a new comparison cohort.
 export const RESEARCH_MODEL_VERSION = 'evidence-v3-foundation'
@@ -21,6 +21,10 @@ export function sessionCheckpoints(candles, generatedAt, now = Date.now(), bench
   const byDate = new Map(benchmark.map((bar) => [bar.date, bar]))
   const benchmarkEntry = byDate.get(entry.date)
   const returns = []
+  // Checkpoints below the ranking horizon are measured for visibility, but only
+  // the ones the strategy predeclared may be evaluated. Marking them here keeps
+  // that distinction in the data instead of in a reader's memory.
+  const declared = policy.strategyFamily ? declaredHorizons(policy.strategyFamily) : [policy.horizon].filter(Boolean)
   for (const horizon of [1, 3, 5, 10, 20, 60].filter((h) => !policy.horizon || h <= policy.horizon)) {
     const exit = sessions[horizon - 1]
     if (!exit || exit.timestamp + 6.5 * 3600000 > now || !positive(exit.close)) continue
@@ -32,7 +36,8 @@ export function sessionCheckpoints(candles, generatedAt, now = Date.now(), bench
     const benchmarkReturn = positive(benchmarkEntry?.open) && positive(benchmarkExit?.close)
       ? (benchmarkExit.close / benchmarkEntry.open - 1) * 100 : null
     returns.push({
-      horizon, entryPrice: entry.open, exitPrice: exit.close,
+      horizon, declared: declared.includes(horizon),
+      entryPrice: entry.open, exitPrice: exit.close,
       entryDate: entry.date, exitDate: exit.date,
       grossReturn, netReturn, costBps, benchmarkReturn,
       excessReturn: benchmarkReturn === null ? null : netReturn - benchmarkReturn,
@@ -69,10 +74,19 @@ function aggregate(records) {
 
 export function computeLearningStats(records, now = Date.now(), { horizon = 5, strategyFamily } = {}) {
   if (![5, 20, 60].includes(horizon)) throw new Error('Unsupported learning horizon')
+  // Asking a strategy how it did at a horizon it never declared is the
+  // retrospective pick the policy exists to prevent, so it fails loudly rather
+  // than quietly returning a number someone can quote.
+  if (strategyFamily) assertDeclaredHorizon(strategyFamily, horizon)
   const seen = new Set()
   const eligible = records.filter((record) => {
     const key = record.candidateId || `${record.pickDate}:${record.securityId || record.ticker}:${record.strategyFamily || 'attention'}`
-    if ((record.horizon || 5) !== horizon || (strategyFamily && (record.strategyFamily || 'attention') !== strategyFamily)) return false
+    // A record is evaluable at every horizon its strategy predeclared, not only
+    // at the one it is ranked on. Without this a fundamentals pick could never
+    // be read at 5 even though the 5-session checkpoint was measured and stored
+    // beside the 20 — which is the whole point of declaring both.
+    const recordHorizons = Array.isArray(record.horizons) && record.horizons.length ? record.horizons : [record.horizon || 5]
+    if (!recordHorizons.includes(horizon) || (strategyFamily && (record.strategyFamily || 'attention') !== strategyFamily)) return false
     if (record.horizon && record.horizonPolicyVersion !== HORIZON_POLICY_VERSION) return false
     if (seen.has(key) || record.shadow || record.modelVersion !== RESEARCH_MODEL_VERSION
       || record.evaluationVersion !== EVALUATION_VERSION

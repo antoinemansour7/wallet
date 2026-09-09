@@ -114,6 +114,10 @@ export async function storePickPerformance(pickDate, ticker, entryPrice, current
       costBps: extras.costBps,
       candidateId: extras.candidateId, securityId: extras.securityId, issuerId: extras.issuerId,
       strategyFamily: extras.strategyFamily, horizon: extras.declaredHorizon, horizonPolicyVersion: extras.horizonPolicyVersion,
+      // The horizons this pick predeclared, and the experiment arm it was
+      // assigned at decision time. Both are stored because neither can be
+      // reconstructed from prices after the fact.
+      horizons: extras.horizons, experiment: extras.experiment,
       earliestActionAt: extras.earliestActionAt,
       entryDate: extras.entryDate,
       [`exit_date_day${daysHeld}`]: extras.exitDate,

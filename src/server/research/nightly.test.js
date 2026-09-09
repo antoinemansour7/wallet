@@ -117,3 +117,38 @@ describe('nightly foundation integration', () => {
     expect(mocks.values.get('research:publication:lock:v1')).toBe('other-run')
   })
 })
+
+// #107: forward observations only accumulate if the longer-horizon boards reach
+// the tracker. track-performance reads published payloads through
+// allResearchPicks, so a fundamentals pick that never appears there is measured
+// at no horizon at all, declared or not.
+describe('fundamentals picks reach the performance tracker', () => {
+  it('publishes the 20-session board and surfaces it to allResearchPicks', async () => {
+    const fundamentals = { ...pick('QUIET', 20), strategyFamily: 'fundamentals', horizons: [5, 20], experiment: { version: 'fundamentals-quiet-v1', quiet: true, attention: 0, repricingPercent: 1 } }
+    mocks.extract.mockImplementation(async (_s, _a, options) => { options.onPrimaryReview(primary({ 20: [fundamentals], 60: [] })); return [] })
+
+    await handler(request(), response())
+    const published = mocks.publications.at(-1)
+    expect(published.picksByHorizon[20].map((p) => p.ticker)).toEqual(['QUIET'])
+
+    const { allResearchPicks } = await import('./review.js')
+    const tracked = allResearchPicks(published)
+    const quiet = tracked.find((p) => p.ticker === 'QUIET')
+    expect(quiet).toBeDefined()
+    // Both the declared set and the arm survive publication, which is what
+    // track-performance forwards into the stored record.
+    expect(quiet.horizons).toEqual([5, 20])
+    expect(quiet.experiment.quiet).toBe(true)
+  })
+
+  it('keeps the attention board separate rather than duplicating the candidate into it', async () => {
+    const fundamentals = { ...pick('QUIET', 20), strategyFamily: 'fundamentals', horizons: [5, 20] }
+    mocks.extract.mockImplementation(async (_s, _a, options) => { options.onPrimaryReview(primary({ 20: [fundamentals], 60: [] })); return [] })
+
+    await handler(request(), response())
+    const published = mocks.publications.at(-1)
+    // The same candidate is evaluated at 5 via its checkpoint, not by being
+    // ranked on the attention board, which would double-count it.
+    expect(published.picksByHorizon[5].some((p) => p.ticker === 'QUIET')).toBe(false)
+  })
+})

@@ -143,7 +143,12 @@ describe('immutable archive, evidence and causal time', () => {
   it('locks horizon at creation and makes inference corrections distinct', async () => {
     const archive = createArchive(memoryRedis(), { objectStore: memoryObjectStore() })
     const original = await evidenceFixture(archive)
-    expect(() => createEvidence({ ...original, security: original, horizon: 5 })).toThrow('Horizon')
+    // Fundamentals predeclares 5 and 20, so naming either is allowed and both
+    // still rank on 20. Naming a horizon it never declared is the retrospective
+    // pick, and still throws.
+    expect(createEvidence({ ...original, security: original, horizon: 5 }).horizon).toBe(20)
+    expect(createEvidence({ ...original, security: original, horizon: 5 }).horizons).toEqual([5, 20])
+    expect(() => createEvidence({ ...original, security: original, horizon: 60 })).toThrow('Horizon')
     const revised = createEvidence({ ...original, security: original, decision: { status: 'rejected', reason: 'Material accounting discrepancy' } })
     expect(revised.id).not.toBe(original.id)
     expect(Object.isFrozen(revised.decision)).toBe(true)
@@ -227,6 +232,13 @@ describe('zero-mention end-to-end acceptance', () => {
     expect(reviewer).toHaveBeenCalledTimes(2)
     expect(reviewer.mock.calls.every(([input]) => input.candidates[0].measurements.attention === 0)).toBe(true)
     expect(reviewed.picksByHorizon[20][0]).toMatchObject({ ticker: 'QUIET', strategyFamily: 'fundamentals', horizon: 20, signalCount: 0, earliestActionAt: '2026-02-02T12:02:00.000Z' })
+    // #107: the pick carries both predeclared horizons and the experiment arm it
+    // was assigned at decision time. Neither can be reconstructed later, so if
+    // they are not stamped here the comparison can never be run.
+    expect(reviewed.picksByHorizon[20][0].horizons).toEqual([5, 20])
+    expect(reviewed.picksByHorizon[20][0].experiment).toMatchObject({ version: 'fundamentals-quiet-v1', attention: 0 })
+    // Zero mentions and no measured day change is the quiet arm.
+    expect(reviewed.picksByHorizon[20][0].experiment.quiet).toBe(null)
     expect(reviewed.picksByHorizon[60][0].horizon).toBe(60)
     expect(reviewed.picksByHorizon[5]).toBeUndefined()
     expect(await archive.list('admissions', reviewedAt)).toHaveLength(1)
