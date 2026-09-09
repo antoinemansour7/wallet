@@ -6,7 +6,7 @@ import Lenis from 'lenis'
 import Brokerages from '../src/components/landing/Brokerages'
 import OneView from '../src/components/landing/OneView'
 import Features from '../src/components/landing/Features'
-import Agents from '../src/components/landing/Agents'
+import TaxWorkflow from '../src/components/landing/TaxWorkflow'
 import Closing from '../src/components/landing/Closing'
 import Hero from '../src/components/landing/Hero'
 import { useMedia, timing } from '../src/components/landing/motion'
@@ -32,7 +32,7 @@ export default function LandingPage() {
     <Brokerages reduced={reduced} />
     <OneView reduced={reduced} />
     <Features reduced={reduced} />
-    <Agents reduced={reduced} />
+    <TaxWorkflow reduced={reduced} />
     <Closing />
   </main></MotionConfig>
 }
