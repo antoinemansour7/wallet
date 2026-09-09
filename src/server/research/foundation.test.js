@@ -437,3 +437,41 @@ it('uses a newly bootstrapped master for ingestion in the same invocation', asyn
     expect(result.completed[0].issuerId).toBe(security().issuerId)
   } finally { vi.unstubAllGlobals(); vi.unstubAllEnvs() }
 })
+
+// An ingestion credential must not decide whether any research runs. Identity
+// comes from the reference provider; SEC_USER_AGENT only buys filings. When it
+// was built in syncUnlocked's parameter list, its absence threw before the
+// master could publish, and nightly research then had no way to resolve a
+// ticker from any source — attention included — so it returned 503 nightly.
+describe('disclosure ingestion is optional, identity is not', () => {
+  it('publishes the security master and reports the gap when SEC_USER_AGENT is unset', async () => {
+    vi.stubEnv('SEC_USER_AGENT', '')
+    try {
+      const redis = memoryRedis(), archive = createArchive(redis, { objectStore: memoryObjectStore() })
+      await archive.put('master', 'cached', { asOf: early, availableAt: early, securities: [security()] }, 'masters', early)
+
+      // No client passed: the real one cannot be built without the variable.
+      const result = await syncFoundation({ redis, archive, refresh: false, now: seenAt })
+
+      expect(result.universe).toBe(1)
+      expect(result.completed).toEqual([])
+      expect(result.errors).toContainEqual(expect.objectContaining({ stage: 'sec-client' }))
+      // The run is still auditable rather than a thrown 500.
+      expect(result.errors[0].message).toMatch(/SEC_USER_AGENT/)
+    } finally { vi.unstubAllEnvs() }
+  })
+
+  it('leaves nightly research able to load identity, so discovery still runs', async () => {
+    vi.stubEnv('SEC_USER_AGENT', '')
+    try {
+      const redis = memoryRedis(), archive = createArchive(redis, { objectStore: memoryObjectStore() })
+      await archive.put('master', 'cached', { asOf: early, availableAt: early, securities: [security()] }, 'masters', early)
+      await syncFoundation({ redis, archive, refresh: false, now: seenAt })
+
+      const foundation = await loadFoundation({ redis, archive, now: seenAt })
+      expect(foundation.master.securities().length).toBe(1)
+      // The whole point: a ticker still resolves, so signals still yield names.
+      expect(withSecurityMaster(foundation.master, () => extractTickersFromText('watching $QUIET here'))).toEqual(['QUIET'])
+    } finally { vi.unstubAllEnvs() }
+  })
+})

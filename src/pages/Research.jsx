@@ -148,7 +148,11 @@ export default function Research() {
 
     loadLivePrices(all)
     const id = window.setInterval(() => loadLivePrices(all), 5 * 60 * 1000)
-    return () => { window.clearInterval(id); priceRequest.current++ }
+    // Retiring the sequence on teardown matters when the next horizon has no
+    // picks: the effect returns early without issuing a request, so nothing
+    // else would invalidate a reply still in flight for the previous one.
+    const sequence = priceRequest
+    return () => { window.clearInterval(id); sequence.current++ }
   }, [research, horizon])
 
   const { picks, below } = useMemo(() => {

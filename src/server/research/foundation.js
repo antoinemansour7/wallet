@@ -54,15 +54,26 @@ export async function syncFoundation(options = {}) {
   }
 }
 
-async function syncUnlocked({ redis = Redis.fromEnv(), archive = createArchive(redis), deadline = Date.now() + 240000, client = createSecClient({ deadline }), maxIssuers = 5, now = new Date().toISOString(), refresh = true, forceMasterRefresh = false } = {}) {
+async function syncUnlocked({ redis = Redis.fromEnv(), archive = createArchive(redis), deadline = Date.now() + 240000, client, maxIssuers = 5, now = new Date().toISOString(), refresh = true, forceMasterRefresh = false } = {}) {
   if (!Number.isInteger(maxIssuers) || maxIssuers < 1) throw new Error('maxIssuers must be positive')
   const { master, masterRefresh } = await loadFoundation({ redis, archive, refresh, forceMasterRefresh, now, masterOptions: { deadline: Math.min(deadline, Date.now() + 120000) } })
   const errors = []
+  // Identity comes from the reference provider; only disclosure ingestion needs
+  // an identifying SEC User-Agent. Built in the parameter list, a missing one
+  // threw before the master could publish — and with no master nightly research
+  // cannot resolve a ticker from any source, so an ingestion credential quietly
+  // decided whether any research ran at all. Its absence now costs filings, not
+  // identity, and says so in the run's errors.
+  let secClient = client
+  if (!secClient) {
+    try { secClient = createSecClient({ deadline }) }
+    catch (error) { errors.push({ stage: 'sec-client', message: error.message }) }
+  }
   // A bootstrap may publish identity after this invocation's starting timestamp.
   const identityAt = new Date(Math.max(Date.parse(now), Date.parse(master.snapshots.at(-1).asOf))).toISOString()
   const pending = 'research:disclosures:pending:v1'
   // Retry the last seven complete UTC days; immutable jobs deduplicate retries.
-  for (let ago = 1; ago <= 7; ago++) {
+  for (let ago = 1; secClient && ago <= 7; ago++) {
     if (Date.now() + 20000 >= deadline) break
     const date = new Date(Date.parse(now) - ago * 86400000)
     if ([0, 6].includes(date.getUTCDay())) continue
@@ -73,7 +84,7 @@ async function syncUnlocked({ redis = Redis.fromEnv(), archive = createArchive(r
     try {
       const progress = await redis.get(indexKey)
       if (progress?.complete) continue
-      const bytes = await client.request(url, false)
+      const bytes = await secClient.request(url, false)
       // An issuer can file several forms in one day; enqueue it once. A bounded
       // cursor avoids spending the entire Hobby invocation in Redis round trips.
       const items = [...new Map(parseDailyIndex(bytes.toString('utf8'), master, identityAt).map((item) => [item.issuerId, item])).values()]
@@ -91,13 +102,13 @@ async function syncUnlocked({ redis = Redis.fromEnv(), archive = createArchive(r
       await redis.set(indexKey, { cursor, complete: cursor === items.length })
     } catch (error) { errors.push({ stage: 'daily-index', date: day, message: error.message }) }
   }
-  const jobs = await redis.zrange(pending, 0, Math.max(0, maxIssuers - 1))
+  const jobs = secClient ? await redis.zrange(pending, 0, Math.max(0, maxIssuers - 1)) : []
   const completed = []
   for (const jobId of jobs) {
     if (Date.now() + 45000 >= deadline) break
     const job = await archive.get('ingestion-job', jobId)
     try {
-      const result = await ingestIssuer(archive, master, job.issuerId.slice(4), { client, deadline, since: job.since, limit: 3, afterAccession: await redis.get(`research:disclosures:cursor:${jobId}`) })
+      const result = await ingestIssuer(archive, master, job.issuerId.slice(4), { client: secClient, deadline, since: job.since, limit: 3, afterAccession: await redis.get(`research:disclosures:cursor:${jobId}`) })
       if (result.truncated) {
         await redis.set(`research:disclosures:cursor:${jobId}`, result.nextAccession)
         continue
