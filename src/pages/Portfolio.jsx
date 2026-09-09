@@ -1,3 +1,5 @@
+import TaxView, { TaxOverviewPointer } from './portfolio/tax/TaxView'
+import useTaxWorkspace from './portfolio/tax/useTaxWorkspace'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { parseSpreadsheet } from '../utils/parseSpreadsheet'
 import { enrichRowsWithLivePrices } from '../utils/livePrices'
@@ -59,7 +61,8 @@ export default function Portfolio() {
       ? computeStats(rows, { cashValue: totalCashValue, realizedPnl: totalRealizedPnl })
       : null
   ), [hasData, rows, totalCashValue, totalRealizedPnl])
-  const visibleView = hasData ? activeView : 'add'
+  const visibleView = hasData || activeView === 'tax' ? activeView : 'add'
+  const taxWorkspace = useTaxWorkspace(uid, visibleView === 'tax', accountEntries)
 
   const applyPortfolioRows = useCallback((nextRows, {
     previousAccounts = accounts,
@@ -480,6 +483,7 @@ export default function Portfolio() {
               <PerformanceChart hero stats={stats} rows={rows} />
               <StatRail rows={rows} stats={stats} accounts={accountEntries} onCashOverride={handleCashOverride} />
               <CompositionPanel rows={rows} accounts={accountEntries} />
+              <TaxOverviewPointer accounts={accountEntries} settings={taxWorkspace.settings} onOpen={() => setActiveView('tax')} />
             </>
           )}
           {visibleView === 'overview' && !stats && <EmptyState onUploadClick={() => openAdd()} />}
@@ -495,6 +499,7 @@ export default function Portfolio() {
           {visibleView === 'holdings' && (
             <HoldingsView rows={rows} accounts={accountEntries} onUploadClick={() => openAdd()} />
           )}
+          {visibleView === 'tax' && <TaxView accounts={accountEntries} workspace={taxWorkspace} onAddAccount={openAdd} />}
           {visibleView === 'add' && (
             <AccountsView
               accounts={accountEntries}
@@ -538,6 +543,9 @@ export default function Portfolio() {
       />
 
       <AccountDetailModal
+        taxSettings={taxWorkspace.settings}
+        taxData={taxWorkspace.data}
+        onOpenTax={() => { setOpenAccount(null); setActiveView('tax') }}
         open={Boolean(openAccount)}
         account={openAccount ? (accountEntries.find((a) => a.accountNumber === openAccount.accountNumber) ?? null) : null}
         busy={removing}

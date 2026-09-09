@@ -147,3 +147,12 @@ describe('fetchFigi', () => {
     expect(await fetchFigi('XEQT', 'CT', { fetchImpl })).toBeNull()
   })
 })
+
+it('identifies a fund from chart metadata when its profile cannot be fetched', async () => {
+  const { resolveSecurityReference } = await import('./securitiesReference')
+  const fetchImpl = vi.fn(async (url) => String(url).includes('/chart/')
+    ? { ok: true, json: async () => ({ chart: { result: [{ meta: { instrumentType: 'ETF', regularMarketPrice: 100, exchangeName: 'TOR', currency: 'CAD' } }] } }) }
+    : { ok: false })
+  const result = await resolveSecurityReference('VFV.TO', { fetchImpl, now: NOW })
+  expect(result).toMatchObject({ isFund: true, expenseRatioPct: null, holdsForeignEquities: null })
+})

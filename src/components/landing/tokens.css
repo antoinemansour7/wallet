@@ -1,0 +1,41 @@
+@font-face { font-family: 'WallAI Tiempos'; src: url('/fonts/tiempos-Regular.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'WallAI Geist'; src: url('./assets/Geist.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
+.wallai-system {
+  --wa-forest: #203c2d; --wa-panel: #2c4a35; --wa-ink: #23382d;
+  --wa-cream: #f8f7f3; --wa-sage: #d8e4bb; --wa-soft: #eaf1e3;
+  --wa-mist: #c6d0c6; --wa-muted: #686f63; --wa-line: #d8dbd2;
+  --wa-border: #858e79; --wa-focus: #64806a;
+  --wa-error: #96482e; --wa-error-bg: #f7eeea; --wa-error-border: #dec4ba;
+  --wa-dark-line: rgb(216 228 187 / 22%); --wa-glow: rgb(216 228 187 / 12%);
+  --wa-shadow: 0 24px 64px -24px rgb(32 60 45 / 28%);
+  --wa-display: 'WallAI Tiempos', Georgia, serif;
+  --wa-ui: 'WallAI Geist', 'Inter', system-ui, sans-serif;
+  --wa-hero: clamp(48px, 6.6vw, 96px); --wa-heading: clamp(36px, 4.5vw, 64px);
+  --wa-title: clamp(24px, 2.6vw, 36px); --wa-balance: clamp(36px, 4vw, 56px);
+  --wa-body-lg: 18px; --wa-body: 16px; --wa-small: 14px; --wa-label: 12px;
+  --wa-1: 4px; --wa-2: 8px; --wa-3: 12px; --wa-4: 16px; --wa-5: 20px;
+  --wa-6: 24px; --wa-8: 32px; --wa-10: 40px; --wa-12: 48px;
+  --wa-16: 64px; --wa-20: 80px; --wa-24: 96px; --wa-30: 120px;
+  --wa-gutter: clamp(24px, 5vw, 80px); --wa-section: clamp(80px, 9vw, 120px);
+  --wa-content: 1280px; --wa-form: 400px;
+  --wa-control: 12px; --wa-card: 20px; --wa-showcase: 28px; --wa-pill: 9999px;
+  --wa-fast: 150ms; --wa-base: 300ms; --wa-slow: 600ms; --wa-marquee: 32s; --wa-chart: 1500ms;
+  --wa-out: cubic-bezier(.22, 1, .36, 1); --wa-in-out: cubic-bezier(.76, 0, .24, 1);
+  color-scheme: light; font-family: var(--wa-ui); color: var(--wa-ink); background: var(--wa-cream);
+  -webkit-font-smoothing: antialiased;
+}
+.wallai-system *, .wallai-system *::before, .wallai-system *::after { box-sizing: border-box; }
+.wallai-system ::selection { background: var(--wa-sage); color: var(--wa-forest); }
+.wallai-system :is(a,button,input):focus-visible { outline: 2px solid var(--wa-focus); outline-offset: 4px; }
+.wallai-system .wa-dark :is(a,button):focus-visible { outline-color: var(--wa-sage); }
+.wa-brand { display: inline-flex; gap: var(--wa-3); align-items: center; text-decoration: none; color: inherit; font: 500 24px var(--wa-ui); letter-spacing: -.04em; }
+.wa-brand-mark { display: grid; place-items: center; width: var(--wa-10); height: var(--wa-10); border-radius: var(--wa-control); color: var(--wa-forest); background: var(--wa-sage); font-size: 28px; }
+.wa-button { display: inline-flex; align-items: center; justify-content: center; gap: var(--wa-6); min-height: 52px; padding: 14px var(--wa-8); border: 1px solid transparent; border-radius: var(--wa-pill); background: var(--wa-forest); color: var(--wa-cream); font: 500 var(--wa-small)/1.5 var(--wa-ui); text-decoration: none; transition: background var(--wa-fast), border-color var(--wa-fast); }
+.wa-button:hover { background: var(--wa-panel); }
+.wa-button-light { background: var(--wa-sage); color: var(--wa-forest); }
+.wa-button-light:hover { background: var(--wa-cream); }
+.wa-button-outline { border-color: var(--wa-dark-line); background: transparent; color: var(--wa-cream); }
+.wa-button-outline:hover { border-color: var(--wa-sage); }
+@media (prefers-reduced-motion: reduce) {
+  .wallai-system *, .wallai-system *::before, .wallai-system *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

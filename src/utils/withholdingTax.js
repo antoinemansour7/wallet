@@ -24,7 +24,7 @@
  * unrecognised security returns UNKNOWN and the screen says nothing.
  */
 
-import { toMinorUnits } from './money'
+import { toMinorUnits } from './money.js'
 
 export const LISTING = { US: 'US', CA: 'CA', UNKNOWN: 'UNKNOWN' }
 
@@ -81,7 +81,7 @@ function baseSymbol(symbol) {
 
 /** Mirrors the detection in livePrices.js: the description is the only signal. */
 function isCdr(row) {
-  return /\bCDR\b/i.test(String(row?.DESCRIPTION ?? ''))
+  return row?.__isCdr === true || /\bCDR\b/i.test(String(row?.DESCRIPTION ?? ''))
 }
 
 function hasCanadianSuffix(symbol) {
@@ -109,7 +109,7 @@ function looksLikeFund(row) {
  * still exercises the hardcoded-list fallback below — deliberately, so the
  * rule engine's logic stays provable without network access.
  */
-export function classifyHolding(row, { fundExposureHint } = {}) {
+export function classifyHolding(row, { fundExposureHint, securityReference } = {}) {
   const symbol = symbolOf(row)
   if (!symbol) return { listing: LISTING.UNKNOWN, treatment: TREATMENT.UNKNOWN }
 
@@ -120,6 +120,22 @@ export function classifyHolding(row, { fundExposureHint } = {}) {
   // happens and no registered account escapes it, so it behaves like a fund
   // for this purpose even though it holds a single company.
   if (isCdr(row)) return { listing: LISTING.CA, treatment: TREATMENT.IN_FUND, wrapper: 'CDR' }
+
+  // Reference exchange describes the listing; ACCOUNT CURRENCY describes
+  // stored amounts. In particular, a US stock valued in CAD remains US-listed.
+  const exchange = String(securityReference?.exchange || '').toUpperCase()
+  const canadianExchange = ['TOR', 'VAN', 'NEO', 'CNQ', 'XTSE', 'XTSX'].includes(exchange)
+  const usExchange = ['NYQ', 'NMS', 'NGM', 'NCM', 'ASE', 'PCX', 'BTS', 'PNK', 'XNAS', 'XNYS', 'ARCX', 'XASE'].includes(exchange)
+  if (securityReference && (canadianExchange || usExchange)) {
+    if (usExchange) return { listing: LISTING.US, treatment: TREATMENT.TREATY, wrapper: securityReference.isFund ? 'FUND' : 'DIRECT' }
+    if (securityReference.isFund) {
+      if (typeof securityReference.holdsForeignEquities !== 'boolean') return { listing: LISTING.CA, treatment: TREATMENT.UNKNOWN, wrapper: 'FUND' }
+      return { listing: LISTING.CA, treatment: securityReference.holdsForeignEquities ? TREATMENT.IN_FUND : TREATMENT.NONE, wrapper: 'FUND' }
+    }
+    return { listing: LISTING.CA, treatment: TREATMENT.NONE, wrapper: 'DIRECT' }
+  }
+  // A resolved foreign listing outside the experiment is not inferred US.
+  if (securityReference?.exchange) return { listing: LISTING.UNKNOWN, treatment: TREATMENT.UNKNOWN }
 
   const canadianListed = hasCanadianSuffix(symbol) || currency === 'CAD'
 
@@ -160,9 +176,9 @@ function normalizeAccountType(accountType) {
   return String(accountType ?? '').trim().toUpperCase() || 'NON_REGISTERED'
 }
 
-export function projectWithholding({ row, accountType, assumptions = {}, fundExposureHint } = {}) {
-  const merged = { ...DEFAULT_ASSUMPTIONS, ...assumptions }
-  const classification = classifyHolding(row, { fundExposureHint })
+export function projectWithholding({ row, accountType, assumptions = {}, fundExposureHint, securityReference } = {}) {
+  const merged = { ...DEFAULT_ASSUMPTIONS, ...assumptions, ...(Number.isFinite(securityReference?.yieldPct) ? { yieldPct: securityReference.yieldPct } : {}) }
+  const classification = classifyHolding(row, { fundExposureHint, securityReference })
 
   // Nothing to say is a valid and common answer.
   if (classification.treatment === TREATMENT.NONE) return null
@@ -195,6 +211,7 @@ export function projectWithholding({ row, accountType, assumptions = {}, fundExp
     avoidable: !inFund && !exempt && !recoverable,
     annualWithheldMinor,
     basis: 'projected',
+    provenance: { source: securityReference ? 'security-reference' : 'assumption', resolvedAt: securityReference?.resolvedAt || null, yieldBasis: Number.isFinite(securityReference?.yieldPct) ? 'trailing-dividends' : 'assumed', exchange: securityReference?.exchange || null },
     assumptions: merged,
     workings: {
       marketValueMinor,
@@ -204,9 +221,9 @@ export function projectWithholding({ row, accountType, assumptions = {}, fundExp
   }
 }
 
-export function compareAccountTypes({ row, currentAccountType, availableAccountTypes = [], assumptions = {}, fundExposureHint } = {}) {
+export function compareAccountTypes({ row, currentAccountType, availableAccountTypes = [], assumptions = {}, fundExposureHint, securityReference } = {}) {
   const current = normalizeAccountType(currentAccountType)
-  const projection = projectWithholding({ row, accountType: current, assumptions, fundExposureHint })
+  const projection = projectWithholding({ row, accountType: current, assumptions, fundExposureHint, securityReference })
   if (!projection) return null
 
   // An unavoidable cost has nothing to compare. Showing a table of identical
@@ -216,7 +233,7 @@ export function compareAccountTypes({ row, currentAccountType, availableAccountT
   const types = [...new Set(availableAccountTypes.map(normalizeAccountType))]
   const options = types
     .map((accountType) => {
-      const option = projectWithholding({ row, accountType, assumptions, fundExposureHint })
+      const option = projectWithholding({ row, accountType, assumptions, fundExposureHint, securityReference })
       return option && { accountType, annualWithheldMinor: option.annualWithheldMinor, exempt: option.exempt, recoverable: option.recoverable }
     })
     .filter(Boolean)
@@ -269,4 +286,105 @@ export function describeWithholding(projection, { comparisonAccountType } = {}) 
   }
 
   return base
+}
+
+// ─── Stage 2: measured ─────────────────────────────────────────────────────────
+
+/**
+ * What was actually withheld, from the ledger.
+ *
+ * The projection above is arithmetic over a yield assumption. This is the same
+ * quantity counted from real records, and it is better for one reason that
+ * matters more than accuracy: the user can check it against their own
+ * statement. A number someone can verify persuades where a number they have to
+ * trust does not, which is the same reason this app shows its arithmetic
+ * everywhere else.
+ *
+ * Account-level rather than per-holding, because that is the grain the data
+ * arrives at: a withholding record names the security it came from, but the
+ * figure a person recognises from their statement is the account total.
+ *
+ * Returns null when there is nothing to measure — no records at all, or a
+ * ledger that does not reach back far enough to be worth stating. Silence is
+ * the correct output; falling back to the projection is the caller's decision,
+ * made explicit in resolveWithholding.
+ */
+const TWELVE_MONTHS_MS = 365 * 24 * 60 * 60 * 1000
+
+export function measureAccountWithholding({ transactions = [], accountId, now = Date.now(), historyStartsAt = null } = {}) {
+  if (!accountId) return null
+
+  const cutoff = new Date(now - TWELVE_MONTHS_MS).toISOString().slice(0, 10)
+  const today = new Date(now).toISOString().slice(0, 10)
+
+  // A ledger that begins inside the window cannot state a twelve-month figure.
+  // Reporting a partial year as an annual number understates the drag, and it
+  // does so invisibly — the sort of plausible wrong number this module refuses
+  // everywhere else.
+  if (historyStartsAt && historyStartsAt > cutoff) return null
+
+  const withheld = transactions.filter((t) => (
+    t?.action === 'TAX'
+    && t.accountId === accountId
+    && typeof t.tradeDate === 'string'
+    && t.tradeDate >= cutoff
+    && t.tradeDate <= today
+  ))
+  if (withheld.length === 0) return null
+
+  const annualWithheldMinor = withheld.reduce((sum, t) => sum + Math.abs(Number(t.amountMinor) || 0), 0)
+  const accountType = normalizeAccountType(withheld[0].accountType)
+  const currencies = [...new Set(withheld.map((t) => String(t.currency ?? '').trim().toUpperCase()).filter(Boolean))]
+  // Tax was actually taken, so this is withholding at the border by definition.
+  // Whether it comes back is the only open question, and that is the account.
+  const recoverable = !UNRECOVERABLE_ACCOUNTS.has(accountType)
+
+  return {
+    treatment: TREATMENT.TREATY,
+    accountType,
+    exempt: false,
+    recoverable,
+    // Avoidable means a different account the user already has would produce a
+    // smaller number: true exactly when this one keeps the tax for good.
+    avoidable: !recoverable,
+    annualWithheldMinor,
+    basis: 'measured',
+    workings: {
+      recordCount: withheld.length,
+      from: cutoff,
+      to: today,
+      // Stated rather than converted. A mixed-currency total silently summed as
+      // though it were one currency is wrong, and saying so lets the caller
+      // decide instead of hiding it.
+      currencies,
+      mixedCurrency: currencies.length > 1,
+    },
+  }
+}
+
+/**
+ * The measured figure where the ledger supports one, the projection otherwise,
+ * and always which of the two this is.
+ *
+ * The `basis` field is not decoration. A projected number rests on an assumed
+ * yield the user may disagree with; a measured one is a fact about their
+ * account. A screen that renders them identically invites someone to file the
+ * first as though it were the second.
+ */
+export function resolveWithholding({ row, accountType, transactions = [], accountId, assumptions = {}, fundExposureHint, securityReference, now = Date.now(), historyStartsAt = null } = {}) {
+  const projected = projectWithholding({ row, accountType, assumptions, fundExposureHint, securityReference })
+
+  // Tax withheld inside a fund never appears as a record against the account —
+  // it is taken before the distribution is paid — so the ledger cannot measure
+  // it and the projection is the only available statement of it.
+  if (projected?.treatment === TREATMENT.IN_FUND) return projected
+
+  const measured = measureAccountWithholding({ transactions, accountId, now, historyStartsAt })
+  if (!measured) return projected
+
+  // A measured zero in an exempt account agrees with the projection; keep the
+  // projection's richer explanation of why it is zero.
+  if (projected?.exempt && measured.annualWithheldMinor === 0) return projected
+
+  return { ...projected, ...measured, listing: projected?.listing ?? measured.treatment }
 }

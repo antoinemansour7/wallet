@@ -18,8 +18,8 @@
  *     is worse than a gap someone can see.
  */
 
-import { resolveSecurityKey } from './securityKey'
-import { toMinorUnits } from './money'
+import { resolveSecurityKey } from './securityKey.js'
+import { toMinorUnits } from './money.js'
 
 export const ACTIONS = {
   BUY: 'BUY',
@@ -30,7 +30,36 @@ export const ACTIONS = {
   FEE: 'FEE',
   SPLIT: 'SPLIT',
   TRANSFER: 'TRANSFER',
+  // Tax withheld at source, which arrives as its own record rather than as a
+  // reduction of the dividend beside it. Without this action those records
+  // failed to classify and were dropped, so the ledger held the gross dividend
+  // and no trace of the withholding — which is precisely the figure #17 stage 2
+  // exists to measure. A tax record is not a fee: a fee is a cost of trading,
+  // this is a cost of the account the security is held in.
+  TAX: 'TAX',
+  // A currency conversion. Like TAX before it, this had no action and no Plaid
+  // mapping, so every conversion record failed to classify and was dropped —
+  // which is why the app can price a hypothetical conversion but has never been
+  // able to say what a real one cost.
+  FX: 'FX',
 }
+
+/**
+ * Actions that are movements of cash rather than of a security.
+ *
+ * Withholding tax and a currency conversion have no security — they are cash
+ * movements, and Plaid sends them with a null security_id. Requiring a
+ * resolvable security before looking at the action therefore dropped every one
+ * of them, which made the TAX and FX actions unreachable and the measured
+ * figures built on them permanently empty. A cash row keeps a null securityKey;
+ * poolCostBase already filters on that field, so none of this reaches a cost
+ * base.
+ */
+// A transfer is a movement of cash and names no security, so requiring one
+// rejected every deposit and withdrawal an account ever received — the cash
+// that funds a purchase, never recorded, so no balance could be reconstructed
+// from it.
+const CASH_ACTIONS = new Set(['TAX', 'FX', 'FEE', 'TRANSFER'])
 
 // Actions whose quantity is a disposition and is therefore stored negative,
 // so that summing quantity over a security is the position.
@@ -45,7 +74,24 @@ const PLAID_ACTIONS = new Map([
   ['return of capital', ACTIONS.ROC],
   ['fee', ACTIONS.FEE],
   ['transfer', ACTIONS.TRANSFER],
+  // Cash arriving in the account. Unmapped, this fell through to the `cash`
+  // entry below and was recorded as a DIVIDEND — money paid in became income
+  // received, which is wrong twice over: it is not a dividend, and it is not
+  // taxable. Withdrawals are deliberately left unmapped rather than folded in
+  // here, because TRANSFER is treated as an inflow everywhere it is read and a
+  // withdrawal counted as one would overstate both cash and contribution room.
+  ['deposit', ACTIONS.TRANSFER],
   ['split', ACTIONS.SPLIT],
+  // Plaid spells withholding both ways depending on the institution.
+  ['tax', ACTIONS.TAX],
+  ['tax withholding', ACTIONS.TAX],
+  // Institutions differ on the wording, and Plaid passes much of it through.
+  // Unmatched spellings still fall through to a refusal rather than a guess.
+  ['exchange', ACTIONS.FX],
+  ['currency exchange', ACTIONS.FX],
+  ['foreign exchange', ACTIONS.FX],
+  ['conversion', ACTIONS.FX],
+  ['currency conversion', ACTIONS.FX],
 ])
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -117,17 +163,43 @@ function signQuantity(quantity, action) {
   return NEGATIVE_QUANTITY.has(action) ? -magnitude : magnitude
 }
 
+/**
+ * Why a record could not be normalised.
+ *
+ * normalizeTransaction returns null for four different reasons and callers
+ * reported all of them as "unclassifiable", which is true and useless: an
+ * import that drops three rows says nothing about whether they were a
+ * currency conversion nobody mapped, a security nobody could identify, or a
+ * malformed date. The first is a missing feature, the second is a data gap,
+ * and only the reason tells them apart.
+ *
+ * Deliberately separate from normalizeTransaction rather than folded into its
+ * return value: every existing caller checks for null, and widening that
+ * contract to an object would quietly turn each of those checks into a
+ * truthiness bug.
+ */
+export function normalizationFailure(raw, context = {}) {
+  const { security, accountId } = context
+  if (!raw) return 'empty-record'
+  if (!accountId) return 'no-account'
+  if (!resolveAction(raw)) return 'unmapped-action'
+  if (!resolveTradeDate(raw)) return 'no-trade-date'
+  if (!resolveSecurityKey(security) && !CASH_ACTIONS.has(resolveAction(raw))) return 'unidentifiable-security'
+  return null
+}
+
 export function normalizeTransaction(raw, context = {}) {
   if (!raw) return null
 
   const { source = 'manual', security, accountId, accountType = null, fx = null } = context
   if (!accountId) return null
 
-  const resolvedSecurity = resolveSecurityKey(security)
-  if (!resolvedSecurity) return null
-
+  // The action decides whether a security is required, so it is resolved first.
   const action = resolveAction(raw)
   if (!action) return null
+
+  const resolvedSecurity = resolveSecurityKey(security)
+  if (!resolvedSecurity && !CASH_ACTIONS.has(action)) return null
 
   const tradeDate = resolveTradeDate(raw)
   if (!tradeDate) return null
@@ -139,8 +211,8 @@ export function normalizeTransaction(raw, context = {}) {
   const record = {
     accountId,
     accountType,
-    securityKey: resolvedSecurity.key,
-    securityKeyBasis: resolvedSecurity.basis,
+    securityKey: resolvedSecurity?.key ?? null,
+    securityKeyBasis: resolvedSecurity?.basis ?? null,
     symbol: String(security?.symbol ?? '').trim().toUpperCase(),
     action,
     tradeDate,
@@ -154,6 +226,16 @@ export function normalizeTransaction(raw, context = {}) {
     fxRate: fx?.rate ?? null,
     fxRateSource: fx?.source ?? null,
     fxAsOf: fx?.asOf ?? null,
+    ...(source === 'plaid' ? {
+      institution: context.institution ?? null,
+      accountBalanceCurrency: context.accountBalanceCurrency ?? null,
+      providerType: raw.type ?? null,
+      providerSubtype: raw.subtype ?? null,
+      description: raw.name ?? null,
+      unitPrice: Number.isFinite(raw.price) ? raw.price : null,
+      // Plaid Investments: positive amount debits cash, negative credits it.
+      cashDirection: amountMinor > 0 ? 'out' : amountMinor < 0 ? 'in' : null,
+    } : {}),
     source,
     sourceId: raw.investment_transaction_id ?? raw.sourceId ?? null,
   }

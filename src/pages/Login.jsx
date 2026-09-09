@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getAuthErrorMessage } from '../context/authErrors'
-import { Logo } from '../components/Navbar'
+import Brand from '../components/landing/Brand'
+import TaxSnapshot from '../components/landing/TaxSnapshot'
+import '../components/landing/tokens.css'
 import './Login.css'
 
 const MODES = {
   signin: {
     heading: 'Welcome back',
-    subheading: 'Let’s check in on your investments.',
+    subheading: 'Let’s take a closer look at your costs.',
     submit: 'Log in',
     pending: 'Logging in…',
     passwordAutoComplete: 'current-password',
@@ -18,7 +20,7 @@ const MODES = {
   },
   signup: {
     heading: 'Create your account',
-    subheading: 'A home for all your investments. Free during beta.',
+    subheading: 'Understand your investment tax and costs. Free during beta.',
     submit: 'Create account',
     pending: 'Creating account…',
     passwordAutoComplete: 'new-password',
@@ -32,13 +34,15 @@ export default function Login() {
   const { user, signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword } = useAuth()
   const navigate = useNavigate()
 
-  const [mode, setMode] = useState('signin')
+  const [searchParams] = useSearchParams()
+  const [mode, setMode] = useState(() => searchParams.get('mode') === 'signup' ? 'signup' : 'signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [pending, setPending] = useState('')
+  const inFlight = useRef(false)
   const emailRef = useRef(null)
   const headingRef = useRef(null)
   const previousMode = useRef(mode)
@@ -66,6 +70,8 @@ export default function Login() {
   }
 
   const run = async (kind, action) => {
+    if (inFlight.current) return
+    inFlight.current = true
     setError('')
     setNotice('')
     setPending(kind)
@@ -74,6 +80,7 @@ export default function Login() {
     } catch (err) {
       setError(getAuthErrorMessage(err, kind === 'reset' ? 'signin' : mode))
     } finally {
+      inFlight.current = false
       setPending('')
     }
   }
@@ -81,8 +88,14 @@ export default function Login() {
   const handleSubmit = (event) => {
     event.preventDefault()
     if (busy) return
+    if (!emailRef.current?.validity.valid) {
+      setError('Enter a valid email address.'); emailRef.current?.focus(); return
+    }
+    if (!password || (mode === 'signup' && password.length < 6)) {
+      setError(mode === 'signup' ? 'Use at least 6 characters for your password.' : 'Enter your password.'); return
+    }
     run(mode, () => (
-      mode === 'signin' ? signInWithEmail(email, password) : signUpWithEmail(email, password)
+      mode === 'signin' ? signInWithEmail(email.trim(), password) : signUpWithEmail(email.trim(), password)
     ))
   }
 
@@ -91,6 +104,9 @@ export default function Login() {
       setError('Enter your email address first, then choose Forgot password.')
       emailRef.current?.focus()
       return
+    }
+    if (!emailRef.current?.validity.valid) {
+      setError('Enter a valid email address.'); emailRef.current?.focus(); return
     }
     run('reset', async () => {
       await resetPassword(email.trim())
@@ -103,14 +119,14 @@ export default function Login() {
   const busy = Boolean(pending)
 
   return (
-    <main className="login-shell">
+    <main className="wallai-system login-shell">
       <header className="login-brand">
-        <Logo size={36} inverted />
+        <Brand />
         <span className="login-beta"><span /> Beta</span>
       </header>
 
       <section className="login-access" aria-labelledby="sign-in-title">
-        <div className="login-access-top"><span className="login-small-mark" /> Your portfolio, at a glance</div>
+        <div className="login-access-top"><span className="login-small-mark" /> Your tax & costs, at a glance</div>
         <div className="login-form-wrap">
           <div key={mode} className="login-face">
             <div className="login-form-heading">
@@ -132,6 +148,8 @@ export default function Login() {
                     spellCheck={false}
                     required
                     disabled={busy}
+                    aria-invalid={Boolean(error)}
+                    aria-describedby={error ? "login-error" : undefined}
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
                     placeholder="you@example.com"
@@ -156,6 +174,8 @@ export default function Login() {
                       required
                       minLength={6}
                       disabled={busy}
+                      aria-invalid={Boolean(error)}
+                      aria-describedby={error ? "login-error" : undefined}
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
                       placeholder={mode === 'signup' ? 'At least 6 characters' : 'Enter your password'}
@@ -165,6 +185,7 @@ export default function Login() {
                       type="button"
                       onClick={() => setShowPassword((value) => !value)}
                       aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      disabled={busy}
                       aria-pressed={showPassword}
                       className="login-password-toggle"
                     >
@@ -174,8 +195,8 @@ export default function Login() {
                 </Field>
               </div>
 
-              {error && <div role="alert" className="login-feedback login-error">{error}</div>}
-              {notice && <div role="status" className="login-feedback login-notice">{notice}</div>}
+              {error && <div id="login-error" role="alert" className="login-feedback login-error">{error}</div>}
+              {(busy || notice) && <div role="status" aria-live="polite" className="login-feedback login-notice">{busy ? (pending === 'google' ? 'Opening Google…' : pending === 'reset' ? 'Sending reset link…' : copy.pending) : notice}</div>}
 
               <button type="submit" disabled={busy} className="login-submit">
                 <span>{pending === mode ? copy.pending : copy.submit}</span>
@@ -207,31 +228,26 @@ export default function Login() {
         </div>
         <footer className="login-access-footer">
           <span>© {new Date().getFullYear()} WallAI</span>
-          <span>Portfolio tracking</span>
+          <span>Investment tax & costs</span>
         </footer>
       </section>
 
       <section className="login-story" aria-labelledby="login-heading">
-        <div className="login-sculpture" aria-hidden="true">
-          {Array.from({ length: 12 }, (_, index) => (
-            <span key={index} style={{ '--ring': index }} />
-          ))}
-        </div>
         <div className="login-story-content">
           <div className="login-intro">
-            <p className="login-eyebrow"><span /> Your personal portfolio</p>
-            <h2 id="login-heading">Your investments.<br /><span>All together.</span></h2>
+            <p className="login-eyebrow"><span /> Your investment tax & costs</p>
+            <h2 id="login-heading">Your costs.<br /><span>Made clear.</span></h2>
             <p className="login-description">
-              See what you own. Know where you stand.<br className="login-desktop-break" />
-              {' '}All your accounts, without all the tabs.
+              Withholding, fund fees and currency conversion.<br className="login-desktop-break" />
+              {' '}Know what investing costs you, across your accounts.
             </p>
           </div>
 
-          <PortfolioPreview />
+          <figure className="login-preview" aria-label="Illustrative Tax and costs overview"><div className="login-preview-card"><TaxSnapshot /></div></figure>
 
           <div className="login-story-footer">
             <span className="login-footer-mark" aria-hidden="true">✳</span>
-            <span>Canadian accounts. Global investments.</span>
+            <span>Canadian accounts. A clearer view of costs.</span>
           </div>
         </div>
       </section>
@@ -251,80 +267,7 @@ function Field({ label, htmlFor, action, children }) {
   )
 }
 
-// Illustrative values only: this preview never reads a visitor's financial data.
-const PREVIEW_RANGES = {
-  '1M': {
-    change: '+$2,840.00 (2.26%)', period: 'this month', start: 'Aug 1', end: 'Aug 31',
-    points: [96, 91, 99, 88, 86, 98, 93, 102, 83, 91, 75, 79, 66, 69, 61, 65, 55, 60, 46, 42, 50, 36, 31, 39, 24],
-  },
-  '6M': {
-    change: '+$7,620.00 (6.31%)', period: 'past 6 months', start: 'Mar', end: 'Aug',
-    points: [115, 106, 110, 102, 92, 95, 78, 81, 66, 69, 83, 94, 86, 71, 73, 66, 63, 50, 61, 44, 37, 45, 29, 34, 24],
-  },
-  '1Y': {
-    change: '+$11,460.00 (9.80%)', period: 'past year', start: 'Sep', end: 'Aug',
-    points: [132, 126, 129, 113, 117, 108, 113, 93, 101, 86, 92, 80, 89, 73, 78, 57, 61, 47, 55, 36, 42, 29, 36, 18, 24],
-  },
-  ALL: {
-    change: '+$28,450.00 (28.45%)', period: 'all time', start: '2022', end: '2026',
-    points: [145, 137, 143, 128, 134, 120, 127, 112, 120, 108, 114, 94, 102, 88, 93, 78, 88, 64, 70, 51, 60, 41, 48, 28, 24],
-  },
-}
-
-function PortfolioPreview() {
-  const [range, setRange] = useState('1Y')
-  const data = PREVIEW_RANGES[range]
-  const path = data.points.map((y, index) => `${index === 0 ? 'M' : 'L'}${8 + index * 19.5} ${y}`).join(' ')
-
-  return (
-    <figure className="login-preview" aria-label="Sample portfolio preview">
-      <div className="login-preview-card">
-        <div className="login-preview-header">
-          <span><span className="login-preview-dot" /> Portfolio overview</span>
-          <p className="login-preview-caption">Sample portfolio</p>
-        </div>
-        <div className="login-preview-balance">$128,450<span>.00</span><span className="login-currency">CAD</span></div>
-        <div className="login-preview-change" aria-live="polite" aria-atomic="true">
-          <span>↗ {data.change}</span><span>{data.period}</span>
-        </div>
-        <div className="login-chart">
-          <svg viewBox="0 0 484 170" preserveAspectRatio="none" role="img" aria-label={`Sample portfolio value ${data.period}, up ${data.change}`}>
-            <defs>
-              <linearGradient id="login-chart-fill" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%" stopColor="#d6e8aa" stopOpacity="0.2" />
-                <stop offset="100%" stopColor="#d6e8aa" stopOpacity="0" />
-              </linearGradient>
-            </defs>
-            {[40, 85, 130].map((y) => <line key={y} x1="0" y1={y} x2="484" y2={y} className="login-chart-guide" />)}
-            <g key={range}>
-              <path d={`${path} L476 170 L8 170 Z`} fill="url(#login-chart-fill)" className="login-chart-area" />
-              <path d={path} fill="none" stroke="#d6e8aa" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" pathLength="1" className="login-chart-line" />
-              <circle cx="476" cy="24" r="8" fill="#d6e8aa" fillOpacity="0.12" className="login-chart-end" />
-              <circle cx="476" cy="24" r="3.5" fill="#e3efc4" className="login-chart-end" />
-            </g>
-          </svg>
-          <div className="login-chart-labels"><span>{data.start}</span><span>{data.end}</span></div>
-        </div>
-        <div className="login-preview-bottom">
-          <span>Portfolio value</span>
-          <div className="login-chart-ranges" role="group" aria-label="Sample portfolio time range">
-            {Object.keys(PREVIEW_RANGES).map((value) => (
-              <button key={value} type="button" aria-pressed={range === value} onClick={() => setRange(value)}>{value}</button>
-            ))}
-          </div>
-        </div>
-      </div>
-      <div className="login-account-strip">
-        <div className="login-account-icons" aria-hidden="true"><span>T</span><span>R</span><span>N</span></div>
-        <div><strong>Different accounts. One view.</strong><span>TFSA, RRSP & non-registered</span></div>
-        <span className="login-account-check" aria-hidden="true"><CheckIcon /></span>
-      </div>
-    </figure>
-  )
-}
-
 function ArrowIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg> }
-function CheckIcon() { return <svg width="13" height="13" viewBox="0 0 12 12" fill="none"><path d="M10 3L4.75 8.25L2 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg> }
 function LockIcon() { return <svg className="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> }
 function EyeIcon() { return <svg className="size-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg> }
 function EyeOffIcon() { return <svg className="size-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M10.6 6.2A9.6 9.6 0 0 1 12 6c6.4 0 10 7 10 7a17 17 0 0 1-2.9 3.8M6.2 6.7A17 17 0 0 0 2 13s3.6 7 10 7a9.3 9.3 0 0 0 4.3-1" /><path d="m3 3 18 18" /><path d="M9.9 10.1a3 3 0 0 0 4.1 4.2" /></svg> }

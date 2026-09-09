@@ -1,3 +1,4 @@
+import { AccountTaxSection } from './tax/TaxView'
 import { useEffect, useRef, useState } from 'react'
 import Modal from '../../components/Modal'
 import CompanyLogo from '../../components/CompanyLogo'
@@ -8,7 +9,7 @@ import { accountCurrency, accountTitle, currencyTotals } from './accountPresenta
 import AccountIcon from './AccountIcons'
 import './Accounts.css'
 
-export default function AccountDetailModal({ open, account, accounts = [], onClose, onRemoveSource, onRemoveAccount, busy, error }) {
+export default function AccountDetailModal({ open, account, accounts = [], onClose, onRemoveSource, onRemoveAccount, busy, error, taxSettings, taxData, onOpenTax }) {
   const [confirmation, setConfirmation] = useState(null)
   const [showAll, setShowAll] = useState(false)
   const lastAccount = useRef(null)
@@ -52,6 +53,7 @@ export default function AccountDetailModal({ open, account, accounts = [], onClo
         <div className="ac-section-label"><span>Connections & statements</span><span>{feeds.length}</span></div>
         {feeds.length ? <div className="ac-choice-list">{feeds.map((feed) => <div className="ac-feed" key={feed.id}><span className={`ac-tile ${feed.id.startsWith('plaid:') ? 'ac-tile-green' : ''}`}><AccountIcon name={feed.id.startsWith('plaid:') ? 'link' : 'file'} size={17} /></span><div><strong>{sourceLabel(feed.id)}</strong><small>{feed.id.startsWith('plaid:') ? 'Via Plaid' : 'Imported statement'} · {feed.positions} holding{feed.positions === 1 ? '' : 's'}</small></div><button type="button" className="ac-icon-button" aria-label={`Remove ${sourceLabel(feed.id)}`} disabled={busy} onClick={() => setConfirmation({ sourceId: feed.id })}><AccountIcon name="trash" size={16} /></button></div>)}</div> : <p className="ac-inline-note">This account contains a recorded cash balance, with no imported holdings.</p>}
         {positions.length > 0 && <><div className="ac-section-label"><span>Holdings</span><span>{positions.length}</span></div>{(showAll ? sorted : sorted.slice(0, 5)).map((position, index) => <div className="ac-holding" key={`${position.SYMBOL}-${index}`}><CompanyLogo symbol={position.SYMBOL} description={position.DESCRIPTION} size={30} /><div className="ac-holding-main"><strong>{position.SYMBOL}</strong><small>{position.DESCRIPTION}</small></div><span>{fmtCurrency(position['MARKET VALUE'])}</span></div>)}{sorted.length > 5 && <button type="button" className="ac-text-link" aria-expanded={showAll} onClick={() => setShowAll(!showAll)}>{showAll ? 'Show less' : `Show all ${sorted.length} holdings`}</button>}</>}
+        {positions.length > 0 && <AccountTaxSection account={displayed} settings={taxSettings} data={taxData} onOpenTax={onOpenTax} />}
       </>}
       {error && <div role="alert" className="ac-inline-error">{error}</div>}
     </div>

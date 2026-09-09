@@ -38,6 +38,20 @@ const DISCOVERY_QUERIES = [
     weight: 1.3,
     theme: 'defense',
   },
+  // Always-on focus-sector discovery (issue #96): dedicated semis and software
+  // queries every run, alongside the blended emerging-sector query above.
+  {
+    id: 'semis',
+    query: 'semiconductor chip GPU foundry AI compute stock breakout catalyst 2026',
+    weight: 1.35,
+    theme: 'semiconductor',
+  },
+  {
+    id: 'software-cloud',
+    query: 'software SaaS cloud cybersecurity enterprise stock momentum catalyst 2026',
+    weight: 1.3,
+    theme: 'software',
+  },
   {
     id: 'under-radar',
     query: 'under the radar stock pick hidden gem small cap undervalued',

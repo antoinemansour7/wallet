@@ -20,8 +20,8 @@
 // numbers are not stable across institutions and guessing it wrong silently
 // merges two unrelated accounts.
 
-import { parseNum } from './portfolioStats'
-import { normalizeStoredAccounts } from './accountPortfolio'
+import { parseNum } from './portfolioStats.js'
+import { normalizeStoredAccounts } from './accountPortfolio.js'
 
 export const SOURCE_KEY = '__sourceId'
 export const LEGACY_SOURCE = 'legacy'

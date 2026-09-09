@@ -14,6 +14,8 @@ function makeFirestore(seed = {}) {
     return {
       id: path.split('/').pop(),
       path,
+      parent: { parent: { id: path.split('/')[1] } },
+      update: async (data) => { if (!(path in store)) throw Error('Missing document'); store[path] = { ...store[path], ...data } },
       get: async () => ({ exists: path in store, data: () => store[path], id: path.split('/').pop() }),
       set: async (data, opts) => { store[path] = opts?.merge ? { ...(store[path] || {}), ...data } : data },
       delete: async () => { delete store[path] },
@@ -32,7 +34,7 @@ function makeFirestore(seed = {}) {
           .map((path) => path.slice(prefix.length + 1))
         return {
           empty: ids.length === 0,
-          docs: ids.map((id) => ({ id, data: () => store[`${prefix}/${id}`], ref: docRef(`${prefix}/${id}`) })),
+          docs: ids.map((id) => { const data = structuredClone(store[`${prefix}/${id}`]); return { id, data: () => data, ref: docRef(`${prefix}/${id}`) } }),
         }
       },
     }
@@ -42,14 +44,26 @@ function makeFirestore(seed = {}) {
     store,
     db: {
       collection: (name) => collectionRef(name),
+      collectionGroup: (name) => ({ get: async () => {
+        const paths = Object.keys(store).filter((p) => p.split('/').length === 4 && p.split('/')[2] === name)
+        return { empty: paths.length === 0, size: paths.length, docs: paths.map((p) => ({ id: p.split('/').pop(), data: () => store[p], ref: docRef(p) })) }
+      } }),
+      runTransaction: async (fn) => {
+        const pending = []
+        const result = await fn({ get: (ref) => ref.get(), delete: (ref) => pending.push(() => ref.delete()), set: (ref, data, opts) => pending.push(() => ref.set(data, opts)) })
+        for (const op of pending) await op()
+        return result
+      },
       batch: () => {
         const ops = []
         return {
+          delete(ref) { ops.push({ path: ref.path, remove: true }) },
           set(ref, data, opts) {
             ops.push({ path: ref.path, data, opts })
           },
           async commit() {
             for (const op of ops) {
+              if (op.remove) { delete store[op.path]; continue }
               store[op.path] = op.opts?.merge ? { ...(store[op.path] || {}), ...op.data } : op.data
             }
           },
@@ -134,7 +148,7 @@ describe('sync-transactions action', () => {
 
   it('records where the account’s history begins', async () => {
     await handler(request({}), response())
-    expect(firestore.store['users/u1/accounts/acct1']).toEqual({ historyStartsAt: expect.any(String) })
+    expect(firestore.store['users/u1/accounts/acct1']).toMatchObject({ historyStartsAt: expect.any(String), latestImport: { fetched: 1, imported: 1, complete: true } })
   })
 
   it('returns zeros for a user with no Plaid connections at all', async () => {
@@ -174,4 +188,73 @@ describe('sync-transactions action', () => {
     expect(res.code).toBe(401)
     expect(mocks.investmentsTransactionsGet).not.toHaveBeenCalled()
   })
+  it('keeps another connection and manual records when syncing only one item', async () => {
+    Object.assign(firestore.store, {
+      'users/u1/plaid/item1': { enabledAccountIds: ['acct1'], institution: 'A' },
+      'users/u1/plaid/item2': { enabledAccountIds: ['acct2'], institution: 'B' },
+      'users/u1/transactions/other': { source: 'plaid', accountId: 'acct2' },
+      'users/u1/transactions/manual': { source: 'manual', accountId: 'csv-account' },
+      'users/u1/transactions/orphan': { source: 'plaid', accountId: 'removed' },
+    })
+    await handler(request({ itemId: 'item1' }), response())
+    expect(firestore.store['users/u1/transactions/other']).toBeDefined()
+    expect(firestore.store['users/u1/transactions/manual']).toBeDefined()
+    expect(firestore.store['users/u1/transactions/orphan']).toBeUndefined()
+  })
+
+  it('scheduled and manual sync share account ownership and remain idempotent', async () => {
+    Object.assign(firestore.store, {
+      'users/u1/plaid/item1': { enabledAccountIds: ['acct1'], institution: 'Broker', accounts: [{ id: 'acct1', mask: '1234', subtype: 'tfsa' }] },
+      'users/u1/plaid/item2': { enabledAccountIds: ['z-copy'], institution: 'Broker', accounts: [{ id: 'z-copy', mask: '1234', subtype: 'tfsa' }] },
+      'plaidTokens/item2': { uid: 'u1', accessToken: 'duplicate-token' },
+    })
+    vi.stubEnv('CRON_SECRET', 'test-cron')
+    for (let i = 0; i < 2; i++) {
+      const res = response()
+      await handler({ method: 'GET', query: { mode: 'scheduled-sync' }, headers: { authorization: 'Bearer test-cron' } }, res)
+      expect(res.code).toBe(200)
+      expect(res.body.errors).toEqual([])
+    }
+    await handler(request({}), response())
+    expect(mocks.investmentsTransactionsGet).toHaveBeenCalledTimes(3)
+    expect(Object.keys(firestore.store).filter((p) => p.includes('/transactions/'))).toEqual(['users/u1/transactions/plaid:tx1'])
+  })
+
+  it('does not write or claim coverage after a disconnect during the fetch', async () => {
+    mocks.investmentsTransactionsGet.mockImplementationOnce(async () => {
+      delete firestore.store['users/u1/plaid/item1']
+      return txnPage()
+    })
+    const res = response()
+    await handler(request({}), res)
+    expect(res.body.errors).toHaveLength(1)
+    expect(Object.keys(firestore.store).some((p) => p.includes('/transactions/') || p.includes('/accounts/'))).toBe(false)
+  })
+
+  it('reconnect replaces orphaned provider IDs without accumulating a second ledger', async () => {
+    firestore.store['users/u1/transactions/old-id'] = { source: 'plaid', accountId: 'old-account' }
+    firestore.store['users/u1/plaid/item1'].enabledAccountIds = ['acct1']
+    for (let i = 0; i < 2; i++) await handler(request({}), response())
+    expect(Object.keys(firestore.store).filter((p) => p.includes('/transactions/'))).toEqual(['users/u1/transactions/plaid:tx1'])
+  })
+
+  it('does not prune a connection linked while the provider request was in flight', async () => {
+    firestore.store['users/u1/plaid/item1'].enabledAccountIds = ['acct1']
+    mocks.investmentsTransactionsGet.mockImplementationOnce(async () => {
+      firestore.store['users/u1/plaid/new-link'] = { enabledAccountIds: ['new-account'] }
+      firestore.store['users/u1/transactions/new-trade'] = { source: 'plaid', accountId: 'new-account' }
+      return txnPage()
+    })
+    await handler(request({ itemId: 'item1' }), response())
+    expect(firestore.store['users/u1/transactions/new-trade']).toBeDefined()
+  })
+
+  it('records skipped normalization as incomplete import coverage', async () => {
+    mocks.investmentsTransactionsGet.mockResolvedValueOnce(txnPage({ investment_transactions: [{ investment_transaction_id: 'unmapped', account_id: 'acct1', date: '2026-03-12', type: 'cancel', subtype: 'cancel' }] }))
+    const res = response()
+    await handler(request({}), res)
+    expect(res.body.skipped).toBe(1)
+    expect(firestore.store['users/u1/accounts/acct1']).toMatchObject({ importComplete: false, latestImport: { fetched: 1, imported: 0, skipped: 1, complete: false } })
+  })
+
 })

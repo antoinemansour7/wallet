@@ -6,6 +6,8 @@ import {
   projectWithholding,
   compareAccountTypes,
   describeWithholding,
+  measureAccountWithholding,
+  resolveWithholding,
 } from './withholdingTax'
 
 const holding = (overrides = {}) => ({
@@ -124,6 +126,17 @@ describe('projectWithholding', () => {
     for (const accountType of ['RRIF', 'LIRA']) {
       expect(projectWithholding({ row: holding(), accountType, assumptions: { yieldPct: 1.3 } }).exempt).toBe(true)
     }
+  })
+
+  it('does not turn a TFSA into a treaty-exempt account by yielding nothing', () => {
+    // A zero yield withholds zero, which is not the same fact as an RRSP's
+    // exemption. Conflating them tells someone the account type protects them
+    // when only the absence of a dividend did.
+    const projection = projectWithholding({ row: holding(), accountType: 'TFSA', assumptions: { yieldPct: 0 } })
+
+    expect(projection.annualWithheldMinor).toBe(0)
+    expect(projection.exempt).toBe(false)
+    expect(projection.recoverable).toBe(false)
   })
 
   it('treats an FHSA and an RESP like a TFSA — not exempt', () => {
@@ -251,5 +264,190 @@ describe('describeWithholding', () => {
     expect(text).toMatch(/RRSP/)
     expect(text).toMatch(/would have been \$0/i)
     expect(text).not.toMatch(/\bmove\b/i)
+  })
+})
+
+// ─── Stage 2: measured ─────────────────────────────────────────────────────────
+
+const NOW = Date.parse('2026-09-06T00:00:00Z')
+
+/** A withholding record as the ledger stores it. */
+const tax = (overrides = {}) => ({
+  id: `tax-${Math.random().toString(36).slice(2)}`,
+  accountId: 'tfsa-1',
+  accountType: 'TFSA',
+  action: 'TAX',
+  tradeDate: '2026-06-01',
+  amountMinor: 1500,
+  currency: 'USD',
+  ...overrides,
+})
+
+describe('measureAccountWithholding', () => {
+  it('sums what was actually withheld over the last twelve months', () => {
+    const measured = measureAccountWithholding({
+      transactions: [
+        tax({ tradeDate: '2026-03-02', amountMinor: 4321 }),
+        tax({ tradeDate: '2026-06-02', amountMinor: 4322 }),
+        tax({ tradeDate: '2025-12-02', amountMinor: 100 }),
+      ],
+      accountId: 'tfsa-1',
+      now: NOW,
+    })
+
+    expect(measured.annualWithheldMinor).toBe(8743)
+    expect(measured.basis).toBe('measured')
+    expect(measured.workings.recordCount).toBe(3)
+  })
+
+  it('ignores records outside the window, and other accounts', () => {
+    const measured = measureAccountWithholding({
+      transactions: [
+        tax({ tradeDate: '2026-06-01', amountMinor: 1000 }),
+        tax({ tradeDate: '2025-01-01', amountMinor: 9999 }),   // too old
+        tax({ tradeDate: '2027-01-01', amountMinor: 8888 }),   // in the future
+        tax({ accountId: 'rrsp-1', amountMinor: 7777 }),       // another account
+      ],
+      accountId: 'tfsa-1',
+      now: NOW,
+    })
+
+    expect(measured.annualWithheldMinor).toBe(1000)
+  })
+
+  it('counts a withholding record however the institution spells the sign', () => {
+    const measured = measureAccountWithholding({
+      transactions: [tax({ amountMinor: -2500 })],
+      accountId: 'tfsa-1',
+      now: NOW,
+    })
+
+    expect(measured.annualWithheldMinor).toBe(2500)
+  })
+
+  it('says nothing rather than reporting a partial year as an annual figure', () => {
+    // A ledger that only reaches back four months cannot state twelve months of
+    // drag. Reporting the partial sum understates it, and does so invisibly.
+    expect(measureAccountWithholding({
+      transactions: [tax({ tradeDate: '2026-06-01' })],
+      accountId: 'tfsa-1',
+      now: NOW,
+      historyStartsAt: '2026-05-01',
+    })).toBeNull()
+  })
+
+  it('returns nothing when there is nothing withheld to measure', () => {
+    expect(measureAccountWithholding({ transactions: [], accountId: 'tfsa-1', now: NOW })).toBeNull()
+    expect(measureAccountWithholding({ transactions: [tax()], now: NOW })).toBeNull()
+  })
+
+  it('flags a mixed-currency total rather than summing it as one currency', () => {
+    const measured = measureAccountWithholding({
+      transactions: [tax({ currency: 'USD' }), tax({ currency: 'CAD' })],
+      accountId: 'tfsa-1',
+      now: NOW,
+    })
+
+    expect(measured.workings.mixedCurrency).toBe(true)
+    expect(measured.workings.currencies.sort()).toEqual(['CAD', 'USD'])
+  })
+
+  it('marks the tax unrecoverable in a TFSA and recoverable in a cash account', () => {
+    const inTfsa = measureAccountWithholding({ transactions: [tax()], accountId: 'tfsa-1', now: NOW })
+    const inCash = measureAccountWithholding({
+      transactions: [tax({ accountId: 'cash-1', accountType: 'NON_REGISTERED' })],
+      accountId: 'cash-1',
+      now: NOW,
+    })
+
+    expect(inTfsa.recoverable).toBe(false)
+    expect(inTfsa.avoidable).toBe(true)
+    expect(inCash.recoverable).toBe(true)
+    expect(inCash.avoidable).toBe(false)
+  })
+})
+
+describe('resolveWithholding', () => {
+  it('prefers the measured figure and says which basis it is', () => {
+    const resolved = resolveWithholding({
+      row: holding(),
+      accountType: 'TFSA',
+      accountId: 'tfsa-1',
+      transactions: [tax({ amountMinor: 8743 })],
+      now: NOW,
+    })
+
+    expect(resolved.basis).toBe('measured')
+    expect(resolved.annualWithheldMinor).toBe(8743)
+    // The projection on $50,000 at the assumed 1.3% would have been 9750.
+    expect(resolved.annualWithheldMinor).not.toBe(9750)
+  })
+
+  it('falls back to the projection, still saying which basis it is', () => {
+    const resolved = resolveWithholding({
+      row: holding(),
+      accountType: 'TFSA',
+      accountId: 'tfsa-1',
+      transactions: [],
+      now: NOW,
+    })
+
+    expect(resolved.basis).toBe('projected')
+    expect(resolved.annualWithheldMinor).toBe(9750)
+  })
+
+  it('keeps the projection for tax lost inside a fund, which no record can measure', () => {
+    // In-fund withholding is taken before the distribution is paid, so it never
+    // appears against the account. A measured zero here would be a lie.
+    const resolved = resolveWithholding({
+      row: CA_FUND,
+      accountType: 'TFSA',
+      accountId: 'tfsa-1',
+      transactions: [tax({ amountMinor: 500 })],
+      now: NOW,
+    })
+
+    expect(resolved.treatment).toBe(TREATMENT.IN_FUND)
+    expect(resolved.basis).toBe('projected')
+  })
+
+  it('describes a measured figure as the past, not as a forecast', () => {
+    const resolved = resolveWithholding({
+      row: holding(),
+      accountType: 'TFSA',
+      accountId: 'tfsa-1',
+      transactions: [tax({ amountMinor: 8743 })],
+      now: NOW,
+    })
+
+    expect(describeWithholding(resolved)).toContain('over the last 12 months')
+    expect(describeWithholding(resolved)).toContain('$87.43')
+  })
+
+  it('still issues no instruction on the measured path', () => {
+    const resolved = resolveWithholding({
+      row: holding(),
+      accountType: 'TFSA',
+      accountId: 'tfsa-1',
+      transactions: [tax()],
+      now: NOW,
+    })
+
+    expect(describeWithholding(resolved, { comparisonAccountType: 'RRSP' }))
+      .not.toMatch(/\b(move|switch|transfer|should|consider|recommend|buy|sell)\b/i)
+  })
+})
+
+describe('resolved security listings', () => {
+  it('does not confuse a CAD valuation with a Canadian listing', () => {
+    const result = projectWithholding({ row: holding({ SYMBOL: 'MSFT', 'ACCOUNT CURRENCY': 'CAD' }), accountType: 'TFSA', securityReference: { exchange: 'NMS', yieldPct: 2 } })
+    expect(result).toMatchObject({ listing: LISTING.US, annualWithheldMinor: 15000, provenance: { yieldBasis: 'trailing-dividends' } })
+  })
+  it('keeps an unresolved fund composition unknown even for a legacy known ticker', () => {
+    expect(classifyHolding(holding({ SYMBOL: 'VFV.TO' }), { securityReference: { exchange: 'TOR', isFund: true } }).treatment).toBe(TREATMENT.UNKNOWN)
+    expect(classifyHolding(holding({ SYMBOL: 'VFV.TO' }), { securityReference: { exchange: 'TOR', isFund: true, holdsForeignEquities: true } }).treatment).toBe(TREATMENT.IN_FUND)
+  })
+  it('does not mistake a CDR for the US company sharing its symbol', () => {
+    expect(classifyHolding(holding({ SYMBOL: 'MSFT', __isCdr: true }), { securityReference: { exchange: 'NMS' } })).toMatchObject({ listing: LISTING.CA, treatment: TREATMENT.IN_FUND, wrapper: 'CDR' })
   })
 })

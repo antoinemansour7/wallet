@@ -207,3 +207,87 @@ export async function fetchTopHoldings(symbol, { fetchImpl = fetch, session } = 
     return null
   }
 }
+
+// ─── Management expense ratio, from the same crumb-gated endpoint (#21) ────
+
+/**
+ * A fund's annual expense ratio, as a percent.
+ *
+ * Rides on the handshake `fetchTopHoldings` already performs, so the session is
+ * minted once and serves both. Individual stocks have no MER and correctly
+ * resolve to null here — including them at 0% would make any portfolio average
+ * meaningless, which is the failure #21 calls out by name.
+ */
+export function expenseRatioFrom(fundProfile) {
+  const raw = fundProfile?.feesExpensesInvestment?.annualReportExpenseRatio
+  const value = typeof raw === 'object' ? raw?.raw : raw
+  const ratio = Number(value)
+  // Yahoo reports this as a fraction (0.0009 for 9 basis points). A value at or
+  // above 1 is not a plausible expense ratio and is more likely a units change
+  // than a genuinely 100%-fee fund, so it is refused rather than displayed.
+  if (!Number.isFinite(ratio) || ratio <= 0 || ratio >= 1) return null
+  return Number((ratio * 100).toFixed(4))
+}
+
+export async function fetchFundProfile(symbol, { fetchImpl = fetch, session } = {}) {
+  const resolvedSession = session ?? await fetchYahooCrumb({ fetchImpl })
+  if (!resolvedSession) return null
+
+  try {
+    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}`
+      + `?modules=fundProfile&crumb=${encodeURIComponent(resolvedSession.crumb)}`
+    const response = await fetchImpl(url, { headers: { 'User-Agent': 'Mozilla/5.0', cookie: resolvedSession.cookie } })
+    if (!response.ok) return null
+
+    const body = await response.json()
+    return body?.quoteSummary?.result?.[0]?.fundProfile ?? null
+  } catch {
+    return null
+  }
+}
+
+// ─── One resolved record per security ─────────────────────────────────────
+
+/**
+ * Everything the tax features need about one security, in one object.
+ *
+ * Every field independently degrades to null. A caller receiving null for yield
+ * keeps its own assumption and says the figure is an assumption; a caller
+ * receiving null for composition classifies the fund as UNKNOWN and says
+ * nothing. Neither substitutes a plausible default, which is the property that
+ * makes this safe to put behind a tax number.
+ */
+export async function resolveSecurityReference(symbol, { fetchImpl = fetch, cache = null, now = Date.now() } = {}) {
+  const ticker = String(symbol ?? '').trim().toUpperCase()
+  if (!ticker) return null
+
+  const cached = cache ? await cache.get('reference', ticker).catch(() => null) : null
+  if (cached) return cached
+
+  const chart = await fetchChartWithDividends(ticker, { fetchImpl }).catch(() => null)
+  const price = chart?.meta?.regularMarketPrice ?? null
+  const exchange = exchangeInfoFromChartMeta(chart?.meta)
+
+  const session = await fetchYahooCrumb({ fetchImpl }).catch(() => null)
+  const [holdings, fundProfile] = await Promise.all([
+    session ? fetchTopHoldings(ticker, { fetchImpl, session }).catch(() => null) : null,
+    session ? fetchFundProfile(ticker, { fetchImpl, session }).catch(() => null) : null,
+  ])
+
+  const composition = holdings ? classifyFundComposition(holdings) : null
+  const record = {
+    symbol: ticker,
+    yieldPct: trailingYieldPct(parseDividendEvents(chart), price, { now }),
+    exchange: exchange.exchange,
+    exchangeName: exchange.exchangeName,
+    currency: chart?.meta?.currency ?? null,
+    holdsForeignEquities: composition ? composition.holdsForeignEquities : null,
+    foreignPct: composition ? composition.foreignPct : null,
+    expenseRatioPct: expenseRatioFrom(fundProfile),
+    isFund: ['ETF', 'MUTUALFUND'].includes(chart?.meta?.instrumentType) || Boolean(holdings) || expenseRatioFrom(fundProfile) !== null,
+    resolvedAt: new Date(now).toISOString(),
+  }
+
+  if (cache) await cache.set('reference', ticker, record).catch(() => {})
+  return record
+}

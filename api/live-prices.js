@@ -1,4 +1,6 @@
 import { fetchMarketQuotes, fetchCachedMarketQuotes } from '../src/server/marketQuotes.js'
+import { resolveSecurityReference } from '../src/server/securitiesReference.js'
+import { securitiesReferenceCache } from '../src/server/securitiesReferenceCache.js'
 import { getPortfolioSeries, getIntradaySeries } from '../src/server/portfolioSeries.js'
 import { getPortfolioComparison } from '../src/server/portfolioComparison.js'
 import { isRateLimited } from '../src/server/rateLimit.js'
@@ -35,6 +37,24 @@ async function realHandler(req, res) {
     }
     if (Array.isArray(body.positions) && body.positions.length > MAX_POSITIONS) {
       return res.status(400).json({ error: `Maximum ${MAX_POSITIONS} positions allowed` })
+    }
+
+    // A third market-data action on this route rather than a route of its own:
+    // the deployment is at its serverless-function ceiling, which is the same
+    // reason portfolio history shares it. Reference data is per-security and
+    // slow-moving, and every field independently degrades to null rather than
+    // to a plausible default — a tax figure built on a guessed yield is worse
+    // than one that says it is an assumption.
+    if (Array.isArray(body.reference)) {
+      if (body.reference.length > MAX_SYMBOLS) {
+        return res.status(400).json({ error: `Maximum ${MAX_SYMBOLS} symbols allowed` })
+      }
+      const cache = securitiesReferenceCache()
+      const symbols = [...new Set(body.reference.map((symbol) => String(symbol ?? '').trim().toUpperCase()).filter(Boolean))]
+      const resolved = await Promise.all(symbols.map((symbol) => resolveSecurityReference(symbol, { cache }).catch(() => null)))
+      return res.status(200).json({
+        securities: Object.fromEntries(resolved.filter(Boolean).map((record) => [record.symbol, record])),
+      })
     }
 
     // Instant first paint: serve Redis-cached quotes without a live fetch

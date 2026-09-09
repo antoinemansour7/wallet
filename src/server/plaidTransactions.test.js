@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   PAGE_SIZE,
   defaultWindow,
+  incrementalWindow,
+  RESYNC_OVERLAP_DAYS,
   fetchAllInvestmentTransactions,
   securityContext,
   buildLedgerRecords,
@@ -9,7 +11,75 @@ import {
   writeLedgerRecords,
   resolveFxForTransactions,
   syncInvestmentTransactions,
+  dedupeEnabledAccounts,
+  deleteTransactionsForAccounts,
+  pruneOrphanedTransactions,
 } from './plaidTransactions'
+
+describe('dedupeEnabledAccounts', () => {
+  const acct = (id, mask, subtype = 'tfsa') => ({ id, mask, subtype })
+  const item = (itemId, institution, accounts, enabledAccountIds) => ({ itemId, institution, accounts, enabledAccountIds })
+
+  it('claims a real account (institution+mask+subtype) for a single item when a login is connected twice', () => {
+    // The real bug: one Wealthsimple login connected through two Plaid items,
+    // both reporting the same accounts under different ids (same masks).
+    const items = [
+      item('itemA', 'Wealthsimple', [acct('oNgq', '17K9'), acct('ps07A', 'PS07', 'brokerage')], ['oNgq', 'ps07A']),
+      item('itemB', 'Wealthsimple', [acct('jrky', '17K9'), acct('ps07B', 'PS07', 'brokerage')], ['jrky', 'ps07B']),
+    ]
+    const map = dedupeEnabledAccounts(items)
+    // smallest id wins deterministically: 'jrky' < 'oNgq', 'ps07A' < 'ps07B'
+    expect(map.get('itemA')).toEqual(['ps07A'])
+    expect(map.get('itemB')).toEqual(['jrky'])
+    // every real account is now owned by exactly one item
+    expect([...map.values()].flat().sort()).toEqual(['jrky', 'ps07A'])
+  })
+
+  it('keeps the existing owner when reconnect returns a smaller account id', () => {
+    const map = dedupeEnabledAccounts([
+      { ...item('old', 'Broker', [acct('z', '1234')], ['z']), connectedAt: '2026-01-01' },
+      { ...item('new', 'Broker', [acct('a', '1234')], ['a']), connectedAt: '2026-09-07' },
+    ])
+    expect(map.get('old')).toEqual(['z'])
+    expect(map.get('new')).toEqual([])
+  })
+
+  it('does not merge accounts on names or ambiguous masks', () => {
+    const map = dedupeEnabledAccounts([
+      item('a', 'Broker', [acct('a1', '1234'), acct('a2', '1234'), { id: 'a3', name: 'TFSA' }], ['a1', 'a2', 'a3']),
+      item('b', 'Broker', [acct('b1', '1234'), { id: 'b2', name: 'TFSA' }], ['b1', 'b2']),
+    ])
+    expect(map.get('a')).toEqual(['a1', 'a2', 'a3'])
+    expect(map.get('b')).toEqual(['b1', 'b2'])
+  })
+
+  it('does not collapse the same mask across different institutions', () => {
+    const map = dedupeEnabledAccounts([
+      item('i1', 'Wealthsimple', [acct('w', '17K9')], ['w']),
+      item('i2', 'Questrade', [acct('q', '17K9')], ['q']),
+    ])
+    expect(map.get('i1')).toEqual(['w'])
+    expect(map.get('i2')).toEqual(['q'])
+  })
+
+  it('only considers enabled accounts, and leaves a single connection untouched', () => {
+    expect(dedupeEnabledAccounts([
+      item('only', 'X', [acct('a', 'M1'), acct('b', 'M2', 'brokerage')], ['a', 'b']),
+    ]).get('only')).toEqual(['a', 'b'])
+
+    expect(dedupeEnabledAccounts([
+      item('i', 'X', [acct('a', 'M1'), acct('b', 'M2')], ['a']),
+    ]).get('i')).toEqual(['a'])
+  })
+
+  it('passes an untouched connection through unchanged, preserving null = "all accounts"', () => {
+    // An item with no account metadata and enabledAccountIds null means "all
+    // enabled"; dedupe must not rewrite that to an empty (none) selection.
+    expect(dedupeEnabledAccounts([
+      item('solo', 'Questrade', [], null),
+    ]).get('solo')).toBeNull()
+  })
+})
 
 const security = (overrides = {}) => ({
   security_id: 'sec1',
@@ -83,15 +153,14 @@ describe('fetchAllInvestmentTransactions', () => {
     expect([...result.securities.keys()]).toEqual(['sec1', 'sec2'])
   })
 
-  it('stops on an empty page even when the total disagrees', async () => {
+  it('rejects an incomplete response instead of recording full coverage', async () => {
     // A total that overstates reality would otherwise spin forever.
     const { client, calls } = fakeClient([
       { investment_transactions: [txn()], total_investment_transactions: 999 },
       { investment_transactions: [], total_investment_transactions: 999 },
     ])
 
-    const result = await fetchAllInvestmentTransactions({ client, accessToken: 't', startDate: 'a', endDate: 'b', pageSize: 1 })
-    expect(result.transactions).toHaveLength(1)
+    await expect(fetchAllInvestmentTransactions({ client, accessToken: 't', startDate: 'a', endDate: 'b', pageSize: 1 })).rejects.toThrow('incomplete transaction history')
     expect(calls).toHaveLength(2)
   })
 
@@ -145,12 +214,24 @@ describe('buildLedgerRecords', () => {
     expect(records).toHaveLength(0)
   })
 
-  it('reports what it could not classify instead of quietly taking less', () => {
+  it('says why it could not classify a record, not merely that it could not', () => {
+    // "unclassifiable" for every failure is true and useless. An unmapped
+    // action is a missing feature; an unidentifiable security is a data gap.
+    // Only the reason tells a reader which one they are looking at.
     const undated = txn({ investment_transaction_id: 'bad', date: '' })
     const { records, skipped } = buildLedgerRecords({ transactions: [txn(), undated], securities, accounts, accountTypeFor })
 
     expect(records).toHaveLength(1)
-    expect(skipped).toEqual([{ id: 'bad', reason: 'unclassifiable' }])
+    expect(skipped[0]).toMatchObject({ id: 'bad', reason: 'no-trade-date' })
+  })
+
+  it('names the institution\'s own wording for an action it cannot map', () => {
+    // An action nobody mapped can be mapped once it is named. Reported as
+    // "unclassifiable" it stays invisible for as long as nobody goes looking.
+    const foreign = txn({ investment_transaction_id: 'fx?', subtype: 'currency conv', type: 'currency conv' })
+    const { skipped } = buildLedgerRecords({ transactions: [foreign], securities, accounts, accountTypeFor })
+
+    expect(skipped[0]).toMatchObject({ reason: 'unmapped-action', subtype: 'currency conv' })
   })
 
   it('is idempotent — the same page twice yields the same ids', () => {
@@ -320,5 +401,179 @@ describe('syncInvestmentTransactions', () => {
     expect(resolveFxRates).toHaveBeenCalledOnce()
     const transactionRecord = written.find((d) => d?.id === 'plaid:tx1')
     expect(transactionRecord.fxRate).toBe(1.3542)
+  })
+})
+
+describe('incrementalWindow (#87)', () => {
+  const now = new Date('2026-09-06T00:00:00Z')
+
+  it('reaches back from the last sync, with an overlap for late-arriving trades', () => {
+    // A trade can appear in Plaid days after it happened. A window starting
+    // exactly where the last one ended would step straight over it.
+    const { startDate, endDate } = incrementalWindow('2026-09-01T00:00:00Z', now)
+
+    expect(startDate).toBe('2026-08-27')
+    expect(endDate).toBe('2026-09-06')
+    expect(RESYNC_OVERLAP_DAYS).toBe(5)
+  })
+
+  it('falls back to the full window when nothing has synced yet', () => {
+    expect(incrementalWindow(null, now)).toEqual(defaultWindow(now))
+    expect(incrementalWindow('not a date', now)).toEqual(defaultWindow(now))
+  })
+
+  it('never reaches further back than the provider actually serves', () => {
+    // A connection dormant for years must not ask for five years of history.
+    expect(incrementalWindow('2019-01-01T00:00:00Z', now).startDate).toBe(defaultWindow(now).startDate)
+  })
+})
+
+describe('syncInvestmentTransactions — incremental (#87)', () => {
+  const client = (transactions = []) => ({
+    investmentsTransactionsGet: vi.fn(async () => ({
+      data: {
+        investment_transactions: transactions,
+        securities: [],
+        accounts: [{ account_id: 'a1', name: 'TFSA', type: 'investment', subtype: 'tfsa' }],
+        total_investment_transactions: transactions.length,
+      },
+    })),
+  })
+
+  const db = () => {
+    const set = vi.fn()
+    return {
+      db: {
+        collection: () => ({ doc: () => ({ collection: () => ({ doc: () => ({}) }) }) }),
+        batch: () => ({ set, commit: vi.fn(async () => {}) }),
+      },
+      set,
+    }
+  }
+
+  it('does not move historyStartsAt forward on a re-sync', async () => {
+    // The line before which no transactions exist is what makes a cost base
+    // resolve to "incomplete" rather than to a wrong number. Writing an
+    // incremental start date here would claim a two-year history began last
+    // week — turning a complete cost base into an incomplete one.
+    const { db: fake, set } = db()
+    await syncInvestmentTransactions({
+      client: client(), accessToken: 't', db: fake, uid: 'u1',
+      accountTypeFor: () => 'TFSA', since: '2026-09-01T00:00:00Z', now: new Date('2026-09-06T00:00:00Z'),
+    })
+
+    const wroteHistoryStart = set.mock.calls.some(([, value]) => value && 'historyStartsAt' in value)
+    expect(wroteHistoryStart).toBe(false)
+  })
+
+  it('still records where history begins on a full sync', async () => {
+    const { db: fake, set } = db()
+    await syncInvestmentTransactions({
+      client: client(), accessToken: 't', db: fake, uid: 'u1',
+      accountTypeFor: () => 'TFSA', now: new Date('2026-09-06T00:00:00Z'),
+    })
+
+    const wroteHistoryStart = set.mock.calls.some(([, value]) => value && 'historyStartsAt' in value)
+    expect(wroteHistoryStart).toBe(true)
+  })
+
+  it('asks the provider only for the incremental window', async () => {
+    const plaid = client()
+    await syncInvestmentTransactions({
+      client: plaid, accessToken: 't', db: db().db, uid: 'u1',
+      accountTypeFor: () => 'TFSA', since: '2026-09-01T00:00:00Z', now: new Date('2026-09-06T00:00:00Z'),
+    })
+
+    expect(plaid.investmentsTransactionsGet.mock.calls[0][0]).toMatchObject({
+      start_date: '2026-08-27', end_date: '2026-09-06',
+    })
+  })
+})
+
+describe('removing what a connection left behind', () => {
+  // Disconnecting deleted the Plaid document and the token and left every
+  // transaction it had imported in place, so reconnecting added a second copy
+  // of each. One real ledger ended up holding every trade three times.
+  const fakeDb = (transactions) => {
+    const deleted = []
+    const docs = transactions.map((data, i) => ({ data: () => ({ source: 'plaid', ...data }), ref: { id: `t${i}` } }))
+    return {
+      deleted,
+      db: {
+        collection: () => ({
+          doc: () => ({
+            collection: (name) => ({
+              get: async () => ({ docs: name === 'transactions' ? docs : [] }),
+              doc: (id) => ({ id: `accounts/${id}` }),
+            }),
+          }),
+        }),
+        batch: () => ({ delete: (ref) => deleted.push(ref.id), commit: async () => {} }),
+      },
+    }
+  }
+
+  it('deletes only the transactions of the accounts it was given', async () => {
+    const { db, deleted } = fakeDb([
+      { accountId: 'gone' }, { accountId: 'kept' }, { accountId: 'gone' },
+    ])
+    const result = await deleteTransactionsForAccounts({ db, uid: 'u1', accountIds: ['gone'] })
+
+    expect(result.deleted).toBe(2)
+    expect(deleted).toContain('t0')
+    expect(deleted).toContain('t2')
+    expect(deleted).not.toContain('t1')
+  })
+
+  it('takes the account metadata with them', async () => {
+    // historyStartsAt describing an account with no transactions would tell the
+    // next import that history begins somewhere it does not.
+    const { db, deleted } = fakeDb([{ accountId: 'gone' }])
+    await deleteTransactionsForAccounts({ db, uid: 'u1', accountIds: ['gone'] })
+
+    expect(deleted).toContain('accounts/gone')
+  })
+
+  it('does nothing when given no accounts, rather than everything', async () => {
+    const { db, deleted } = fakeDb([{ accountId: 'kept' }])
+    await deleteTransactionsForAccounts({ db, uid: 'u1', accountIds: [] })
+
+    expect(deleted).toEqual([])
+  })
+
+  it('prunes transactions belonging to no current connection', async () => {
+    const { db, deleted } = fakeDb([
+      { accountId: 'live' }, { accountId: 'orphan' }, { accountId: 'live' },
+    ])
+    const result = await pruneOrphanedTransactions({ db, uid: 'u1', keepAccountIds: ['live'] })
+
+    expect(result.deleted).toBe(1)
+    expect(deleted).toEqual(['t1'])
+  })
+
+  it('preserves manual records even when their account is disconnected', async () => {
+    const { db, deleted } = fakeDb([{ accountId: 'orphan', source: 'manual' }, { accountId: 'orphan', source: 'csv' }])
+    await pruneOrphanedTransactions({ db, uid: 'u1', keepAccountIds: ['live'] })
+    await deleteTransactionsForAccounts({ db, uid: 'u1', accountIds: ['orphan'] })
+    expect(deleted).not.toContain('t0')
+    expect(deleted).not.toContain('t1')
+  })
+
+  it('prunes nothing when the accounts to keep are unknown', async () => {
+    // An empty keep-list is indistinguishable from an account that owns
+    // everything, and treating it as the former would delete a live ledger.
+    const { db, deleted } = fakeDb([{ accountId: 'live' }])
+    const result = await pruneOrphanedTransactions({ db, uid: 'u1', keepAccountIds: [] })
+
+    expect(result.deleted).toBe(0)
+    expect(deleted).toEqual([])
+  })
+
+  it('leaves a transaction with no account alone', async () => {
+    // It cannot be attributed, but neither can it be proven stale.
+    const { db, deleted } = fakeDb([{ accountId: null }])
+    await pruneOrphanedTransactions({ db, uid: 'u1', keepAccountIds: ['live'] })
+
+    expect(deleted).toEqual([])
   })
 })

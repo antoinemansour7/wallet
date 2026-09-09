@@ -10,7 +10,7 @@ import { getFirestore } from 'firebase-admin/firestore'
 import { getAuth } from 'firebase-admin/auth'
 import { withRunLog } from '../src/server/runLog.js'
 import { writeAccessToken, readAccessToken, deleteAccessToken } from '../src/server/plaidTokens.js'
-import { syncInvestmentTransactions } from '../src/server/plaidTransactions.js'
+import { syncInvestmentTransactions, dedupeEnabledAccounts, deleteTransactionsForAccounts, pruneOrphanedTransactions } from '../src/server/plaidTransactions.js'
 import { getRatesForDates } from '../src/server/historicalFx.js'
 import { historicalFxCache } from '../src/server/historicalFxCache.js'
 
@@ -71,10 +71,27 @@ function loadServiceAccount() {
   }
 }
 
-function getDb() {
+/**
+ * Firebase Admin, initialised exactly once per container.
+ *
+ * This used to live inside getDb(), which meant the app was only created when a
+ * handler asked for Firestore. verifyCaller runs *before* any handler — it is
+ * the first thing realHandler does — so on a cold container getAuth() was
+ * reached with no app and threw `app/no-app`, which the catch reported as
+ * "Invalid or expired session". A perfectly valid token, rejected because
+ * nothing had touched the database yet.
+ *
+ * Auth and Firestore are now both fronted by this, so the order handlers happen
+ * to call things in cannot decide whether authentication works.
+ */
+function ensureFirebaseApp() {
   if (!getApps().length) {
     initializeApp({ credential: cert(loadServiceAccount()) })
   }
+}
+
+function getDb() {
+  ensureFirebaseApp()
   return getFirestore()
 }
 
@@ -139,6 +156,8 @@ async function handleExchangeToken(req, res) {
     type: a.type,
     subtype: a.subtype,
     mask: a.mask,
+    persistentAccountId: a.persistent_account_id ?? null,
+    balanceCurrency: a.balances?.iso_currency_code ?? null,
   }))
 
   // Not every institution honours account_filters — Wealthsimple returns the
@@ -184,8 +203,25 @@ async function handleSelectAccounts(req, res) {
   const enabled = accountIds.filter((id) => known.has(id))
   if (enabled.length === 0) return res.status(400).json({ error: 'Select at least one account' })
 
-  await docRef.update({ enabledAccountIds: enabled })
-  return res.status(200).json({ success: true, enabledAccountIds: enabled })
+  // An account dropped from the selection takes its imported transactions with
+  // it. Removing an account and leaving its trades behind means every figure on
+  // the Tax page keeps counting holdings the user has said they do not want,
+  // and a later re-selection imports a second copy of each.
+  const dropped = [...new Set(snap.data().enabledAccountIds ?? [...known])].filter((id) => !enabled.includes(id))
+  const added = enabled.some((id) => !(snap.data().enabledAccountIds ?? [...known]).includes(id))
+  await docRef.update({ enabledAccountIds: enabled, ...(added ? { lastSyncedAt: null } : {}) })
+  let removedTransactions = 0
+  if (dropped.length > 0) {
+    try {
+      const result = await deleteTransactionsForAccounts({ db, uid: userId, accountIds: dropped })
+      removedTransactions = result.deleted
+    } catch (err) {
+      // The selection still stands; the next sync's prune finishes the job.
+      console.warn('[plaid:select-accounts] could not remove dropped account data:', err.message)
+    }
+  }
+
+  return res.status(200).json({ success: true, enabledAccountIds: enabled, removedTransactions })
 }
 
 // ─── Holdings ─────────────────────────────────────────────────────────────────
@@ -496,8 +532,9 @@ async function handleHoldings(req, res) {
  * and a failure here reports as an error entry rather than losing every
  * other connection's import with it (#55).
  */
-async function syncTransactionsForItem({ client, db, uid, doc, resolveFxRates }) {
-  const { enabledAccountIds } = doc.data()
+async function syncTransactionsForItem({ client, db, uid, doc, resolveFxRates, since = null, enabledAccountIds }) {
+  const effectiveEnabled = enabledAccountIds ?? doc.data().enabledAccountIds
+  if (Array.isArray(effectiveEnabled) && effectiveEnabled.length === 0) return { written: 0, fetched: 0, skipped: 0, notEnabled: 0 }
 
   const accessToken = await readAccessToken({ db, uid, itemId: doc.id, legacyData: doc.data() })
   if (!accessToken) throw new Error(`No access token for Plaid item ${doc.id}`)
@@ -507,9 +544,12 @@ async function syncTransactionsForItem({ client, db, uid, doc, resolveFxRates })
     accessToken,
     db,
     uid,
-    enabledAccountIds,
+    enabledAccountIds: effectiveEnabled,
+    institution: doc.data().institution ?? null,
+    connection: { itemId: doc.id, selection: doc.data().enabledAccountIds ?? null },
     accountTypeFor: mapAccountType,
     resolveFxRates,
+    since,
   })
 }
 
@@ -538,13 +578,32 @@ async function handleSyncTransactions(req, res) {
   // once per connection.
   const resolveFxRates = (dates) => getRatesForDates(dates, { cache: historicalFxCache() })
 
+  // The same brokerage connected twice reports the same real accounts under
+  // two items; claim each real account for one item so its transactions are
+  // imported once, not once per connection. Computed over every item (not just
+  // the filtered set) so a single-item sync still respects that ownership.
+  const enabledByItem = dedupeEnabledAccounts(
+    plaidDocs.docs.map((d) => {
+      const data = d.data()
+      return { ...data, itemId: d.id, accounts: data.accounts || [] }
+    }),
+  )
+
   const settled = await Promise.allSettled(
-    docs.map((doc) => syncTransactionsForItem({ client, db, uid: userId, doc, resolveFxRates })),
+    docs.map((doc) => syncTransactionsForItem({ client, db, uid: userId, doc, resolveFxRates, enabledAccountIds: enabledByItem.get(doc.id) })),
   )
 
   let written = 0
   let fetched = 0
   let skipped = 0
+  // Every fetched transaction lands in exactly one of these, so the numbers
+  // reconcile. Reporting "81 fetched, 3 written, 3 skipped" leaves 75
+  // unaccounted for and reads like data loss, when in fact they belong to Plaid
+  // accounts that were never enabled here — usually a brokerage connected more
+  // than once, where only the current connection's accounts are active.
+  let notEnabled = 0
+  const notEnabledAccounts = {}
+  const skippedReasons = {}
   const errors = []
 
   settled.forEach((result, i) => {
@@ -553,6 +612,13 @@ async function handleSyncTransactions(req, res) {
       written += result.value.written
       fetched += result.value.fetched
       skipped += result.value.skipped
+      notEnabled += result.value.notEnabled ?? 0
+      for (const [accountId, count] of Object.entries(result.value.notEnabledAccounts ?? {})) {
+        notEnabledAccounts[accountId] = (notEnabledAccounts[accountId] || 0) + count
+      }
+      for (const [reason, count] of Object.entries(result.value.skippedReasons ?? {})) {
+        skippedReasons[reason] = (skippedReasons[reason] || 0) + count
+      }
       return
     }
 
@@ -562,7 +628,26 @@ async function handleSyncTransactions(req, res) {
     errors.push({ itemId: doc.id, institution: doc.data().institution || 'Connected', message })
   })
 
-  return res.status(200).json({ written, fetched, skipped, errors })
+  // Anything belonging to no current connection is left over from one that was
+  // removed before disconnects cleaned up after themselves. Pruned only when
+  // every connection reported, since a partial list of accounts to keep would
+  // delete live data.
+  let pruned = 0
+  if (errors.length === 0) {
+    // Enumerate ALL current connections even for an item-only sync. Keep
+    // duplicate connections until their rows have been reconciled explicitly:
+    // a matching account mask does not prove every historical row is a copy.
+    const unknownSelection = plaidDocs.docs.some((doc) => doc.data().enabledAccountIds == null && !doc.data().accounts?.length)
+    const keepAccountIds = unknownSelection ? [] : plaidDocs.docs.flatMap((doc) => doc.data().enabledAccountIds ?? doc.data().accounts.map((a) => a.id))
+    try {
+      const result = await pruneOrphanedTransactions({ db, uid: userId, keepAccountIds, verifyConnections: true })
+      pruned = result.deleted
+    } catch (err) {
+      console.warn('[plaid:sync-transactions] prune failed:', err.message)
+    }
+  }
+
+  return res.status(200).json({ written, fetched, skipped, notEnabled, notEnabledAccounts, skippedReasons, pruned, errors })
 }
 
 // ─── Disconnect ───────────────────────────────────────────────────────────────
@@ -640,8 +725,101 @@ async function handleDisconnect(req, res) {
   // is gone is dead weight, and one left behind outlives the connection it
   // belonged to.
   await deleteAccessToken({ db, itemId: resolvedItemId })
+
+  // The transactions this connection imported go with it. Left behind they are
+  // read by every figure on the Tax page as though the account still existed,
+  // and re-importing the brokerage later adds a second copy of each rather
+  // than recognising them.
   await docRef.delete()
-  return res.status(200).json({ success: true })
+  let removedTransactions = 0
+  try {
+    const data = docSnap.data() || {}
+    const accountIds = [...new Set([...(data.enabledAccountIds || []), ...(data.accounts || []).map((a) => a.id)])]
+    const result = await deleteTransactionsForAccounts({ db, uid: userId, accountIds })
+    removedTransactions = result.deleted
+  } catch (err) {
+    // The connection is still gone; the ledger is tidied on the next sync's
+    // prune. Failing the disconnect over cleanup would leave a live token.
+    console.warn('[plaid:disconnect] could not remove imported transactions:', err.message)
+  }
+
+  return res.status(200).json({ success: true, removedTransactions })
+}
+
+
+// ─── Scheduled re-sync (#87) ──────────────────────────────────────────────────
+
+/**
+ * Keeps every connected item's ledger current, on a cron.
+ *
+ * Not a route of its own: this deployment is at its serverless-function
+ * ceiling, and the sync logic already lives here. It is reached at
+ * `/api/plaid?mode=scheduled-sync` and authorised by CRON_SECRET rather than a
+ * Firebase ID token, because a cron has no session — which is why the check
+ * below runs *before* verifyCaller rather than alongside it.
+ *
+ * Two properties the issue asks for, and one it implies:
+ *
+ *   · **Incremental.** The window is derived from each item's own
+ *     `lastSyncedAt`, with a few days of overlap, rather than re-pulling 24
+ *     months every night. Re-fetching the overlap is free — ledger ids are
+ *     derived from the transaction, so writing one twice is the same write.
+ *
+ *   · **A failure for one item does not abandon the others**, and is reported
+ *     rather than swallowed (#55). Every item is settled independently and the
+ *     response carries the per-item errors.
+ *
+ *   · `lastSyncedAt` is written **only after** that item succeeds. Advancing it
+ *     on failure would step the next run's window past the days that were
+ *     never imported, turning a transient outage into a permanent gap.
+ */
+async function handleScheduledSync(req, res) {
+  const db = getDb()
+  const client = getPlaidClient()
+  const resolveFxRates = (dates) => getRatesForDates(dates, { cache: historicalFxCache() })
+
+  // Every connection, across every user. The parent of a `plaid` document's
+  // parent collection is the user document, which is where the uid comes from.
+  const items = await db.collectionGroup('plaid').get()
+  if (items.empty) return res.status(200).json({ items: 0, written: 0, errors: [] })
+
+  const byUser = new Map()
+  for (const doc of items.docs) {
+    const uid = doc.ref.parent.parent?.id
+    byUser.set(uid, [...(byUser.get(uid) || []), { ...doc.data(), itemId: doc.id }])
+  }
+  const ownership = new Map([...byUser].map(([uid, docs]) => [uid, dedupeEnabledAccounts(docs)]))
+  const settled = await Promise.allSettled(items.docs.map(async (doc) => {
+    const uid = doc.ref.parent.parent?.id
+    if (!uid) throw new Error(`Plaid item ${doc.id} has no owning user`)
+
+    const enabledAccountIds = ownership.get(uid).get(doc.id)
+    if (enabledAccountIds?.length === 0) return { uid, itemId: doc.id, written: 0, fetched: 0 }
+    const result = await syncTransactionsForItem({
+      client, db, uid, doc, resolveFxRates, since: doc.data()?.lastSyncedAt ?? null,
+      enabledAccountIds,
+    })
+    await doc.ref.update({ lastSyncedAt: new Date().toISOString() })
+    return { uid, itemId: doc.id, ...result }
+  }))
+
+  const errors = settled
+    .map((outcome, index) => (outcome.status === 'rejected'
+      ? { itemId: items.docs[index].id, error: outcome.reason?.message ?? String(outcome.reason) }
+      : null))
+    .filter(Boolean)
+
+  const written = settled.reduce((sum, outcome) => sum + (outcome.status === 'fulfilled' ? outcome.value.written : 0), 0)
+  const fetched = settled.reduce((sum, outcome) => sum + (outcome.status === 'fulfilled' ? outcome.value.fetched : 0), 0)
+
+  if (errors.length) console.error('[plaid:scheduled-sync] item failures:', errors)
+  console.log(`[plaid:scheduled-sync] ${items.size} items, ${written} written, ${fetched} fetched, ${errors.length} failed`)
+
+  // A run where every connection failed is not a success, and #55 established
+  // that a partial Plaid failure must not be reported as one either.
+  return res.status(errors.length === items.size ? 503 : 200).json({
+    items: items.size, written, fetched, errors,
+  })
 }
 
 // ─── Router ───────────────────────────────────────────────────────────────────
@@ -675,14 +853,52 @@ async function verifyCaller(req) {
     throw Object.assign(new Error('Missing Authorization header'), { status: 401 })
   }
   try {
+    // Before getAuth(), not after: this is the first code to run in the
+    // request, so nothing else has created the app yet.
+    ensureFirebaseApp()
     const decoded = await getAuth().verifyIdToken(token)
     return decoded.uid
   } catch (err) {
+    // The caller is told nothing beyond "not signed in" — a rejection reason is
+    // an oracle for anyone probing the route. The server, though, has to record
+    // why, because the reasons are not interchangeable: an expired token is the
+    // user's problem and clears on re-login, while a service account issued for
+    // a different Firebase project rejects *every* token forever and no amount
+    // of signing in again will fix it. Firebase names both projects in that
+    // second case, and throwing the error away left a permanent misconfiguration
+    // indistinguishable from an ordinary expiry.
+    console.error('[plaid:auth] token verification failed:', err?.code || err?.errorInfo?.code || 'unknown', '-', err?.message)
+    // The project the service account actually belongs to, so a mismatch is
+    // visible in one line rather than inferred from an audience claim. Wrapped
+    // because reading it must never turn a 401 into a crash — the diagnostic
+    // exists to explain a failure, not to add one.
+    try {
+      console.error('[plaid:auth] admin project:', loadServiceAccount()?.project_id ?? 'unknown')
+    } catch { /* the service account is unreadable, which the 500 path reports */ }
     throw Object.assign(new Error('Invalid or expired session'), { status: 401, cause: err })
   }
 }
 
 async function realHandler(req, res) {
+  // The scheduled re-sync is the one caller with no user session, so it is
+  // authorised by CRON_SECRET and answered before the Firebase gate below.
+  // Kept narrow deliberately: it runs one fixed action for every user, takes
+  // nothing from the request, and cannot name a uid.
+  if (req.query?.mode === 'scheduled-sync') {
+    if (!process.env.CRON_SECRET || req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+    if (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_SECRET) {
+      return res.status(500).json({ error: 'Plaid credentials not configured' })
+    }
+    try {
+      return await handleScheduledSync(req, res)
+    } catch (err) {
+      console.error('[plaid:scheduled-sync] failed:', err.response?.data || err.message)
+      return res.status(500).json({ error: err.message })
+    }
+  }
+
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   // First gate, ahead of even the action name: an unauthenticated request

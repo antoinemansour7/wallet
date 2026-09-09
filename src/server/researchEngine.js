@@ -6,6 +6,13 @@ import { admitCandidates } from './research/admission.js'
 const YAHOO_FEEDS = [
   'https://finance.yahoo.com/news/rssindex',
   'https://finance.yahoo.com/rss/headline?s=SPY',
+  // Sector-proxy feeds (issue #96): headlines tagged to the focus-sector ETFs,
+  // so software / semis / defense / tech news enters discovery on every run
+  // instead of only when a market-wide feed happens to surface it.
+  'https://finance.yahoo.com/rss/headline?s=SMH',
+  'https://finance.yahoo.com/rss/headline?s=IGV',
+  'https://finance.yahoo.com/rss/headline?s=ITA',
+  'https://finance.yahoo.com/rss/headline?s=XLK',
 ]
 
 function parseRssItems(xml) {
@@ -124,7 +131,7 @@ export const CATALYST_REGEX = new RegExp([
 const FAILURE_REGEX = /(collapse|collapsed|unwind|unwound|rug|rugged|bloodbath|dead cat|bagholder|dump|dumped|selloff|sell-off|guidance cut|cut guidance|secondary offering|offering|dilution|reverse split|halted|delisting|chapter 11|broken chart|crash|crashed|imploded|implosion)/i
 
 // Sector ETFs for trend detection — maps themes/keywords to sector ETFs
-const SECTOR_ETF_MAP = {
+export const SECTOR_ETF_MAP = {
   software: 'IGV', saas: 'IGV', cloud: 'IGV',
   semiconductor: 'SMH', chip: 'SMH', gpu: 'SMH', cpu: 'SMH', silicon: 'SMH',
   tech: 'XLK', ai: 'XLK', computing: 'XLK', cyber: 'XLK', data: 'XLK',
@@ -134,6 +141,16 @@ const SECTOR_ETF_MAP = {
   crypto: 'BITO', bitcoin: 'BITO',
   defense: 'ITA', space: 'ITA', aerospace: 'ITA',
 }
+
+// Themes the engine looks harder in on every run (issue #96). A strict subset
+// of SECTOR_ETF_MAP keys — the taxonomy is shared, never duplicated. Used only
+// by discovery, before scoring; no scoring path reads this.
+export const FOCUS_THEMES = [
+  'software', 'saas', 'cloud',
+  'semiconductor', 'chip', 'gpu', 'cpu', 'silicon',
+  'tech', 'ai', 'computing',
+  'space', 'aerospace', 'defense',
+]
 
 const ALL_SECTOR_ETFS = [...new Set(Object.values(SECTOR_ETF_MAP))]
 
