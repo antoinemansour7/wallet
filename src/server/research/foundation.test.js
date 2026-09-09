@@ -1,6 +1,10 @@
 // @vitest-environment node
 import { describe, it, expect, vi } from 'vitest'
-import { createArchive } from './archive.js'
+import { createArchive, digest } from './archive.js'
+import { gzipSync } from 'node:zlib'
+import { readFileSync } from 'node:fs'
+import { createObjectStore } from './objectStore.js'
+import { loadFoundation, syncFoundation } from './foundation.js'
 import { createSecurityMaster, refreshSecurityMaster, referenceSecurity, withSecurityMaster } from './securityMaster.js'
 import { createEvidence, archiveEvidence, earliestAction, replayEvidence } from './evidence.js'
 import { admitCandidates } from './admission.js'
@@ -17,6 +21,13 @@ vi.mock('../marketQuotes.js', async (importOriginal) => ({ ...await importOrigin
 function memoryRedis() {
   const values = new Map(), indexes = new Map(), writes = []
   return { values, writes,
+    async eval(script, keys, args) {
+      if (values.get(keys[0]) !== args[0]) return 0
+      return Number(values.delete(keys[0]))
+    },
+    async zrem(key, member) { return Number(indexes.get(key)?.delete(member)) },
+    async zcard(key) { return indexes.get(key)?.size || 0 },
+    async del(key) { return Number(values.delete(key)) },
     async get(key) { return structuredClone(values.get(key) ?? null) },
     async set(key, value, options = {}) { writes.push({ key, options }); if (options.nx && values.has(key)) return null; values.set(key, structuredClone(value)); return 'OK' },
     async zadd(key, { score, member }) { if (!indexes.has(key)) indexes.set(key, new Map()); indexes.get(key).set(member, score) },
@@ -238,4 +249,191 @@ describe('predeclared evaluation cohorts', () => {
     expect(computeLearningStats([record], Date.parse(seenAt)).total).toBe(0)
     expect(computeLearningStats([record, { ...record, ticker: 'OLD', evaluationVersion: 'old' }], Date.parse(seenAt), { horizon: 20 })).toMatchObject({ total: 1, horizon: 20, avgNetReturn: 10 })
   })
+})
+
+describe('low-cost reference ingestion', () => {
+  const row = { market: 'stocks', locale: 'us', type: 'CS', active: true, cik: '1', composite_figi: 'QUIET', primary_exchange: 'XNAS', currency_name: 'usd', ticker: 'QUIET', name: 'Quiet Corporation' }
+  const page = (results, next_url) => ({ ok: true, json: async () => ({ results, next_url }) })
+  function clock() {
+    let timestamp = Date.parse(seenAt)
+    return { now: () => new Date(timestamp).toISOString(), pause: vi.fn(async (ms) => { timestamp += ms }), advance: (ms) => { timestamp += ms } }
+  }
+  it('paces Basic pagination, honors Retry-After, and keeps credentials out of cursors', async () => {
+    vi.stubEnv('MASSIVE_API_KEY', 'basic-fixture')
+    const time = clock(), redis = memoryRedis(), archive = createArchive(redis)
+    const starts = []
+    const responses = [page([row], 'https://api.massive.com/page2?apiKey=do-not-cache'),
+      { ok: false, status: 429, headers: new Headers({ 'Retry-After': '60' }) }, page([{ ...row, ticker: 'TWO', composite_figi: 'TWO' }])]
+    const fetchImpl = vi.fn(async () => { starts.push(Date.parse(time.now())); return responses.shift() })
+    try {
+      const result = await refreshSecurityMaster(archive, { redis, ...time, fetchImpl, date: seenAt.slice(0, 10) })
+      expect(result.complete).toBe(true)
+      expect(result.securities).toHaveLength(2)
+      expect(starts[1] - starts[0]).toBeGreaterThanOrEqual(13000)
+      expect(starts[2] - starts[1]).toBeGreaterThanOrEqual(60000)
+      expect(fetchImpl.mock.calls.every(([url]) => !url.includes('apiKey'))).toBe(true)
+      expect(JSON.stringify([...redis.values])).not.toContain('basic-fixture')
+    } finally { vi.unstubAllEnvs() }
+  })
+  it('resumes an unfinished dated master next day without publishing a partial universe', async () => {
+    vi.stubEnv('MASSIVE_API_KEY', 'basic-fixture')
+    const redis = memoryRedis(), archive = createArchive(redis), time = clock()
+    const fetchImpl = vi.fn().mockResolvedValueOnce(page([row], 'https://api.massive.com/page2')).mockResolvedValueOnce(page([{ ...row, ticker: 'TWO', composite_figi: 'TWO' }]))
+    try {
+      const first = await refreshSecurityMaster(archive, { redis, ...time, fetchImpl, date: '2026-02-02', deadline: Date.parse(time.now()) + 25000 })
+      expect(first).toMatchObject({ complete: false, pages: 1 })
+      expect(await archive.list('masters')).toEqual([])
+      time.advance(86400000)
+      const second = await refreshSecurityMaster(archive, { redis, ...time, fetchImpl, date: '2026-02-03' })
+      expect(second).toMatchObject({ complete: true, asOf: '2026-02-02T23:59:59.999Z' })
+      expect(second.securities).toHaveLength(2)
+      expect(fetchImpl.mock.calls[1][0]).toBe('https://api.massive.com/page2')
+      expect(await archive.list('masters')).toHaveLength(1)
+    } finally { vi.unstubAllEnvs() }
+  })
+  it('defers a long provider cooldown and respects it on another invocation', async () => {
+    vi.stubEnv('MASSIVE_API_KEY', 'basic-fixture')
+    const redis = memoryRedis(), archive = createArchive(redis), time = clock()
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 429, headers: new Headers({ 'Retry-After': new Date(Date.parse(seenAt) + 3600000).toUTCString() }) })
+    try {
+      expect(await refreshSecurityMaster(archive, { redis, ...time, fetchImpl })).toMatchObject({ complete: false })
+      expect(await refreshSecurityMaster(archive, { redis, ...time, fetchImpl })).toMatchObject({ complete: false })
+      expect(fetchImpl).toHaveBeenCalledTimes(1)
+      expect(await archive.list('masters')).toEqual([])
+    } finally { vi.unstubAllEnvs() }
+  })
+  it('rejects cursor loops and foreign hosts without publishing a partial master', async () => {
+    vi.stubEnv('MASSIVE_API_KEY', 'basic-fixture')
+    try {
+      for (const foreign of [true, false]) {
+        const archive = createArchive(memoryRedis()), time = clock()
+        const fetchImpl = vi.fn(async (url) => page([row], foreign ? 'https://example.com/steal-key' : url))
+        await expect(refreshSecurityMaster(archive, { ...time, fetchImpl })).rejects.toThrow(foreign ? 'Untrusted' : 'pagination')
+        expect(fetchImpl).toHaveBeenCalledTimes(1)
+        expect(await archive.list('masters')).toEqual([])
+      }
+    } finally { vi.unstubAllEnvs() }
+  })
+  it('keeps a 36-hour-old master cached and lets nightly discovery use stale identity during an outage', async () => {
+    const redis = memoryRedis(), archive = createArchive(redis)
+    await archive.put('master', 'cached', { asOf: early, availableAt: early, securities: [security()] }, 'masters', early)
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 503 })
+    vi.stubEnv('MASSIVE_API_KEY', 'basic-fixture')
+    try {
+      const cached = await loadFoundation({ redis, archive, refresh: true, now: '2026-01-03T00:00:00Z', masterOptions: { fetchImpl } })
+      expect(cached.masterRefresh.status).toBe('cached')
+      expect(fetchImpl).not.toHaveBeenCalled()
+      const stale = await loadFoundation({ redis, archive, refresh: true, now: seenAt, masterOptions: { fetchImpl } })
+      expect(stale.masterRefresh).toMatchObject({ status: 'stale', error: expect.stringContaining('503') })
+      expect(stale.master.securities()[0].ticker).toBe('QUIET')
+      fetchImpl.mockClear()
+      const nightly = await loadFoundation({ redis, archive, now: seenAt, masterOptions: { fetchImpl } })
+      expect(nightly.master.securities()).toHaveLength(1)
+      expect(fetchImpl).not.toHaveBeenCalled()
+    } finally { vi.unstubAllEnvs() }
+  })
+  it('runs ingestion daily with room for Hobby timing jitter before research', () => {
+    const config = JSON.parse(readFileSync(new URL('../../../vercel.json', import.meta.url), 'utf8'))
+    const cron = (path) => config.crons.find((entry) => entry.path === path).schedule.split(' ')
+    const ingestion = cron('/api/research-foundation'), research = cron('/api/nightly-research')
+    expect(ingestion).toEqual(['0', '4', '*', '*', '*'])
+    expect(Number(research[1]) - Number(ingestion[1])).toBeGreaterThanOrEqual(2)
+    expect(config.functions['api/research-foundation.js'].maxDuration).toBe(300)
+  })
+})
+
+describe('private object archive and migration', () => {
+  const metadata = { issuerId: security().issuerId, accession: '0000000001-26-000001', url: 'https://www.sec.gov/original.htm', publicAt, firstSeenAt: seenAt }
+  it('stores document bytes only in the object bucket and fails without publishing on a PUT error', async () => {
+    const redis = memoryRedis(), objectStore = memoryObjectStore(), archive = createArchive(redis, { objectStore })
+    const bytes = Buffer.from('large original SEC document\n'.repeat(100000))
+    const document = await archive.putDocument({ ...metadata, bytes })
+    expect((await archive.readDocument(document.id)).bytes.equals(bytes)).toBe(true)
+    expect(objectStore.objects.size).toBe(1)
+    expect([...redis.values.keys()].filter((key) => /:blob:.*:\d+$/.test(key))).toEqual([])
+    expect(JSON.stringify([...redis.values]).length).toBeLessThan(2000)
+    objectStore.putIfAbsent = vi.fn().mockRejectedValue(new Error('Object PUT failed'))
+    await expect(archive.putDocument({ ...metadata, bytes: 'a new revision' })).rejects.toThrow('PUT failed')
+    expect(await archive.list('documents')).toHaveLength(1)
+  })
+  it('reads legacy chunks, verifies migration before pruning, and preserves document identity/timestamps', async () => {
+    const redis = memoryRedis(), objectStore = memoryObjectStore(), archive = createArchive(redis, { objectStore })
+    const bytes = Buffer.from('original legacy filing'), sha256 = digest(bytes), id = 'legacy-document'
+    const blobKey = `research:archive:v1:blob:${sha256}`
+    const document = { ...metadata, id, sha256, byteLength: bytes.length, availableAt: seenAt }
+    await archive.put('document', id, document, 'documents', seenAt)
+    await redis.set(blobKey, { chunks: 1, sha256, byteLength: bytes.length })
+    await redis.set(`${blobKey}:0`, gzipSync(bytes).toString('base64'))
+    expect((await archive.readDocument(id)).bytes.equals(bytes)).toBe(true)
+    const get = objectStore.get
+    objectStore.get = vi.fn(async () => gzipSync('corrupt object'))
+    await expect(archive.migrateDocumentBlob(id, { deleteRedisChunks: true })).rejects.toThrow('checksum mismatch')
+    expect(await redis.get(blobKey)).toHaveProperty('chunks', 1)
+    expect(await redis.get(`${blobKey}:0`)).not.toBeNull()
+    objectStore.get = get
+    expect(await archive.migrateDocumentBlob(id)).toMatchObject({ migrated: true, deletedChunks: 0 })
+    expect(await redis.get(`${blobKey}:0`)).not.toBeNull()
+    expect(await archive.migrateDocumentBlob(id, { deleteRedisChunks: true })).toMatchObject({ migrated: false, deletedChunks: 1 })
+    expect(await redis.get(`${blobKey}:0`)).toBeNull()
+    expect(await archive.get('document', id)).toEqual(document)
+    expect((await archive.readDocument(id)).bytes.equals(bytes)).toBe(true)
+  })
+  it('signs private R2 requests, uses conditional writes, and reports missing objects', async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(new Response(null, { status: 412 })).mockResolvedValueOnce(new Response(Buffer.from('compressed bytes'))).mockResolvedValueOnce(new Response(null, { status: 404 }))
+    const objectStore = createObjectStore({ endpoint: 'https://account.r2.cloudflarestorage.com', bucket: 'research-fixture', accessKeyId: 'fixture-id', secretAccessKey: 'fixture-secret', fetchImpl })
+    const key = `research/documents/v1/${'a'.repeat(64)}.gz`
+    await objectStore.putIfAbsent(key, Buffer.from('compressed bytes'))
+    expect((await objectStore.get(key)).toString()).toBe('compressed bytes')
+    const request = fetchImpl.mock.calls[0][0]
+    expect(request.headers.get('authorization')).toContain('AWS4-HMAC-SHA256')
+    expect(request.headers.get('if-none-match')).toBe('*')
+    expect(request.headers.get('content-encoding')).toBeNull()
+    expect(request.redirect).toBe('error')
+    await expect(objectStore.get(key)).rejects.toThrow('404')
+  })
+})
+
+
+describe('daily ingestion work budget', () => {
+  it('does not overlap runs or refetch completed daily indexes', async () => {
+    const redis = memoryRedis(), archive = createArchive(redis, { objectStore: memoryObjectStore() })
+    await archive.put('master', 'cached', { asOf: early, availableAt: early, securities: [security()] }, 'masters', early)
+    const client = { request: vi.fn(async () => Buffer.from('CIK|Company Name|Form Type|Date Filed|Filename')) }
+    await redis.set('research:foundation:lock:v1', 'other-run')
+    expect(await syncFoundation({ redis, archive, client, refresh: false })).toMatchObject({ skipped: 'already_running' })
+    expect(client.request).not.toHaveBeenCalled()
+    await redis.del('research:foundation:lock:v1')
+    const result = await syncFoundation({ redis, archive, client, refresh: false, now: seenAt })
+    expect(result).toMatchObject({ universe: 1, pending: 0, errors: [] })
+    expect(client.request).toHaveBeenCalledTimes(5)
+    expect(await redis.get('research:foundation:lock:v1')).toBeNull()
+    client.request.mockClear()
+    await syncFoundation({ redis, archive, client, refresh: false, now: seenAt })
+    expect(client.request).not.toHaveBeenCalled()
+  })
+  it('keeps unfinished index work resumable when the runtime budget is nearly spent', async () => {
+    const redis = memoryRedis(), archive = createArchive(redis, { objectStore: memoryObjectStore() })
+    await archive.put('master', 'cached', { asOf: early, availableAt: early, securities: [security()] }, 'masters', early)
+    const client = { request: vi.fn(async () => Buffer.from('1|QUIET Corporation|10-Q|2026-01-30|edgar/data/1/0000000001-26-000001.txt')) }
+    const result = await syncFoundation({ redis, archive, client, refresh: false, now: seenAt, deadline: Date.now() + 60000 })
+    expect(result.pending).toBe(0)
+    expect(await redis.get('research:disclosures:index:2026-01-30')).toMatchObject({ cursor: 0, complete: false })
+    expect(await redis.get('research:foundation:lock:v1')).toBeNull()
+  })
+})
+
+
+it('uses a newly bootstrapped master for ingestion in the same invocation', async () => {
+  const redis = memoryRedis(), archive = createArchive(redis, { objectStore: memoryObjectStore() })
+  const client = { request: vi.fn(async (url) => url.includes('/daily-index/')
+    ? Buffer.from('1|QUIET Corporation|10-Q|2026-01-30|edgar/data/1/0000000001-26-000001.txt')
+    : { filings: { recent: { accessionNumber: [] } } }) }
+  vi.stubEnv('MASSIVE_API_KEY', 'basic-fixture')
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ results: [{ market: 'stocks', locale: 'us', type: 'CS', active: true, cik: '1', composite_figi: 'QUIET', primary_exchange: 'XNAS', currency_name: 'usd', ticker: 'QUIET', name: 'Quiet Corporation' }] }) })))
+  try {
+    const result = await syncFoundation({ redis, archive, client, now: new Date(Date.now() - 10000).toISOString() })
+    expect(result.masterRefresh.status).toBe('refreshed')
+    expect(result.completed.length).toBeGreaterThan(0)
+    expect(result.completed[0].issuerId).toBe(security().issuerId)
+  } finally { vi.unstubAllGlobals(); vi.unstubAllEnvs() }
 })

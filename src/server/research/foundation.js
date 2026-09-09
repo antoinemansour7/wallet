@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { Redis } from '@upstash/redis'
 import { createArchive, digest } from './archive.js'
 import { loadSecurityMaster, refreshSecurityMaster, MASTER_MAX_AGE_MS } from './securityMaster.js'
@@ -41,10 +42,24 @@ export async function collectFoundationCandidates(signals, attentionBoard, { arc
 
 // Separate, resumable ingestion job: the nightly ranking request never waits
 // for a whole-universe filing crawl. The daily SEC index is independent of X.
-export async function syncFoundation({ redis = Redis.fromEnv(), archive = createArchive(redis), deadline = Date.now() + 240000, client = createSecClient({ deadline }), maxIssuers = 5, now = new Date().toISOString(), refresh = true, forceMasterRefresh = false } = {}) {
+export async function syncFoundation(options = {}) {
+  const redis = options.redis || Redis.fromEnv()
+  const lock = 'research:foundation:lock:v1', token = randomUUID()
+  // Vercel may retry a cron, and a manual invocation may overlap it. Keep the
+  // pagination checkpoint and the free-key request cadence single-writer.
+  if (!await redis.set(lock, token, { nx: true, ex: 360 })) return { skipped: 'already_running', completed: [], errors: [] }
+  try { return await syncUnlocked({ ...options, redis }) }
+  finally {
+    await redis.eval("if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end", [lock], [token])
+  }
+}
+
+async function syncUnlocked({ redis = Redis.fromEnv(), archive = createArchive(redis), deadline = Date.now() + 240000, client = createSecClient({ deadline }), maxIssuers = 5, now = new Date().toISOString(), refresh = true, forceMasterRefresh = false } = {}) {
   if (!Number.isInteger(maxIssuers) || maxIssuers < 1) throw new Error('maxIssuers must be positive')
   const { master, masterRefresh } = await loadFoundation({ redis, archive, refresh, forceMasterRefresh, now, masterOptions: { deadline: Math.min(deadline, Date.now() + 120000) } })
   const errors = []
+  // A bootstrap may publish identity after this invocation's starting timestamp.
+  const identityAt = new Date(Math.max(Date.parse(now), Date.parse(master.snapshots.at(-1).asOf))).toISOString()
   const pending = 'research:disclosures:pending:v1'
   // Retry the last seven complete UTC days; immutable jobs deduplicate retries.
   for (let ago = 1; ago <= 7; ago++) {
@@ -54,15 +69,26 @@ export async function syncFoundation({ redis = Redis.fromEnv(), archive = create
     const day = date.toISOString().slice(0, 10)
     const stamp = day.replaceAll('-', '')
     const url = `https://www.sec.gov/Archives/edgar/daily-index/${date.getUTCFullYear()}/QTR${Math.floor(date.getUTCMonth() / 3) + 1}/master.${stamp}.idx`
+    const indexKey = `research:disclosures:index:${day}`
     try {
+      const progress = await redis.get(indexKey)
+      if (progress?.complete) continue
       const bytes = await client.request(url, false)
-      for (const item of parseDailyIndex(bytes.toString('utf8'), master, now)) {
+      // An issuer can file several forms in one day; enqueue it once. A bounded
+      // cursor avoids spending the entire Hobby invocation in Redis round trips.
+      const items = [...new Map(parseDailyIndex(bytes.toString('utf8'), master, identityAt).map((item) => [item.issuerId, item])).values()]
+      let cursor = progress?.cursor || 0
+      for (; cursor < items.length; cursor++) {
+        if (Date.now() + 90000 >= deadline) break // leave time for actual filings
+        const item = items[cursor]
         const jobId = digest([item.issuerId, day])
         if (await redis.get(`research:disclosures:done:${jobId}`)) continue
-        const job = { ...item, since: `${day}T00:00:00Z`, availableAt: now }
-        await archive.put('ingestion-job', jobId, job, 'ingestion-jobs', now)
+        const job = { ...item, since: `${day}T00:00:00Z`, availableAt: identityAt }
+        await archive.put('ingestion-job', jobId, job, 'ingestion-jobs', identityAt)
         await redis.zadd(pending, { score: Date.parse(day), member: jobId })
+        if ((cursor + 1) % 25 === 0) await redis.set(indexKey, { cursor: cursor + 1, complete: false })
       }
+      await redis.set(indexKey, { cursor, complete: cursor === items.length })
     } catch (error) { errors.push({ stage: 'daily-index', date: day, message: error.message }) }
   }
   const jobs = await redis.zrange(pending, 0, Math.max(0, maxIssuers - 1))
