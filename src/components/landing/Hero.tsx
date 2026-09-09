@@ -49,7 +49,7 @@ export default function Hero({ reduced }: { reduced: boolean }) {
   }, [fine, reduced, x, y])
   return <section ref={panel} className="wa-hero wa-dark" aria-labelledby="hero-title">
     {!reduced && fine && <motion.div className="wa-cursor" aria-hidden="true" style={{ background: gradient }} />}
-    <header className="wa-nav wa-container"><Brand /><nav aria-label="Main navigation"><a href="#one-view">Your accounts</a><a href="#tax-components">Tax & costs</a></nav><a href="/login" className="wa-button wa-button-outline">Log in <span aria-hidden="true">↗</span></a></header>
+    <header className="wa-nav wa-container"><Brand /><nav aria-label="Main navigation"><a href="#one-view">Your accounts</a><a href="#features">Tax & costs</a></nav><a href="/login" className="wa-button wa-button-outline">Log in <span aria-hidden="true">↗</span></a></header>
     <div className="wa-hero-grid wa-container">
       <div className="wa-hero-copy"><p className="wa-eyebrow"><span /> A clearer view of tax & costs</p>
         <h1 id="hero-title">{['Your', 'investments.', 'All together.'].map((line, i) => <span className="wa-mask" key={line}><motion.span initial={reduced ? false : { y: '110%' }} animate={{ y: 0 }} transition={{ duration: reduced ? 0 : timing.slow, delay: i * timing.headline, ease: easeOut }}>{line}</motion.span></span>)}</h1>
