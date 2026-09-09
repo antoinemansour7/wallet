@@ -475,3 +475,77 @@ describe('disclosure ingestion is optional, identity is not', () => {
     } finally { vi.unstubAllEnvs() }
   })
 })
+
+// #107: a filing carrying its own prior-year comparative should reach review as
+// a measured improvement, not as "a new filing exists". The XBRL of a real 10-Q
+// tags both the current quarter and the year-ago comparative to the same
+// accession, which is what makes this computable from one filing.
+describe('fundamentals discovery emits measured improvement', () => {
+  const accession = '0000000001-26-000001'
+  const submissions = { filings: { recent: { accessionNumber: [accession], form: ['10-Q'], acceptanceDateTime: [publicAt], filingDate: ['2026-02-01'], reportDate: ['2025-12-31'], primaryDocument: ['quarter.htm'] } } }
+  const usd = (values) => ({ units: { USD: values.map((v) => ({ ...v, accn: accession })) } })
+  const quarter = (val, year) => ({ val, start: `${year}-10-01`, end: `${year}-12-31`, fy: year, fp: 'Q4' })
+
+  const clientFor = (facts) => ({
+    request: vi.fn(async (url) => url.includes('/submissions/') ? submissions
+      : url.includes('/companyfacts/') ? facts
+        : Buffer.from('<DOCUMENT><TYPE>10-Q\n<TEXT>Revenue increased to 120 from 100.</TEXT></DOCUMENT>')),
+  })
+
+  const ingest = async (facts) => {
+    const archive = createArchive(memoryRedis(), { objectStore: memoryObjectStore() })
+    const result = await ingestIssuer(archive, masterFor(security()), '1', { client: clientFor(facts), since: early, now: () => seenAt })
+    return result.evidence.find((e) => e.strategyFamily === 'fundamentals')
+  }
+
+  it('attaches inspectable features, both period ends and the filing behind them', async () => {
+    const evidence = await ingest({ facts: { 'us-gaap': {
+      Revenues: usd([quarter(120, 2025), quarter(100, 2024)]),
+      OperatingIncomeLoss: usd([quarter(24, 2025), quarter(10, 2024)]),
+    } } })
+
+    const growth = evidence.interpretation.features.find((f) => f.name === 'revenueGrowth')
+    expect(growth.value).toBeCloseTo(0.2, 6)
+    expect(growth.prior.periodEnd).toBe('2024-12-31')
+    expect(growth.current.accession).toBe(accession)
+    expect(evidence.interpretation.periodEnd).toBe('2025-12-31')
+    expect(evidence.interpretation.features.some((f) => f.name === 'operatingMarginChange')).toBe(true)
+    // Derived features live in interpretation; observedFacts stays the filing's
+    // own reported facts, so inference is never mistaken for evidence.
+    expect(evidence.observedFacts.every((f) => f.accession === accession)).toBe(true)
+    expect(evidence.observedFacts.some((f) => f.name)).toBe(false)
+  })
+
+  it('writes a thesis that compares to the prior period and never claims a beat', async () => {
+    const evidence = await ingest({ facts: { 'us-gaap': { Revenues: usd([quarter(120, 2025), quarter(100, 2024)]) } } })
+    expect(evidence.interpretation.thesis).toMatch(/previous comparable period/)
+    expect(evidence.interpretation.thesis).toMatch(/not an analyst expectation/)
+    expect(evidence.interpretation.thesis).not.toMatch(/\b(beat|surprise|consensus)\b/i)
+  })
+
+  it('ranks a measured improvement above a filing with nothing to compare', async () => {
+    const measured = await ingest({ facts: { 'us-gaap': {
+      Revenues: usd([quarter(120, 2025), quarter(100, 2024)]),
+      OperatingIncomeLoss: usd([quarter(24, 2025), quarter(10, 2024)]),
+    } } })
+    const bare = await ingest({ facts: { 'us-gaap': { Revenues: usd([quarter(120, 2025)]) } } })
+
+    expect(measured.priority).toBeGreaterThan(bare.priority)
+    // The bare filing keeps the neutral placeholder rather than inventing one.
+    expect(bare.interpretation.thesis).toMatch(/have not been determined/)
+    expect(bare.interpretation.features).toBeUndefined()
+  })
+
+  it('separates an acquisition instead of scoring it as operating growth', async () => {
+    const evidence = await ingest({ facts: { 'us-gaap': {
+      Revenues: usd([quarter(200, 2025), quarter(100, 2024)]),
+      PaymentsToAcquireBusinessesNetOfCashAcquired: usd([quarter(5000, 2025)]),
+    } } })
+
+    const flag = evidence.interpretation.contamination.find((f) => f.kind === 'acquisition')
+    expect(flag.fact.accession).toBe(accession)
+    expect(evidence.interpretation.thesis).toMatch(/Separated from operating improvement/)
+    // The growth itself is still reported; the flag sits beside it.
+    expect(evidence.interpretation.features.find((f) => f.name === 'revenueGrowth').value).toBeCloseTo(1, 6)
+  })
+})

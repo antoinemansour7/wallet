@@ -5,6 +5,7 @@
 
 import Exa from 'exa-js'
 import Anthropic from '@anthropic-ai/sdk'
+import { safeTruncate } from '../textSafety.js'
 
 const CLAUDE_MODEL = 'claude-sonnet-5'
 
@@ -64,7 +65,7 @@ export async function runCatalystAgent(picks) {
         results: (result.results || []).map((r) => ({
           title: r.title,
           url: r.url,
-          text: (r.text || '').slice(0, 400),
+          text: safeTruncate(r.text || '', 400),
           publishedDate: r.publishedDate,
         })),
       }

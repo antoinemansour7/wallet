@@ -6,6 +6,7 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import Exa from 'exa-js'
+import { safeTruncate } from '../textSafety.js'
 
 const CLAUDE_MODEL = 'claude-sonnet-5'
 
@@ -60,7 +61,7 @@ export async function runContrarianAgent(picks, technicals = new Map()) {
           }
         )
         const articles = (result.results || [])
-          .map((r) => `[${r.publishedDate?.slice(0, 10) || 'recent'}] ${r.title}: ${(r.text || '').slice(0, 200)}`)
+          .map((r) => `[${r.publishedDate?.slice(0, 10) || 'recent'}] ${r.title}: ${safeTruncate(r.text || '', 200)}`)
           .join('\n')
         return articles ? `${pick.ticker}:\n${articles}` : null
       } catch (err) {
