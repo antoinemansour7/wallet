@@ -21,10 +21,10 @@ export default function LandingPage() {
     return () => { document.title = previousTitle }
   }, [])
   useEffect(() => {
-    // Override the existing global CSS smooth behavior; Lenis owns landing scroll.
+    // Wheel/touch stay native. Lenis only eases explicit section-link navigation.
     const previous = document.documentElement.style.scrollBehavior
     document.documentElement.style.scrollBehavior = 'auto'
-    const lenis = reduced ? null : new Lenis({ autoRaf: true, anchors: true, duration: timing.slow, easing: t => 1 - Math.pow(1 - t, 3), syncTouch: false })
+    const lenis = reduced ? null : new Lenis({ autoRaf: true, anchors: true, smoothWheel: false, duration: timing.base, easing: t => 1 - Math.pow(1 - t, 3), syncTouch: false })
     return () => { lenis?.destroy(); document.documentElement.style.scrollBehavior = previous }
   }, [reduced])
   return <MotionConfig reducedMotion="user"><main key={reduced ? 'static' : 'animated'} className="wallai-system wa-landing">

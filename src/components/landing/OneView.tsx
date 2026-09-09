@@ -19,7 +19,7 @@ function AccountCard({ index, progress }: { index: number; progress: MotionValue
   const x = useTransform(progress, stops, ranks.map(rank => rank * 12))
   const rotate = useTransform(progress, stops, ranks.map(rank => rank * -3))
   const scale = useTransform(progress, stops, ranks.map(rank => 1 - rank * .045))
-  const zIndex = useTransform(progress, stops, ranks.map(rank => 3 - rank))
+  const zIndex = useTransform(progress, value => 3 - ranks[value < .31 ? 0 : value < .64 ? 2 : 4])
   return <motion.article className={`wa-account-card wa-account-${index}`} style={{ x, y, rotate, scale, zIndex }}><AccountContent index={index} /></motion.article>
 }
 function Copy({ active = 0, staticLayout = false }: { active?: number; staticLayout?: boolean }) {
@@ -29,7 +29,11 @@ function StickyAccounts() {
   const ref = useRef<HTMLElement>(null)
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start start', 'end end'] })
   const [active, setActive] = useState(0)
-  useMotionValueEvent(scrollYProgress, 'change', value => setActive(value < .31 ? 0 : value < .64 ? 1 : 2))
+  const activeIndex = useRef(0)
+  useMotionValueEvent(scrollYProgress, 'change', value => {
+    const next = value < .31 ? 0 : value < .64 ? 1 : 2
+    if (next !== activeIndex.current) { activeIndex.current = next; setActive(next) }
+  })
   return <section ref={ref} id="one-view" className="wa-one wa-one-sticky" aria-labelledby="one-view-title"><div className="wa-one-stage wa-container"><Copy active={active} /><div className="wa-account-board">{accounts.map((account, i) => <AccountCard key={account.name} index={i} progress={scrollYProgress} />)}<p className="wa-stack-note">Illustrative accounts. Room figures are entered by you.</p></div></div></section>
 }
 export default function OneView({ reduced }: { reduced: boolean }) {

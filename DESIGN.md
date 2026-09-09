@@ -117,7 +117,7 @@ Login shares the same static TaxSnapshot and tax-focused supporting copy. The fo
 | marquee | 32s | Seamless brokerage loop |
 | spring | stiffness 120, damping 22, mass 1 | Hero card, 24px rise after 300ms |
 | cursor-spring | stiffness 70, damping 24, mass 1 | Pointer gradient lag |
-| lenis | duration .6s, ease-out, native touch | Landing smooth wheel scrolling |
+| lenis | duration .3s, ease-out; native wheel and touch | Explicit section-link navigation only |
 
 Bento lifts 4px and brightens its border; enters at the viewport's lower 80% boundary (20% viewport penetration), 60ms apart. Sticky account shuffling follows scroll progress, never a timer. The account-data marker advances through Connect, Understand and Compare; connectors draw on scroll. Hero reveal and decorative effects run once, except the marquee; it pauses on hover/focus and has an explicit pause control.
 

@@ -230,3 +230,4 @@
 .wa-tax-fx-example strong { font: 500 var(--wa-title)/1.2 var(--wa-ui); }
 .wa-tax-fx-example small, .wa-tax-fx-example > span { font-size: var(--wa-label); }
 .wa-tax-fx-example > span { margin-top: var(--wa-2); }
+.wa-one-sticky .wa-account-card { will-change: transform; }

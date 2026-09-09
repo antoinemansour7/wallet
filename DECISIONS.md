@@ -67,3 +67,8 @@
 - CTAs continue through the existing signup/login flow to account setup. No fictitious direct Tax route or automatic tax filing is introduced.
 - Account illustrations use entered room of $8,250 less $2,000 deposits for TFSA ($6,250 remaining), and $22,400 less $4,000 for RRSP ($18,400 remaining). The bento's planned $1,000 TFSA contribution leaves $5,250. These are sample records, not annual statutory limits. The stack stage gains 80px to keep the extra basis labels clear.
 - Fee examples use generic Fund A ($12,000 × 0.20% = $24/year) and Fund B ($80,000 × 0.20% = $160/year), totalling the preview's $184. Avoid naming real funds with potentially stale expense ratios. Withholding amounts retain the same account breakdown across hero and bento.
+
+### Scroll responsiveness follow-up
+
+- The user reports a laggy feel. The prior Lenis configuration applies a 600ms easing tail to wheel input. Switch wheel and touch to native scrolling (`smoothWheel: false`, `syncTouch: false`); retain Lenis only for deliberate anchor navigation at the 300ms base duration. This supersedes the earlier smooth-wheel choice while preserving the section animations and reduced-motion behavior.
+- The stacked cards now change z-index only at the three narrative boundaries; interpolated fractional z-index values are invalid CSS and needlessly update a paint-affecting property. Their continuous movement remains transform-only. Add a compositor hint only to the three animated cards, and update the active-copy React state only when its index actually changes.
