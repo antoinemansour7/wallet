@@ -12,7 +12,7 @@ const ADDITIVE = new Set(['Revenues', 'RevenueFromContractWithCustomerExcludingA
   'ResearchAndDevelopmentExpense', 'SellingGeneralAndAdministrativeExpense',
   'NetCashProvidedByUsedInOperatingActivities', 'NetCashProvidedByUsedInInvestingActivities',
   'NetCashProvidedByUsedInFinancingActivities', 'PaymentsToAcquirePropertyPlantAndEquipment'])
-export function createSecClient({ fetchImpl = fetch, userAgent = process.env.SEC_USER_AGENT, pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
+export function createSecClient({ deadline = Infinity, fetchImpl = fetch, userAgent = process.env.SEC_USER_AGENT, pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
   if (!userAgent?.trim()) throw new Error('Set SEC_USER_AGENT to an application name and monitored contact address before disclosure ingestion')
   let lastRequest = 0
   let queue = Promise.resolve()
@@ -21,8 +21,9 @@ export function createSecClient({ fetchImpl = fetch, userAgent = process.env.SEC
     if (parsed.protocol !== 'https:' || !['www.sec.gov', 'data.sec.gov'].includes(parsed.hostname)) throw new Error('Untrusted SEC document URL')
     const run = async () => {
       await pause(Math.max(0, 250 - (Date.now() - lastRequest)))
+      if (Date.now() + 1000 >= deadline) throw new Error('Disclosure ingestion time budget reached; pending jobs will resume')
       lastRequest = Date.now()
-      const response = await fetchImpl(parsed.href, { headers: { 'User-Agent': userAgent, Accept: json ? 'application/json' : '*/*' }, signal: AbortSignal.timeout(20000), redirect: 'error' })
+      const response = await fetchImpl(parsed.href, { headers: { 'User-Agent': userAgent, Accept: json ? 'application/json' : '*/*' }, signal: AbortSignal.timeout(Math.min(20000, Math.max(1, deadline - Date.now()))), redirect: 'error' })
       if (!response.ok) throw new Error(`SEC disclosure request failed (${response.status})`)
       return json ? response.json() : Buffer.from(await response.arrayBuffer())
     }
@@ -86,7 +87,7 @@ export function comparableQuarterlyFacts(facts, asOf) {
 
 const plain = (bytes) => bytes.toString('utf8').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
 
-export async function ingestIssuer(archive, master, cik, { client = createSecClient(), since = new Date(Date.now() - 7 * day).toISOString(), limit = 20, afterAccession = null, now = () => new Date().toISOString() } = {}) {
+export async function ingestIssuer(archive, master, cik, { client = createSecClient(), since = new Date(Date.now() - 7 * day).toISOString(), limit = 20, afterAccession = null, deadline = Infinity, now = () => new Date().toISOString() } = {}) {
   const issuer = issuerId(cik)
   if (!issuer) throw new Error('Invalid SEC issuer ID')
   const securities = master.resolve({ issuer, asOf: now() })
@@ -114,6 +115,11 @@ export async function ingestIssuer(archive, master, cik, { client = createSecCli
   }
   const factsObservedAt = now()
   for (const filing of filings) {
+    if (Date.now() + 30000 >= deadline) {
+      result.truncated = true
+      result.nextAccession = result.lastCompletedAccession || afterAccession
+      return result
+    }
     const prefix = `https://www.sec.gov/Archives/edgar/data/${Number(padded)}/${filing.accession.replaceAll('-', '')}/`
     if (!/^[A-Za-z0-9_./-]+$/.test(filing.primaryDocument || '') || filing.primaryDocument.includes('..')) continue
     const primaryUrl = `${prefix}${filing.primaryDocument.replace(/^xsl[^/]+\//, '')}`
@@ -162,6 +168,7 @@ export async function ingestIssuer(archive, master, cik, { client = createSecCli
         measurements: { attention: null }, priority: family === 'fundamentals' && quarters.some((f) => f.priorComparable) ? 60 : 40 })
       result.evidence.push(await archiveEvidence(archive, evidence))
     }
+    result.lastCompletedAccession = filing.accession
   }
   return result
 }

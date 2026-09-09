@@ -20,10 +20,29 @@ function memoryRedis() {
     async get(key) { return structuredClone(values.get(key) ?? null) },
     async set(key, value, options = {}) { writes.push({ key, options }); if (options.nx && values.has(key)) return null; values.set(key, structuredClone(value)); return 'OK' },
     async zadd(key, { score, member }) { if (!indexes.has(key)) indexes.set(key, new Map()); indexes.get(key).set(member, score) },
-    async zrange(key, min, max, options = {}) {
+    async zrange(key, start, stop, options = {}) {
       const items = [...(indexes.get(key) || [])].sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
-      return options.byScore ? items.filter(([, score]) => score >= (min === '-inf' ? -Infinity : Number(min)) && score <= Number(max)).slice(options.offset || 0, (options.offset || 0) + (options.count || items.length)).map(([key]) => key)
-        : items.slice(min, max + 1).map(([key]) => key)
+      if (!options.byScore) return items.slice(start, stop + 1).map(([key]) => key)
+      const bound = (value) => (value === '-inf' ? -Infinity : value === '+inf' ? Infinity : Number(value))
+      // REV reverses the argument order too: the first bound becomes the maximum.
+      const [min, max] = options.rev ? [bound(stop), bound(start)] : [bound(start), bound(stop)]
+      const matched = items.filter(([, score]) => score >= min && score <= max)
+      if (options.rev) matched.reverse()
+      const offset = options.offset || 0
+      return matched.slice(offset, offset + (options.count ?? matched.length)).map(([key]) => key)
+    },
+  }
+}
+
+// Stands in for the private bucket: write-once objects keyed by content digest.
+function memoryObjectStore() {
+  const objects = new Map()
+  return { objects,
+    async putIfAbsent(key, bytes) { if (!objects.has(key)) objects.set(key, Buffer.from(bytes)) },
+    async get(key) {
+      const value = objects.get(key)
+      if (!value) throw new Error('Archive object GET failed (404)')
+      return value
     },
   }
 }
@@ -57,13 +76,13 @@ describe('stable common-stock identity', () => {
   it('rejects non-common or unresolved listings and publishes only complete pagination', async () => {
     expect(referenceSecurity({ ticker: 'FUND', type: 'ETF' })).toBeNull()
     vi.stubEnv('POLYGON_API_KEY', 'fixture')
-    const archive = createArchive(memoryRedis())
+    const archive = createArchive(memoryRedis(), { objectStore: memoryObjectStore() })
     const row = { market: 'stocks', locale: 'us', type: 'CS', active: true, cik: '1', composite_figi: 'ONE', primary_exchange: 'XNAS', currency_name: 'usd', ticker: 'ONE', name: 'One Corporation' }
     const failing = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ results: [row], next_url: 'https://api.massive.com/page2' }) }).mockResolvedValueOnce({ ok: false, status: 503 })
-    await expect(refreshSecurityMaster(archive, { fetchImpl: failing })).rejects.toThrow('503')
+    await expect(refreshSecurityMaster(archive, { fetchImpl: failing, pause: async () => {} })).rejects.toThrow('503')
     expect(await archive.list('masters')).toEqual([])
     const passing = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ results: [row], next_url: 'https://api.massive.com/page2' }) }).mockResolvedValueOnce({ ok: true, json: async () => ({ results: [{ ...row, ticker: 'TWO', composite_figi: 'TWO' }] }) })
-    const snapshot = await refreshSecurityMaster(archive, { fetchImpl: passing })
+    const snapshot = await refreshSecurityMaster(archive, { fetchImpl: passing, pause: async () => {} })
     expect(snapshot.securities).toHaveLength(2)
     vi.unstubAllEnvs()
   })
@@ -71,7 +90,7 @@ describe('stable common-stock identity', () => {
 
 describe('immutable archive, evidence and causal time', () => {
   it('preserves original bytes, first observation and amendments without a TTL', async () => {
-    const redis = memoryRedis(), archive = createArchive(redis)
+    const redis = memoryRedis(), archive = createArchive(redis, { objectStore: memoryObjectStore() })
     const original = await evidenceFixture(archive)
     const first = await archive.readDocument(original.source.documentId)
     const repeated = await archive.putDocument({ ...first, firstSeenAt: reviewedAt })
@@ -83,7 +102,7 @@ describe('immutable archive, evidence and causal time', () => {
     expect(redis.writes.every((w) => w.options.nx && !w.options.ex)).toBe(true)
   })
   it('requires historical delay and keeps future disclosures and late ingestion out of live replay', async () => {
-    const archive = createArchive(memoryRedis())
+    const archive = createArchive(memoryRedis(), { objectStore: memoryObjectStore() })
     await evidenceFixture(archive)
     expect(await replayEvidence(archive, publicAt)).toEqual([])
     expect(await replayEvidence(archive, reviewedAt)).toHaveLength(1)
@@ -95,7 +114,7 @@ describe('immutable archive, evidence and causal time', () => {
     expect(earliestAction({ publicAt, firstSeenAt: seenAt, extractionCompletedAt: reviewedAt })).toBe('2026-02-02T12:02:00.000Z')
   })
   it('never backdates a modern facts snapshot or later adverse analysis into historical replay', async () => {
-    const archive = createArchive(memoryRedis())
+    const archive = createArchive(memoryRedis(), { objectStore: memoryObjectStore() })
     const base = await evidenceFixture(archive)
     const snapshot = await archive.putDocument({ issuerId: base.issuerId, accession: base.source.accession, form: 'company-facts-snapshot', url: 'https://data.sec.gov/facts.json', publicAt: seenAt, firstSeenAt: seenAt, bytes: '{"Revenues":90}' })
     await archiveEvidence(archive, createEvidence({ ...base, security: base,
@@ -111,7 +130,7 @@ describe('immutable archive, evidence and causal time', () => {
     expect((await replayEvidence(archive, '2026-02-01T21:00:00Z', { mode: 'historical', simulatedDelayMs: 60000 })).some((e) => e.source.documentId === amendment.id)).toBe(false)
   })
   it('locks horizon at creation and makes inference corrections distinct', async () => {
-    const archive = createArchive(memoryRedis())
+    const archive = createArchive(memoryRedis(), { objectStore: memoryObjectStore() })
     const original = await evidenceFixture(archive)
     expect(() => createEvidence({ ...original, security: original, horizon: 5 })).toThrow('Horizon')
     const revised = createEvidence({ ...original, security: original, decision: { status: 'rejected', reason: 'Material accounting discrepancy' } })
@@ -167,7 +186,7 @@ describe('stream admission', () => {
 
 describe('zero-mention end-to-end acceptance', () => {
   it('ingests an SEC filing, archives the original, reserves a review slot, fetches one quote and publishes a longer-horizon idea', async () => {
-    const archive = createArchive(memoryRedis()), master = masterFor(security())
+    const archive = createArchive(memoryRedis(), { objectStore: memoryObjectStore() }), master = masterFor(security())
     const accession = '0000000001-26-000001'
     const submissions = { filings: { recent: { accessionNumber: [accession], form: ['10-Q'], acceptanceDateTime: [publicAt], filingDate: ['2026-02-01'], reportDate: ['2025-12-31'], primaryDocument: ['quarter.htm'] } } }
     const facts = { facts: { 'us-gaap': { Revenues: { units: { USD: [{ accn: accession, val: 120, start: '2025-10-01', end: '2025-12-31', fy: 2025, fp: 'Q4' }] } } } } }

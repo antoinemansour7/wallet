@@ -55,42 +55,81 @@ export function referenceSecurity(row) {
   }
 }
 
-// Exhaust all pages. Publish a snapshot only after the complete fetch succeeds;
-// a provider outage must not make half the universe disappear.
-export async function refreshSecurityMaster(archive, { date = new Date().toISOString().slice(0, 10), fetchImpl = fetch, now = () => new Date().toISOString() } = {}) {
-  const key = process.env.POLYGON_API_KEY || process.env.MASSIVE_API_KEY
-  if (!key) throw new Error('A Massive/Polygon reference-data key is required for stable security identifiers')
-  const base = process.env.POLYGON_API_BASE_URL || process.env.MASSIVE_API_BASE_URL || 'https://api.massive.com'
-  let url = new URL('/v3/reference/tickers', base)
-  url.search = new URLSearchParams({ market: 'stocks', locale: 'us', type: 'CS', active: 'true', limit: '1000', date }).toString()
-  const rows = [], seen = new Set()
-  while (url) {
-    if (seen.has(url.href) || seen.size >= 100) throw new Error('Invalid security-master pagination')
-    seen.add(url.href)
-    const response = await fetchImpl(url.href, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(20000) })
-    if (!response.ok) throw new Error(`Security reference data failed (${response.status})`)
-    const payload = await response.json()
-    if (!Array.isArray(payload.results)) throw new Error('Invalid security reference response')
-    rows.push(...payload.results)
-    if (payload.next_url) {
-      const next = new URL(payload.next_url, base)
-      if (next.origin !== new URL(base).origin) throw new Error('Untrusted reference pagination URL')
-      next.searchParams.delete('apiKey')
-      url = next
-    } else url = null
+export const MASTER_MAX_AGE_MS = 30 * 86400000
+export const MASTER_REFRESH_KEY = 'research:master:refresh:v1'
+const REQUEST_INTERVAL_MS = 13000 // Basic: five requests/minute, with margin.
+
+// A refresh can span daily runs. The last complete snapshot stays usable until
+// every page of a single dated reference query has been captured successfully.
+export async function refreshSecurityMaster(archive, {
+  date = new Date().toISOString().slice(0, 10), fetchImpl = fetch,
+  now = () => new Date().toISOString(), pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  redis, deadline = Date.parse(now()) + 120000,
+} = {}) {
+  const key = process.env.MASSIVE_API_KEY || process.env.POLYGON_API_KEY
+  if (!key) throw new Error('A free Massive Basic reference-data key is required for stable security identifiers')
+  const base = new URL(process.env.MASSIVE_API_BASE_URL || process.env.POLYGON_API_BASE_URL || 'https://api.massive.com')
+  if (base.protocol !== 'https:' || base.username || base.password) throw new Error('Reference endpoint must use HTTPS')
+  const cleanUrl = (value) => {
+    const url = new URL(value, base)
+    if (url.origin !== base.origin || url.username || url.password) throw new Error('Untrusted reference pagination URL')
+    url.searchParams.delete('apiKey')
+    return url.href
   }
-  const securities = rows.map(referenceSecurity).filter(Boolean)
-  if (!securities.length) throw new Error('Reference provider returned no resolvable US common stocks')
+  const first = new URL('/v3/reference/tickers', base)
+  first.search = new URLSearchParams({ market: 'stocks', locale: 'us', type: 'CS', active: 'true', limit: '1000', date, sort: 'ticker', order: 'asc' }).toString()
+  let state = await redis?.get(MASTER_REFRESH_KEY)
+  // Cursors are temporary; restart an abandoned build, never expire a published master.
+  if (!state || state.origin !== base.origin || Date.parse(now()) - Date.parse(state.startedAt) > 7 * 86400000) {
+    state = { origin: base.origin, date, startedAt: now(), url: first.href, securities: [], rejectedRows: 0, seen: [], nextRequestAt: 0 }
+  }
+  const save = () => redis?.set(MASTER_REFRESH_KEY, state, { ex: 7 * 86400 })
+  const deferred = () => ({ complete: false, pages: state.seen.length, nextRequestAt: state.nextRequestAt })
+  while (state.url) {
+    const url = cleanUrl(state.url)
+    if (state.seen.includes(url) || state.seen.length >= 100) throw new Error('Invalid security-master pagination')
+    let payload
+    for (let attempt = 0; ; attempt++) {
+      const wait = Math.max(0, state.nextRequestAt - Date.parse(now()))
+      if (Date.parse(now()) + wait + 20000 > deadline) { await save(); return deferred() }
+      if (wait) await pause(wait)
+      state.nextRequestAt = Date.parse(now()) + REQUEST_INTERVAL_MS
+      await save()
+      const response = await fetchImpl(url, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(20000), redirect: 'error' })
+      if (response.status === 429) {
+        const header = response.headers?.get('retry-after')
+        const seconds = header == null ? NaN : Number(header)
+        const retryAt = Number.isFinite(seconds) ? Date.parse(now()) + seconds * 1000 : Date.parse(header)
+        state.nextRequestAt = Math.max(state.nextRequestAt, Number.isFinite(retryAt) ? retryAt : Date.parse(now()) + 60000)
+        await save()
+        if (attempt >= 2) return deferred()
+        continue
+      }
+      if (!response.ok) throw new Error(`Security reference data failed (${response.status})`)
+      payload = await response.json()
+      break
+    }
+    if (!Array.isArray(payload.results)) throw new Error('Invalid security reference response')
+    const next = payload.next_url ? cleanUrl(payload.next_url) : null
+    const securities = payload.results.map(referenceSecurity).filter(Boolean)
+    state.securities.push(...securities)
+    state.rejectedRows += payload.results.length - securities.length
+    state.seen.push(url)
+    state.url = next
+    await save()
+  }
+  if (!state.securities.length) throw new Error('Reference provider returned no resolvable US common stocks')
   const capturedAt = now()
-  const snapshot = { asOf: `${date}T23:59:59.999Z`, capturedAt, availableAt: capturedAt, securities,
-    dataVersion: DATA_VERSION, provider: 'massive-reference', rejectedRows: rows.length - securities.length }
-  // Today's snapshot is usable immediately; historical snapshots are explicitly
-  // end-of-day identity observations, not an intraday mapping reconstruction.
-  if (date === capturedAt.slice(0, 10)) snapshot.asOf = capturedAt
+  const snapshot = { asOf: `${state.date}T23:59:59.999Z`, capturedAt, availableAt: capturedAt, securities: state.securities,
+    dataVersion: DATA_VERSION, provider: 'massive-reference', rejectedRows: state.rejectedRows }
+  if (state.date === capturedAt.slice(0, 10)) snapshot.asOf = capturedAt
   const id = digest(snapshot)
   await archive.put('master', id, snapshot, 'masters', capturedAt)
-  return snapshot
+  await redis?.del(MASTER_REFRESH_KEY)
+  return { ...snapshot, complete: true }
 }
 export async function loadSecurityMaster(archive, asOf = Date.now()) {
-  return createSecurityMaster(await archive.list('masters', asOf))
+  // One indexed read, rather than loading every historical universe each night.
+  const snapshot = await archive.latest('masters', asOf)
+  return createSecurityMaster(snapshot ? [snapshot] : [])
 }

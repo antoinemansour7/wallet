@@ -1,19 +1,29 @@
 import { Redis } from '@upstash/redis'
 import { createArchive, digest } from './archive.js'
-import { loadSecurityMaster, refreshSecurityMaster } from './securityMaster.js'
+import { loadSecurityMaster, refreshSecurityMaster, MASTER_MAX_AGE_MS } from './securityMaster.js'
 import { createSecClient, ingestIssuer, parseDailyIndex } from './secDisclosures.js'
 import { archiveAttentionSignals } from './evidence.js'
 import { candidatesFromEvidence } from './admission.js'
 
-export async function loadFoundation({ redis = Redis.fromEnv(), archive = createArchive(redis), refresh = true, now = new Date().toISOString() } = {}) {
+// Nightly discovery reads the durable cache only. Basic pagination belongs to
+// ingestion so a rate limit or provider outage cannot consume the review budget.
+export async function loadFoundation({ redis = Redis.fromEnv(), archive = createArchive(redis), refresh = false, forceMasterRefresh = false,
+  now = new Date().toISOString(), masterOptions = {} } = {}) {
   let master = await loadSecurityMaster(archive, now)
   const latest = master.snapshots.at(-1)
-  if (refresh && (!latest || Date.parse(now) - Date.parse(latest.asOf) > 36 * 3600000)) {
-    await refreshSecurityMaster(archive)
-    master = await loadSecurityMaster(archive)
+  let masterRefresh = { status: 'cached' }
+  if (refresh && (forceMasterRefresh || !latest || Date.parse(now) - Date.parse(latest.asOf) >= MASTER_MAX_AGE_MS)) {
+    try {
+      const result = await refreshSecurityMaster(archive, { redis, ...masterOptions })
+      masterRefresh = { status: result.complete ? 'refreshed' : 'pending' }
+      if (result.complete) master = await loadSecurityMaster(archive)
+    } catch (error) {
+      if (!latest) throw error
+      masterRefresh = { status: 'stale', error: error.message }
+    }
   }
-  if (!master.securities().length) throw new Error('No complete US common-stock master available; run the research foundation sync')
-  return { redis, archive, master }
+  if (!master.securities().length) throw new Error('No complete US common-stock master available; run research-foundation (Basic pagination may resume on the next daily run)')
+  return { redis, archive, master, masterRefresh }
 }
 
 export async function collectFoundationCandidates(signals, attentionBoard, { archive, master, asOf = new Date().toISOString(), evidence: supplied } = {}) {
@@ -31,13 +41,14 @@ export async function collectFoundationCandidates(signals, attentionBoard, { arc
 
 // Separate, resumable ingestion job: the nightly ranking request never waits
 // for a whole-universe filing crawl. The daily SEC index is independent of X.
-export async function syncFoundation({ redis = Redis.fromEnv(), archive = createArchive(redis), client = createSecClient(), maxIssuers = 5, now = new Date().toISOString(), refresh = true } = {}) {
+export async function syncFoundation({ redis = Redis.fromEnv(), archive = createArchive(redis), deadline = Date.now() + 240000, client = createSecClient({ deadline }), maxIssuers = 5, now = new Date().toISOString(), refresh = true, forceMasterRefresh = false } = {}) {
   if (!Number.isInteger(maxIssuers) || maxIssuers < 1) throw new Error('maxIssuers must be positive')
-  const { master } = await loadFoundation({ redis, archive, refresh, now })
+  const { master, masterRefresh } = await loadFoundation({ redis, archive, refresh, forceMasterRefresh, now, masterOptions: { deadline: Math.min(deadline, Date.now() + 120000) } })
   const errors = []
   const pending = 'research:disclosures:pending:v1'
   // Retry the last seven complete UTC days; immutable jobs deduplicate retries.
   for (let ago = 1; ago <= 7; ago++) {
+    if (Date.now() + 20000 >= deadline) break
     const date = new Date(Date.parse(now) - ago * 86400000)
     if ([0, 6].includes(date.getUTCDay())) continue
     const day = date.toISOString().slice(0, 10)
@@ -57,9 +68,10 @@ export async function syncFoundation({ redis = Redis.fromEnv(), archive = create
   const jobs = await redis.zrange(pending, 0, Math.max(0, maxIssuers - 1))
   const completed = []
   for (const jobId of jobs) {
+    if (Date.now() + 45000 >= deadline) break
     const job = await archive.get('ingestion-job', jobId)
     try {
-      const result = await ingestIssuer(archive, master, job.issuerId.slice(4), { client, since: job.since, limit: 3, afterAccession: await redis.get(`research:disclosures:cursor:${jobId}`) })
+      const result = await ingestIssuer(archive, master, job.issuerId.slice(4), { client, deadline, since: job.since, limit: 3, afterAccession: await redis.get(`research:disclosures:cursor:${jobId}`) })
       if (result.truncated) {
         await redis.set(`research:disclosures:cursor:${jobId}`, result.nextAccession)
         continue
@@ -69,5 +81,5 @@ export async function syncFoundation({ redis = Redis.fromEnv(), archive = create
       completed.push({ issuerId: job.issuerId, documents: result.documents.length, evidence: result.evidence.length })
     } catch (error) { errors.push({ stage: 'issuer', issuerId: job?.issuerId, message: error.message }) }
   }
-  return { universe: master.securities().length, completed, errors, pending: await redis.zcard(pending) }
+  return { universe: master.securities().length, masterAsOf: master.snapshots.at(-1).asOf, masterRefresh, completed, errors, pending: await redis.zcard(pending) }
 }
