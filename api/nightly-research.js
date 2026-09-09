@@ -251,33 +251,24 @@ export default async function handler(req, res) {
     console.log(`[nightly-research] finalized order: ${before.join(',')} → ${tickers.map((t) => t.ticker).join(',')}`)
   }
 
-  // Step 4: generate Perplexity reports
-  let picks = tickers
-  if (tickers.length > 0) {
-    try {
-      picks = await generateResearchReports(tickers)
-      console.log(`[nightly-research] generated ${picks.length} reports`)
-    } catch (err) {
-      console.error('[nightly-research] report generation failed:', err.message)
-      errors.push({ step: 'perplexity', error: err.message })
-    }
-  }
+  const redis = getRedis()
+  const dateKey = new Date().toISOString().slice(0, 10)
+  const generatedAt = new Date().toISOString()
 
-  // Step 5: store in Redis
   // Stamp the tape onto each pick, so a later calibration can ask what the
   // regime was on the day it was made without reconstructing it.
-  const stampedPicks = regime
-    ? picks.map((p) => ({
+  const stamp = (list) => (regime
+    ? list.map((p) => ({
       ...p,
       regimeScore: regime.score,
       regimeLabel: regime.label,
       suggestedSizeMultiplier: regimeSizeMultiplier(regime.score),
     }))
-    : picks
+    : list)
 
-  const payload = {
-    generatedAt: new Date().toISOString(),
-    picks: stampedPicks,
+  const buildPayload = (list, extra = {}) => ({
+    generatedAt,
+    picks: stamp(list),
     regime,
     articles,
     signalCount: signals.length,
@@ -285,18 +276,56 @@ export default async function handler(req, res) {
     queryCount: queries.length,
     xBreakdown: signalStats,
     errors,
+    ...extra,
+  })
+
+  // Step 3.9: store the ranked picks BEFORE writing their reports.
+  // Report generation is the longest leg of the run, so it is the leg most
+  // likely to be cut short by the function time limit. Storing first means a
+  // kill there costs the reports, not the entire night's picks — the failure
+  // degrades instead of erasing. The index push happens here, once, so a run
+  // that dies mid-report still leaves a history entry that is reachable.
+  if (redis && tickers.length > 0) {
+    try {
+      const partial = buildPayload(tickers, { reportsPending: true })
+      await redis.set(RESEARCH_KEY, partial, { ex: RESEARCH_TTL })
+      await redis.set(`research:history:${dateKey}`, partial, { ex: HISTORY_TTL })
+      // Reruns on the same day would otherwise stack duplicate index entries.
+      const newest = await redis.lindex(HISTORY_INDEX_KEY, 0)
+      if (newest !== dateKey) await redis.lpush(HISTORY_INDEX_KEY, dateKey)
+      await redis.ltrim(HISTORY_INDEX_KEY, 0, HISTORY_MAX_ENTRIES - 1)
+      console.log(`[nightly-research] stored ${tickers.length} picks ahead of report generation`)
+    } catch (err) {
+      console.error('[nightly-research] pre-report store failed:', err.message)
+      errors.push({ step: 'store-partial', error: err.message })
+    }
   }
 
-  const redis = getRedis()
+  // Step 4: generate research reports
+  let picks = tickers
+  if (tickers.length > 0) {
+    try {
+      picks = await generateResearchReports(tickers)
+      console.log(`[nightly-research] generated ${picks.length} reports`)
+    } catch (err) {
+      console.error('[nightly-research] report generation failed:', err.message)
+      errors.push({ step: 'reports', error: err.message })
+    }
+  }
+
+  // Step 5: store the completed run, replacing the pre-report payload
+  const payload = buildPayload(picks)
+
   if (redis) {
     await redis.set(RESEARCH_KEY, payload, { ex: RESEARCH_TTL })
-
-    // Store history entry
-    const dateKey = new Date().toISOString().slice(0, 10)
-    const historyKey = `research:history:${dateKey}`
-    await redis.set(historyKey, payload, { ex: HISTORY_TTL })
-    await redis.lpush(HISTORY_INDEX_KEY, dateKey)
-    await redis.ltrim(HISTORY_INDEX_KEY, 0, HISTORY_MAX_ENTRIES - 1)
+    await redis.set(`research:history:${dateKey}`, payload, { ex: HISTORY_TTL })
+    // A run that produced no tickers never took the pre-report branch above,
+    // so its index entry is still owed.
+    if (tickers.length === 0) {
+      const newest = await redis.lindex(HISTORY_INDEX_KEY, 0)
+      if (newest !== dateKey) await redis.lpush(HISTORY_INDEX_KEY, dateKey)
+      await redis.ltrim(HISTORY_INDEX_KEY, 0, HISTORY_MAX_ENTRIES - 1)
+    }
 
     // Shadow tracking: the top-15 board candidates that didn't make the cut.
     // Tracked like real picks (but never shown) to ~3x the learning data
