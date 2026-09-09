@@ -39,7 +39,7 @@ export default function Hero({ reduced }: { reduced: boolean }) {
     <div className="wa-hero-grid wa-container">
       <div className="wa-hero-copy"><p className="wa-eyebrow"><span /> A clearer view of tax & costs</p>
         <h1 id="hero-title">{['Your money.', 'Your costs.', 'Made clear.'].map((line, i) => <span className="wa-mask" key={line}><motion.span initial={reduced ? false : { y: '110%' }} animate={{ y: 0 }} transition={{ duration: reduced ? 0 : timing.slow, delay: i * timing.headline, ease: easeOut }}>{line}</motion.span></span>)}</h1>
-        <p className="wa-intro">Dividend withholding. Fund fees. Currency conversion.<br className="wa-desktop-break" /> See what investing costs you, across your accounts.</p>
+        <p className="wa-intro">Withholding. Fund fees. FX costs.<br className="wa-desktop-break" /> See what investing costs you, across your accounts.</p>
         <a className="wa-button wa-button-light" href="/login?mode=signup">Understand your costs <span aria-hidden="true">↗</span></a>
         <p className="wa-hero-note">Free during beta. Your money stays with your brokerage.</p>
       </div>

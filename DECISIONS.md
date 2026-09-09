@@ -72,3 +72,11 @@
 
 - The user reports a laggy feel. The prior Lenis configuration applies a 600ms easing tail to wheel input. Switch wheel and touch to native scrolling (`smoothWheel: false`, `syncTouch: false`); retain Lenis only for deliberate anchor navigation at the 300ms base duration. This supersedes the earlier smooth-wheel choice while preserving the section animations and reduced-motion behavior.
 - The stacked cards now change z-index only at the three narrative boundaries; interpolated fractional z-index values are invalid CSS and needlessly update a paint-affecting property. Their continuous movement remains transform-only. Add a compositor hint only to the three animated cards, and update the active-copy React state only when its index actually changes.
+- Final visual review: compact the login preview by omitting the account bars there; keep the same labelled withholding/fund/FX figures, without bringing Motion into login. Shorten the hero intro to avoid an awkward standalone “conversion” line. Remove the stack's redundant external sample note, which the cards could overlap; each card already carries its sample/basis labels.
+
+### Tax-focused follow-up validation
+
+- Each changed landing section passed strict TypeScript noEmit and production build before its commit. Login/auth and global reduced-motion tests: 19 passed. Login ESLint and git whitespace checks pass. No dependencies or authenticated Tax files changed.
+- Production-browser checks at 375, 760, 768, 1024 and 1440px confirm no horizontal overflow, form width at most 400px, visible 2px input focus outlines, three static account cards under reduced motion, four tax features, three walkthrough steps, and valid section links.
+- Native scrolling check: a trusted 500px wheel input is not prevented, reaches scrollY=500 by the 100ms observation, and remains there after another 650ms. This confirms removal of the former easing tail in Chromium; it is not a hardware-independent frame-rate guarantee.
+- Final browser pass also verifies section-link navigation, all three stack orders, the 4px bento hover lift, finished walkthrough connectors, live reduced-motion switching, and signup routing. No browser exceptions. Desktop/mobile screenshots reviewed; the login preview stays static and compact.

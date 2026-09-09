@@ -34,7 +34,7 @@ function StickyAccounts() {
     const next = value < .31 ? 0 : value < .64 ? 1 : 2
     if (next !== activeIndex.current) { activeIndex.current = next; setActive(next) }
   })
-  return <section ref={ref} id="one-view" className="wa-one wa-one-sticky" aria-labelledby="one-view-title"><div className="wa-one-stage wa-container"><Copy active={active} /><div className="wa-account-board">{accounts.map((account, i) => <AccountCard key={account.name} index={i} progress={scrollYProgress} />)}<p className="wa-stack-note">Illustrative accounts. Room figures are entered by you.</p></div></div></section>
+  return <section ref={ref} id="one-view" className="wa-one wa-one-sticky" aria-labelledby="one-view-title"><div className="wa-one-stage wa-container"><Copy active={active} /><div className="wa-account-board">{accounts.map((account, i) => <AccountCard key={account.name} index={i} progress={scrollYProgress} />)}</div></div></section>
 }
 export default function OneView({ reduced }: { reduced: boolean }) {
   const mobile = useMedia('(max-width: 760px)')

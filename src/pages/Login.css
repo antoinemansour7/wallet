@@ -17,35 +17,6 @@
 .login-description { margin-top: var(--wa-6); color: var(--wa-mist); font-size: var(--wa-small); line-height: 1.6; }
 .login-preview { margin: var(--wa-8) 0; }
 .login-preview-card { padding: var(--wa-6); border: 1px solid var(--wa-dark-line); border-radius: var(--wa-showcase); background: var(--wa-panel); }
-.login-preview-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--wa-2); }
-.login-preview-header > span { display: flex; align-items: center; gap: var(--wa-2); font-size: var(--wa-label); }
-.login-preview-dot { width: var(--wa-2); height: var(--wa-2); border-radius: var(--wa-pill); background: var(--wa-sage); }
-.login-preview-caption { color: var(--wa-mist); font-size: var(--wa-label); }
-.login-preview-balance { display: flex; flex-wrap: wrap; align-items: baseline; margin-top: var(--wa-6); font-size: var(--wa-balance); line-height: 1.1; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
-.login-preview-balance > span:first-child { color: var(--wa-mist); }
-.login-preview-balance .login-currency { margin-left: var(--wa-3); color: var(--wa-mist); font-size: var(--wa-label); letter-spacing: 0; }
-.login-preview-change { display: flex; flex-wrap: wrap; gap: var(--wa-2); margin-top: var(--wa-3); font-size: var(--wa-label); font-variant-numeric: tabular-nums; }
-.login-preview-change > span:first-child { color: var(--wa-sage); }
-.login-preview-change > span:last-child { color: var(--wa-mist); }
-.login-chart { margin-top: var(--wa-5); }
-.login-chart svg { display: block; width: 100%; height: clamp(80px, 14vh, 150px); overflow: visible; }
-.login-chart-guide { stroke: var(--wa-dark-line); stroke-dasharray: 3 5; }
-.login-chart-labels { display: flex; justify-content: space-between; color: var(--wa-mist); font-size: var(--wa-label); }
-.login-preview-bottom { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--wa-2); margin-top: var(--wa-3); }
-.login-preview-bottom > span { color: var(--wa-mist); font-size: var(--wa-label); }
-.login-chart-ranges { display: flex; gap: var(--wa-1); }
-.login-chart-ranges button { min-width: 44px; min-height: 44px; border-radius: var(--wa-control); color: var(--wa-mist); font-size: var(--wa-label); }
-.login-chart-ranges button:hover { background: var(--wa-glow); color: var(--wa-cream); }
-.login-chart-ranges button[aria-pressed='true'] { background: var(--wa-sage); color: var(--wa-forest); }
-.login-chart-ranges button:focus-visible { outline-color: var(--wa-sage); }
-.login-account-strip { display: flex; align-items: center; gap: var(--wa-3); padding: var(--wa-5); margin-top: var(--wa-3); border-radius: var(--wa-card); background: var(--wa-soft); color: var(--wa-ink); }
-.login-account-icons { display: flex; padding-left: var(--wa-2); }
-.login-account-icons > span { display: grid; place-items: center; width: var(--wa-8); height: var(--wa-10); margin-left: calc(var(--wa-2) * -1); border: 2px solid var(--wa-soft); border-radius: var(--wa-control); background: var(--wa-sage); font: 400 var(--wa-small) var(--wa-display); }
-.login-account-icons > span:nth-child(2) { background: var(--wa-mist); }
-.login-account-icons > span:nth-child(3) { background: var(--wa-forest); color: var(--wa-cream); }
-.login-account-strip strong { display: block; font-size: var(--wa-label); font-weight: 500; }
-.login-account-strip > div:nth-child(2) > span { display: block; margin-top: var(--wa-1); color: var(--wa-muted); font-size: var(--wa-label); }
-.login-account-check { display: grid; place-items: center; width: var(--wa-6); height: var(--wa-6); margin-left: auto; border: 1px solid var(--wa-border); border-radius: var(--wa-pill); }
 .login-story-footer { display: flex; align-items: center; gap: var(--wa-3); margin-top: auto; color: var(--wa-mist); font-size: var(--wa-label); }
 .login-footer-mark { color: var(--wa-sage); font-size: var(--wa-title); line-height: 1; }
 .login-access { grid-column: 2; grid-row: 1; display: flex; flex-direction: column; min-width: 0; padding: var(--wa-10) var(--wa-gutter) var(--wa-6); }
@@ -93,9 +64,7 @@
 @media (max-width: 1100px) and (min-width: 761px) {
   .login-story-content, .login-access { padding-inline: var(--wa-8); }
   .login-brand { left: var(--wa-8); right: calc(48.54% + var(--wa-8)); }
-  .login-preview-balance { font-size: 36px; }
   .login-preview-card { padding: var(--wa-5); }
-  .login-account-check { display: none; }
   .login-desktop-break { display: none; }
 }
 @media (max-width: 760px) {
@@ -111,3 +80,6 @@
 }
 @media (max-height: 760px) { .login-form-wrap { padding-block: var(--wa-6); } .login-form-heading { margin-bottom: var(--wa-6); } .login-fields { gap: var(--wa-5); } .login-submit { margin-top: var(--wa-6); } .login-divider { margin-block: var(--wa-5); } .login-reassurance { margin-top: var(--wa-5); } .login-preview { margin-block: var(--wa-6); } }
 @media (prefers-reduced-motion: reduce) { .login-shell *, .login-shell *::before, .login-shell *::after { animation: none !important; transition: none !important; } }
+/* A compact version of the same snapshot keeps sign-in calm and in view. */
+.login-preview .wa-tax-bars { display: none; }
+.login-preview .wa-tax-snapshot-metrics { margin-top: var(--wa-6); }
