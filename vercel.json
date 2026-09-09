@@ -3,11 +3,11 @@
   "crons": [
     {
       "path": "/api/nightly-research",
-      "schedule": "0 13 * * *"
+      "schedule": "0 7 * * *"
     },
     {
       "path": "/api/track-performance",
-      "schedule": "30 14 * * *"
+      "schedule": "0 9 * * *"
     }
   ],
   "functions": {
