@@ -9,6 +9,7 @@ import ChangedValue from '../../components/ChangedValue'
 const SETUP_LABELS = {
   squeeze: 'Coiled tight', breakout: 'Breaking out', volume: 'Unusual volume',
   catalyst: 'Event coming', momentum: 'Trending up',
+  fundamentals: 'Financial results', filing_changes: 'Business disclosure', insider: 'Insider activity',
 }
 
 const TREND_LABELS = {
@@ -22,6 +23,9 @@ const TREND_LABELS = {
 // "AVGO catalyst search" mean something to the pipeline and nothing to a reader.
 function sourceLabel(source) {
   const s = String(source)
+  if (/^https?:\/\//i.test(s)) {
+    try { const host = new URL(s).hostname; return host === 'www.sec.gov' || host === 'sec.gov' ? 'SEC disclosure' : host } catch { return 'Source' }
+  }
   if (s.startsWith('@')) return s
   if (s === 'finviz') return 'Stock screener'
   if (s === 'exa-discovery') return 'News coverage'
@@ -48,10 +52,10 @@ function money(value) {
   return value.toLocaleString('en-US', CURRENCY)
 }
 
-function ScoreMeter({ score, max = 10, tone = 'conviction' }) {
+function ScoreMeter({ score, max = 10, tone = 'conviction', label }) {
   const value = num(score)
   return <div className={`research-score research-score-${tone}`}>
-    <span className="research-micro">{tone === 'risk' ? 'Risk' : 'Conviction'}</span>
+    <span className="research-micro">{label || (tone === 'risk' ? 'Risk' : 'Conviction')}</span>
     <span className="research-score-value">{value ?? '—'}<small> / {max}</small></span>
     {value != null && <span className="research-score-track" aria-hidden="true"><span style={{ width: `${Math.max(0, Math.min(100, value / max * 100))}%` }} /></span>}
   </div>
@@ -122,6 +126,7 @@ export default function PickCard({ pick, rank, defaultOpen = false, featured = f
   const hasTechnicals = technicals && ['trend', 'rsi', 'pctFrom52wHigh', 'relativeVolume'].some((key) => technicals[key] != null)
   const hasCatalyst = catalystVerified != null || catalystDetail || catalystTimeline || catalystPricedIn
   const independentSources = num(pick.sourceCount) ?? sources.length
+  const primary = pick.horizon === 20 || pick.horizon === 60
 
   return (
     <article className={`research-idea ${featured ? 'research-idea-featured' : ''}`} aria-label={ticker} data-open={open}>
@@ -139,7 +144,7 @@ export default function PickCard({ pick, rank, defaultOpen = false, featured = f
             {change == null ? '—' : `${change > 0 ? '+' : ''}${change.toFixed(2)}%`}<small>{change != null ? ' today' : ' change unavailable'}</small>
           </span>
         </ChangedValue>
-        <ScoreMeter score={conviction} />
+        <ScoreMeter score={primary ? pick.finalScore : conviction} max={primary ? 100 : 10} label={primary ? 'Priority' : undefined} />
         <button type="button" className="research-expand" aria-expanded={open} aria-controls={detailId} aria-label={`${open ? 'Hide' : 'Read'} research for ${ticker}`} onClick={() => setOpen((value) => !value)}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d={open ? 'M5 12h14' : 'M5 12h14M12 5v14'} /></svg>
         </button>
@@ -152,6 +157,7 @@ export default function PickCard({ pick, rank, defaultOpen = false, featured = f
         <Section label="Why this one" className="research-thesis"><p>{reason || 'A written thesis was not included in this run.'}</p></Section>
         <div className="research-evidence-grid">
           <div className="research-evidence-column">
+            {primary && <Section label="The research horizon"><p>{pick.horizon} trading sessions · {SETUP_LABELS[pick.strategyFamily] || 'Primary disclosure'}</p><p>Priority reflects the strength of this research case within its horizon, not a probability of profit.</p></Section>}
             {hasCatalyst && <Section label="The catalyst">
               <p className="research-verification"><span aria-hidden="true">{catalystVerified ? '✓' : '○'}</span>{catalystVerified === true ? 'We confirmed this event' : catalystVerified === false ? "We couldn't confirm this event" : 'Verification not available'}</p>
               {catalystTimeline && <p className="research-catalyst-time">{catalystTimeline}</p>}
@@ -181,8 +187,8 @@ export default function PickCard({ pick, rank, defaultOpen = false, featured = f
           ].map(([label, value, tone]) => <div key={label}><dt>{label}</dt><dd className={tone}>{value}</dd></div>)}</dl>
         </Section>}
         <footer className="research-idea-foot">
-          <div className="research-evidence-count"><span>{independentSources} independent source{independentSources === 1 ? '' : 's'}</span>{signalCount != null && <span>{signalCount} mention{signalCount === 1 ? '' : 's'}</span>}</div>
-          {sources.length > 0 && <ul className="research-source-tags" aria-label={`Sources for ${ticker}`}>{sources.map((source, i) => <li key={`${source}-${i}`} data-handle={isHandle(source)}>{sourceLabel(source)}</li>)}</ul>}
+          <div className="research-evidence-count"><span>{independentSources} {primary ? 'primary' : 'independent'} source{independentSources === 1 ? '' : 's'}</span>{signalCount != null && <span>{signalCount} mention{signalCount === 1 ? '' : 's'}</span>}</div>
+          {sources.length > 0 && <ul className="research-source-tags" aria-label={`Sources for ${ticker}`}>{sources.map((source, i) => <li key={`${source}-${i}`} data-handle={isHandle(source)}>{/^https?:\/\//i.test(String(source)) ? <a href={source} target="_blank" rel="noopener noreferrer">{sourceLabel(source)}</a> : sourceLabel(source)}</li>)}</ul>}
           {themes.length > 0 && <p>About: {themes.join(', ')}</p>}
           <p className="research-provenance">{priceIsLive ? 'Price live' : entry > 0 ? `Price from ${runLabel(generatedAt)}${quoteVerified ? '' : ' · Not verified'}` : 'Price unavailable'}{priceIsLive && live.at ? ` · Updated ${new Date(live.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ''}</p>
         </footer>

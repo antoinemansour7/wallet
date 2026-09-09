@@ -1,3 +1,7 @@
+import { evaluationHistory } from '../research/history.js'
+import { HISTORY_LIMIT, HISTORY_RETENTION_SECONDS } from '../research/policy.js'
+import { allResearchPicks } from '../research/review.js'
+
 // ─── Signal History Tools ──────────────────────────────────────────────────────
 // Functions that let any agent query past picks, track performance,
 // and compute win rates. Powers the post-mortem feedback loop.
@@ -7,7 +11,7 @@ import { Redis } from '@upstash/redis'
 import { computeLearningStats, EVALUATION_VERSION, RESEARCH_MODEL_VERSION } from '../researchPerformance.js'
 
 const PERFORMANCE_KEY = 'research:performance'
-const PERFORMANCE_TTL = 30 * 24 * 60 * 60 // 30 days
+const PERFORMANCE_TTL = HISTORY_RETENTION_SECONDS
 const STATS_CACHE_KEY = `research:performance:stats:${RESEARCH_MODEL_VERSION}`
 const STATS_CACHE_TTL = 6 * 60 * 60 // 6 hours
 
@@ -84,7 +88,7 @@ export async function storePickPerformance(pickDate, ticker, entryPrice, current
   const win = returnPct >= 3 // +3% threshold for a "win"
 
   const prefix = extras.shadow ? `${PERFORMANCE_KEY}:shadow` : PERFORMANCE_KEY
-  const key = `${prefix}:${pickDate}:${ticker}`
+  const key = `${prefix}:${pickDate}:${extras.candidateId || ticker}`
   const existing = await redis.get(key) || {}
 
   // Idempotent per checkpoint: a tolerant tracking window may map several
@@ -108,6 +112,9 @@ export async function storePickPerformance(pickDate, ticker, entryPrice, current
       evaluationVersion: extras.evaluationVersion,
       modelVersion: extras.modelVersion,
       costBps: extras.costBps,
+      candidateId: extras.candidateId, securityId: extras.securityId, issuerId: extras.issuerId,
+      strategyFamily: extras.strategyFamily, horizon: extras.declaredHorizon, horizonPolicyVersion: extras.horizonPolicyVersion,
+      earliestActionAt: extras.earliestActionAt,
       entryDate: extras.entryDate,
       [`exit_date_day${daysHeld}`]: extras.exitDate,
       [`net_return_day${daysHeld}`]: extras.netReturn,
@@ -137,17 +144,15 @@ export async function getAllPerformanceRecords() {
   const redis = getRedis()
   if (!redis) return []
 
-  // Get all history dates
-  const historyIndex = await redis.lrange('research:history-index', 0, 29)
-  if (!historyIndex || historyIndex.length === 0) return []
-
+  const entries = await evaluationHistory(redis)
   const records = []
-  for (const dateKey of new Set(historyIndex)) {
-    const history = await redis.get(`research:history:${dateKey}`)
-    if (!history?.picks) continue
-
-    for (const pick of history.picks) {
-      const perfKey = `${PERFORMANCE_KEY}:${dateKey}:${pick.ticker}`
+  const seen = new Set()
+  for (const history of entries) {
+    for (const pick of allResearchPicks(history)) {
+      const dateKey = pick.generatedAt?.slice(0, 10) || history.date
+      const perfKey = `${PERFORMANCE_KEY}:${dateKey}:${pick.candidateId || pick.ticker}`
+      if (seen.has(perfKey)) continue
+      seen.add(perfKey)
       const perf = await redis.get(perfKey)
       if (perf) {
         records.push({
@@ -164,7 +169,7 @@ export async function getAllPerformanceRecords() {
 
   // Shadow picks (top-of-board candidates never shown to the user) feed the
   // setup/source learning loop with ~3x more outcomes per night.
-  const shadowIndex = await redis.lrange('research:shadow-index', 0, 29)
+  const shadowIndex = await redis.lrange('research:shadow-index', 0, HISTORY_LIMIT - 1)
   for (const dateKey of new Set(shadowIndex || [])) {
     const shadowEntry = await redis.get(`research:shadow:${dateKey}`)
     if (!shadowEntry?.picks) continue
@@ -222,6 +227,7 @@ export function computeWinRateStats(records, now = Date.now()) {
   let mfeCount = 0
 
   for (const record of records) {
+    if ((record.horizon || 5) !== 5) continue // Legacy headline remains the attention baseline.
     // Primary metric: next-session open→close (what a real buyer captures).
     // Falls back to legacy close-to-close day 1, then day 3.
     const ocReturn = record.return_day1_oc
@@ -291,7 +297,8 @@ export function computeWinRateStats(records, now = Date.now()) {
   const wpct = (wWins, wTotal) => wTotal > 0 ? Number(((wWins / wTotal) * 100).toFixed(1)) : 0
 
   const result = {
-    learning: computeLearningStats(records, now),
+    learning: computeLearningStats(records, now, { horizon: 5, strategyFamily: 'attention' }),
+    learningByHorizon: Object.fromEntries([5, 20, 60].map((horizon) => [horizon, computeLearningStats(records, now, { horizon })])),
     totalPicks: trackedCount,
     overallWinRate: pct(totalWins, trackedCount),
     avgReturn: avg(totalReturns, trackedCount),

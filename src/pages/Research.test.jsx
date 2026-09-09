@@ -20,6 +20,39 @@ function mockResearch(picks, { data = {}, quotes = [], regime = null } = {}) {
 }
 
 describe('research briefing', () => {
+  it('shows accepted primary ideas in the editorial briefing without the attention conviction gate', async () => {
+    const quiet = pick('QUIET', { candidateId: 'quiet20', horizon: 20, strategyFamily: 'fundamentals', conviction: 5, finalScore: 50, signalCount: 0, sources: ['https://www.sec.gov/Archives/quiet.htm'] })
+    const fetchMock = mockResearch([pick('FAST')], { data: { picksByHorizon: { 5: [pick('FAST')], 20: [quiet], 60: [] } } })
+    render(<Research />)
+    await screen.findByRole('article', { name: 'FAST' })
+    fireEvent.click(screen.getByRole('button', { name: /20 sessions/ }))
+    const article = await screen.findByRole('article', { name: 'QUIET' })
+    expect(screen.getByRole('heading', { name: 'Your research briefing.' })).toBeInTheDocument()
+    expect(article).toHaveClass('research-idea', 'research-idea-featured')
+    expect(within(article).getByText('Priority')).toBeInTheDocument()
+    expect(within(article).getByText('0 mentions')).toBeInTheDocument()
+    expect(within(article).getByRole('link', { name: 'SEC disclosure' })).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(screen.queryByRole('button', { name: /weaker idea/ })).not.toBeInTheDocument()
+    expect(JSON.parse(fetchMock.mock.calls.filter(([url]) => url === '/api/live-prices').at(-1)[1].body).symbols).toEqual(['QUIET'])
+    fireEvent.click(screen.getByRole('button', { name: /60 sessions/ }))
+    expect(await screen.findByText('No qualifying ideas this run')).toBeInTheDocument()
+    expect(screen.queryByRole('article')).not.toBeInTheDocument()
+  })
+
+  it('discards an old horizon sizing response after the user switches lists', async () => {
+    loadLocalPortfolio.mockReturnValue({ rows: [{ SYMBOL: 'OTHER', QUANTITY: '5', 'MARKET VALUE': 500 }] })
+    let finish
+    const fetchMock = mockResearch([pick('FAST')], { data: { picksByHorizon: { 5: [pick('FAST')], 20: [pick('QUIET', { horizon: 20 })], 60: [] } } })
+    const ordinary = fetchMock.getMockImplementation()
+    fetchMock.mockImplementation((url, options) => url === '/api/position-sizing' ? new Promise((resolve) => { finish = resolve }) : ordinary(url, options))
+    render(<Research />)
+    fireEvent.click(await screen.findByRole('button', { name: /Size against my portfolio/ }))
+    fireEvent.click(screen.getByRole('button', { name: /20 sessions/ }))
+    await act(async () => finish({ ok: true, json: async () => ({ picks: [{ ticker: 'FAST', reasoning: 'Old allocation' }] }) }))
+    expect(screen.queryByText('Old allocation')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Size against my portfolio/ })).toBeEnabled()
+  })
+
   it('preserves the server ranking instead of sorting again by LLM conviction', async () => {
     mockResearch([pick('VERIFIED', { finalScore: 30 }), pick('HYPE', { conviction: 9, finalScore: 20 })])
     render(<Research />)

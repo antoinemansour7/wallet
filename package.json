@@ -21,6 +21,7 @@
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.37.0",
     "agent-twitter-client": "^0.0.18",
+    "aws4fetch": "^1.0.20",
     "exa-js": "^2.13.0",
     "firebase": "^10.12.0",
     "framer-motion": "^13.2.0",

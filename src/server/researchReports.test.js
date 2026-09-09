@@ -40,6 +40,16 @@ describe('generateResearchReports', () => {
     expect(createMessage).not.toHaveBeenCalled()
   })
 
+  it('keeps disclosure reports tied to their declared horizon and zero-mention evidence', async () => {
+    createMessage.mockResolvedValue({ content: [textBlock('Disclosure report')] })
+    const [result] = await generateResearchReports([{ ticker: 'QUIET', candidateId: 'quiet20', horizon: 20, strategyFamily: 'fundamentals', signalCount: 0, sources: ['https://www.sec.gov/filing'], finalScore: 74 }])
+    const prompt = createMessage.mock.calls[0][0].messages[0].content
+    expect(prompt).toContain('20-trading-session horizon (fundamentals)')
+    expect(prompt).toContain('Attention mentions: 0')
+    expect(prompt).toContain('https://www.sec.gov/filing')
+    expect(result).toMatchObject({ candidateId: 'quiet20', finalScore: 74, horizon: 20, report: 'Disclosure report' })
+  })
+
   it('runs every report concurrently rather than one after another', async () => {
     let inFlight = 0
     let peak = 0

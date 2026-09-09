@@ -1,12 +1,15 @@
+import { HORIZON_POLICY_VERSION, strategyPolicy } from './research/policy.js'
 // Versioned, forward-observed evaluation. These are hypothetical fills, not
 // executed trades; changing this policy must start a new comparison cohort.
-export const RESEARCH_MODEL_VERSION = 'evidence-v2'
-export const EVALUATION_VERSION = 'next-open-5-session-v1'
+export const RESEARCH_MODEL_VERSION = 'evidence-v3-foundation'
+export const LEGACY_EVALUATION_VERSION = 'next-open-5-session-v1'
+export const EVALUATION_VERSION = 'next-open-strategy-session-v2'
 export const ROUND_TRIP_COST_BPS = 20
 const positive = (value) => Number.isFinite(value) && value > 0
 
-export function sessionCheckpoints(candles, generatedAt, now = Date.now(), benchmark = [], costBps = ROUND_TRIP_COST_BPS) {
-  const issued = Date.parse(generatedAt)
+export function sessionCheckpoints(candles, generatedAt, now = Date.now(), benchmark = [], costBps = ROUND_TRIP_COST_BPS, policy = {}) {
+  if (policy.strategyFamily && (policy.horizon !== strategyPolicy(policy.strategyFamily).horizon || policy.horizonPolicyVersion !== HORIZON_POLICY_VERSION)) throw new Error('Stored horizon policy mismatch; do not relabel a cohort')
+  const issued = Math.max(Date.parse(generatedAt), Date.parse(policy.earliestActionAt || generatedAt))
   if (!Number.isFinite(issued) || !Number.isFinite(costBps) || costBps < 0) return []
   // Daily Yahoo timestamps identify the regular-session open. Requiring the
   // full 6.5 hours also conservatively delays early-close sessions.
@@ -18,7 +21,7 @@ export function sessionCheckpoints(candles, generatedAt, now = Date.now(), bench
   const byDate = new Map(benchmark.map((bar) => [bar.date, bar]))
   const benchmarkEntry = byDate.get(entry.date)
   const returns = []
-  for (const horizon of [1, 3, 5, 10]) {
+  for (const horizon of [1, 3, 5, 10, 20, 60].filter((h) => !policy.horizon || h <= policy.horizon)) {
     const exit = sessions[horizon - 1]
     if (!exit || exit.timestamp + 6.5 * 3600000 > now || !positive(exit.close)) continue
     // Missing price bars are not skipped to substitute a later trading day.
@@ -34,7 +37,7 @@ export function sessionCheckpoints(candles, generatedAt, now = Date.now(), bench
       grossReturn, netReturn, costBps, benchmarkReturn,
       excessReturn: benchmarkReturn === null ? null : netReturn - benchmarkReturn,
       day1High: positive(entry.high) ? entry.high : null,
-      evaluationVersion: EVALUATION_VERSION,
+      evaluationVersion: policy.evaluationVersion || EVALUATION_VERSION,
     })
   }
   return returns
@@ -64,17 +67,20 @@ function aggregate(records) {
   }
 }
 
-export function computeLearningStats(records, now = Date.now()) {
+export function computeLearningStats(records, now = Date.now(), { horizon = 5, strategyFamily } = {}) {
+  if (![5, 20, 60].includes(horizon)) throw new Error('Unsupported learning horizon')
   const seen = new Set()
   const eligible = records.filter((record) => {
-    const key = `${record.pickDate}:${record.ticker}`
+    const key = record.candidateId || `${record.pickDate}:${record.securityId || record.ticker}:${record.strategyFamily || 'attention'}`
+    if ((record.horizon || 5) !== horizon || (strategyFamily && (record.strategyFamily || 'attention') !== strategyFamily)) return false
+    if (record.horizon && record.horizonPolicyVersion !== HORIZON_POLICY_VERSION) return false
     if (seen.has(key) || record.shadow || record.modelVersion !== RESEARCH_MODEL_VERSION
       || record.evaluationVersion !== EVALUATION_VERSION
-      || !Number.isFinite(record.net_return_day5) || !Number.isFinite(record.excess_return_day5)
-      || !record.exit_date_day5 || !(Date.parse(record.exit_date_day5) <= now)) return false
+      || !Number.isFinite(record[`net_return_day${horizon}`]) || !Number.isFinite(record[`excess_return_day${horizon}`])
+      || !record[`exit_date_day${horizon}`] || !(Date.parse(record[`exit_date_day${horizon}`]) <= now)) return false
     seen.add(key)
     return true
-  })
+  }).map((record) => ({ ...record, net_return_day5: record[`net_return_day${horizon}`], excess_return_day5: record[`excess_return_day${horizon}`] }))
   const group = (keys) => {
     const groups = new Map()
     for (const record of eligible) for (const key of new Set(keys(record))) {
@@ -85,8 +91,9 @@ export function computeLearningStats(records, now = Date.now()) {
   }
   return {
     modelVersion: RESEARCH_MODEL_VERSION, evaluationVersion: EVALUATION_VERSION,
-    horizon: 5, costBps: ROUND_TRIP_COST_BPS,
+    horizon, strategyFamily: strategyFamily || null, horizonPolicyVersion: HORIZON_POLICY_VERSION, costBps: ROUND_TRIP_COST_BPS,
     ...aggregate(eligible),
+    byStrategy: group((r) => [r.strategyFamily || 'attention']),
     bySetup: group((r) => [r.setupType || 'unknown']),
     bySource: group((r) => r.sources || []),
   }

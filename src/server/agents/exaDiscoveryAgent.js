@@ -5,6 +5,7 @@
 // ────────────────────────────────────────────────────────────────────────────────
 
 import Exa from 'exa-js'
+import { extractTickersFromText } from '../xSignals.js'
 
 const DISCOVERY_QUERIES = [
   {
@@ -59,48 +60,7 @@ const DISCOVERY_QUERIES = [
   },
 ]
 
-const TICKER_REGEX = /\$([A-Z]{2,5})\b|\b([A-Z]{2,5})\b/g
-
-const TICKER_STOPWORDS = new Set([
-  'A', 'AI', 'ALL', 'AM', 'API', 'ARE', 'AS', 'AT', 'ATH', 'BE', 'BEAT', 'BUY', 'BY',
-  'CALL', 'CASH', 'CEO', 'CFO', 'CPI', 'CUT', 'DATA', 'DAY', 'DD', 'DEAL', 'DM',
-  'EPS', 'ETF', 'ETFS', 'EU', 'EV', 'FDA', 'FED', 'FOR', 'FREE', 'FROM', 'FULL',
-  'GDP', 'GM', 'GPT', 'HAS', 'HERE', 'HIGH', 'HOLD', 'HOME', 'HUGE',
-  'IN', 'INTO', 'IPO', 'IRS', 'IS', 'IT', 'JUST', 'KEEP', 'LAST',
-  'LIKE', 'LIST', 'LIVE', 'LONG', 'LOOK', 'LOW', 'MAKE', 'MANY', 'MORE', 'MOST', 'MUCH',
-  'NEAR', 'NEED', 'NEWS', 'NEXT', 'NOTE', 'NOW', 'NYSE', 'OF', 'ON', 'ONLY', 'OPEN', 'OR', 'OVER',
-  'PART', 'PICK', 'PLAN', 'PLAY', 'POST', 'PULL', 'PUSH', 'PUTS',
-  'QQQ', 'RATE', 'REAL', 'RISK', 'SAFE', 'SALE', 'SEC', 'SELL', 'SHOW',
-  'SIZE', 'SOME', 'SOON', 'SPY', 'STAY', 'STOP', 'SURE',
-  'TAKE', 'TALK', 'TERM', 'TEST', 'THAT', 'THE', 'THEM', 'THEN', 'THIS', 'TIME', 'TO', 'TRUE', 'TSX',
-  'UK', 'USA', 'USD', 'US', 'USED', 'VERY', 'VIEW', 'VIX',
-  'WAIT', 'WANT', 'WAYS', 'WEEK', 'WHAT', 'WHEN', 'WHO', 'WILL', 'WITH', 'WORK', 'WSB',
-  'X', 'YEAR', 'ZERO',
-  // Eight mega-cap tickers used to sit here, under "we don't want to discover
-  // (already too well-known)". That was a size blacklist at discovery: an Exa
-  // article about NVDA produced no signal at all, so the name could never reach
-  // the board however strong its evidence. The ranking audit removed exactly
-  // this preference one layer up ("no blacklist of large companies"), and the
-  // model prompt states the rule outright — "do not favor or exclude a company
-  // simply because of nominal share price, size, or sector". Keeping the same
-  // exclusion at discovery just enforced it where it was harder to see.
-  //
-  // Everything left in this set is a genuine false positive: an English word,
-  // an acronym, or an exchange name that the uppercase-token regex would
-  // otherwise read as a ticker. Size is not a reason to be on this list.
-])
-
-function extractTickersFromContent(text) {
-  if (!text) return []
-  const found = new Set()
-  for (const match of text.matchAll(TICKER_REGEX)) {
-    const ticker = (match[1] || match[2] || '').toUpperCase()
-    if (ticker.length >= 2 && ticker.length <= 5 && !TICKER_STOPWORDS.has(ticker)) {
-      found.add(ticker)
-    }
-  }
-  return [...found]
-}
+const extractTickersFromContent = extractTickersFromText
 
 function getDateNDaysAgo(n) {
   const d = new Date()

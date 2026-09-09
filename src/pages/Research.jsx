@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { loadLocalPortfolio } from '../utils/portfolioStorage'
 import { IS_PREVIEW, PREVIEW_RESEARCH } from '../preview/mockMode'
@@ -30,6 +30,9 @@ export default function Research() {
   const [loadingResearch, setLoadingResearch] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [showBelow, setShowBelow] = useState(false)
+  const [horizon, setHorizon] = useState(5)
+  const priceRequest = useRef(0)
+  const sizingRequest = useRef(0)
   const [livePrices, setLivePrices] = useState({})
   const [sizing, setSizing] = useState(null)
   const [sizingLoading, setSizingLoading] = useState(false)
@@ -78,6 +81,7 @@ export default function Research() {
    * when the pick was made. They are just the wrong thing to show.
    */
   async function loadLivePrices(picksToPrice) {
+    const request = ++priceRequest.current
     const symbols = [...new Set(picksToPrice.map((p) => p.ticker).filter(Boolean))]
     if (symbols.length === 0) return
 
@@ -87,7 +91,7 @@ export default function Research() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbols }),
       })
-      if (!res.ok) { setLivePrices({}); return }
+      if (!res.ok) { if (request === priceRequest.current) setLivePrices({}); return }
 
       const data = await res.json()
       const at = new Date().toISOString()
@@ -102,9 +106,9 @@ export default function Research() {
           at,
         }
       }
-      setLivePrices(next)
+      if (request === priceRequest.current) setLivePrices(next)
     } catch {
-      setLivePrices({})
+      if (request === priceRequest.current) setLivePrices({})
       // A failed refresh leaves the stored figures showing, and the card says
       // when they were taken. Silence is fine; a wrong number is not.
     }
@@ -112,6 +116,7 @@ export default function Research() {
 
   async function loadPositionSizing(picksToSize) {
     if (!user?.uid) return
+    const request = ++sizingRequest.current
     setSizingLoading(true)
     try {
       const saved = loadLocalPortfolio(user.uid)
@@ -124,12 +129,13 @@ export default function Research() {
         body: JSON.stringify({ picks: picksToSize, portfolioRows }),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      setSizing(await res.json())
+      const result = await res.json()
+      if (request === sizingRequest.current) setSizing(result)
     } catch (err) {
       console.error('[Research] position sizing failed:', err.message)
-      setSizing({ error: 'Failed to analyze positions' })
+      if (request === sizingRequest.current) setSizing({ error: 'Failed to analyze positions' })
     } finally {
-      setSizingLoading(false)
+      if (request === sizingRequest.current) setSizingLoading(false)
     }
   }
 
@@ -137,30 +143,47 @@ export default function Research() {
 
   // Priced on arrival, then every five minutes, matching the portfolio.
   useEffect(() => {
-    const all = research?.picks ?? []
+    const all = research?.picksByHorizon?.[horizon] ?? (horizon === 5 ? research?.picks ?? [] : [])
     if (all.length === 0) return undefined
 
     loadLivePrices(all)
     const id = window.setInterval(() => loadLivePrices(all), 5 * 60 * 1000)
-    return () => window.clearInterval(id)
-  }, [research])
+    // Retiring the sequence on teardown matters when the next horizon has no
+    // picks: the effect returns early without issuing a request, so nothing
+    // else would invalidate a reply still in flight for the previous one.
+    const sequence = priceRequest
+    return () => { window.clearInterval(id); sequence.current++ }
+  }, [research, horizon])
 
   const { picks, below } = useMemo(() => {
     // The server order includes technicals, verified events, risk and premarket checks.
-    const all = research?.picks ?? []
+    const all = research?.picksByHorizon?.[horizon] ?? (horizon === 5 ? research?.picks ?? [] : [])
+    // Disclosure review has its own acceptance policy and 0–100 priority score.
+    // The attention strategy's conviction gate must not hide accepted filings.
+    if (horizon !== 5) return { picks: all, below: [] }
     return {
       picks: all.filter((p) => p.conviction >= CONVICTION_THRESHOLD),
       below: all.filter((p) => !(p.conviction >= CONVICTION_THRESHOLD)),
     }
-  }, [research])
+  }, [research, horizon])
 
   const signalCount = research?.signalCount ?? research?.tweetCount ?? 0
   const timeLabel = formatTime(research?.generatedAt)
   const hasAnything = picks.length + below.length > 0
 
-  const allPicks = research?.picks ?? []
+  const allPicks = research?.picksByHorizon?.[horizon] ?? (horizon === 5 ? research?.picks ?? [] : [])
   const rankFor = (pick) => allPicks.indexOf(pick) + 1
   const hasRun = Boolean(research?.generatedAt)
+
+  function selectHorizon(value) {
+    priceRequest.current++
+    sizingRequest.current++
+    setHorizon(value)
+    setShowBelow(false)
+    setLivePrices({})
+    setSizing(null)
+    setSizingLoading(false)
+  }
 
   return (
     <div className="wallai-system research-workspace">
@@ -181,16 +204,22 @@ export default function Research() {
         <div className="research-layout">
           <section id="research-ideas" className="research-ideas" aria-labelledby="research-ideas-title" aria-busy={loadingResearch}>
             <div className="research-section-heading"><div><p className="research-eyebrow">01 / The shortlist</p><h2 id="research-ideas-title">Worth your attention.</h2></div><span className="research-order-note">In research ranking order</span></div>
+            {research?.picksByHorizon && <div className="research-horizons">
+              <div role="group" aria-label="Research horizon">{[[5, 'Follow-through'], [20, 'Repricing'], [60, 'Business change']].map(([value, label]) =>
+                <button key={value} type="button" aria-pressed={horizon === value} onClick={() => selectHorizon(value)}><strong>{value} sessions</strong><span>{label}</span></button>,
+              )}</div>
+              <p>{horizon === 5 ? 'Market attention and near-term catalysts.' : `Primary disclosures, reviewed over ${horizon} trading sessions. Experimental ideas ranked only within this horizon.`}</p>
+            </div>}
             {loadingResearch ? <div role="status" className="research-loading"><span className="sr-only">Loading research</span>{[0, 1, 2].map((index) => <div key={index} className="research-skeleton" aria-hidden="true"><span /><span /><span /></div>)}</div>
               : loadError ? <div className="research-empty" role="alert"><span aria-hidden="true">↻</span><h3>We couldn’t load your briefing.</h3><p>Try again to reconnect to the latest research.</p><button type="button" className="research-primary-button" onClick={loadResearch}>Try again</button></div>
               : !hasAnything ? <div className="research-empty"><span aria-hidden="true">✳</span><h3>{hasRun ? 'No qualifying ideas this run' : 'No picks yet'}</h3><p>{hasRun ? 'The research criteria did not produce a recommendation.' : 'New research appears after the next scheduled market scan.'}</p>{hasRun && <p className="research-muted">The scan is complete. There’s no need to force an idea.</p>}</div>
               : <>
-                {picks.map((pick, index) => <PickCard key={pick.ticker} pick={pick} rank={rankFor(pick)} featured={index === 0} defaultOpen={index === 0} live={livePrices[pick.ticker]} generatedAt={research?.generatedAt} />)}
+                {picks.map((pick, index) => <PickCard key={`${horizon}:${pick.candidateId || pick.ticker}`} pick={pick} rank={rankFor(pick)} featured={index === 0} defaultOpen={index === 0} live={livePrices[pick.ticker]} generatedAt={pick.generatedAt || research?.generatedAt} />)}
                 {picks.length === 0 && <div className="research-empty"><span aria-hidden="true">○</span><h3>Nothing looked strong enough tonight</h3><p>{below.length} weaker idea{below.length === 1 ? '' : 's'} below, if you want to look anyway.</p></div>}
                 {below.length > 0 && <div className="research-below">
                   <div><p className="research-eyebrow">Below the conviction threshold</p><p>Below {CONVICTION_THRESHOLD}/10 or not scored. Kept here for a fuller view of the run.</p></div>
                   <button type="button" className="research-text-button" onClick={() => setShowBelow((value) => !value)} aria-expanded={showBelow} aria-controls="research-below-list">{showBelow ? 'Hide the weaker ideas' : `Show ${below.length} weaker idea${below.length === 1 ? '' : 's'}`}<span aria-hidden="true">{showBelow ? '−' : '+'}</span></button>
-                  {showBelow && <div id="research-below-list">{below.map((pick) => <PickCard key={pick.ticker} pick={pick} rank={rankFor(pick)} live={livePrices[pick.ticker]} generatedAt={research?.generatedAt} />)}</div>}
+                  {showBelow && <div id="research-below-list">{below.map((pick) => <PickCard key={`${horizon}:${pick.candidateId || pick.ticker}`} pick={pick} rank={rankFor(pick)} live={livePrices[pick.ticker]} generatedAt={pick.generatedAt || research?.generatedAt} />)}</div>}
                 </div>}
               </>}
           </section>

@@ -1,3 +1,5 @@
+import { createSecurityMaster, withSecurityMaster } from './research/securityMaster.js'
+const identityFixture = createSecurityMaster([{ asOf: '2020-01-01', securities: ['RXRX', 'IONQ', 'TSLA', 'RKLB'].map((ticker) => ({ ticker, name: `${ticker} Corporation`, securityId: `figi:${ticker}`, issuerId: `cik:${ticker}`, exchange: 'XNAS' })) }])
 import { describe, expect, it } from 'vitest'
 import {
   extractTickersFromText,
@@ -9,12 +11,12 @@ import {
 import { rankHighUpsideBoard, summarizeSignalsForPrompt } from './researchEngine'
 
 describe('extractTickersFromText', () => {
-  it('extracts cashtags and uppercase ticker mentions', () => {
-    expect(extractTickersFromText('Watching $RXRX and IONQ after the breakout')).toEqual(['RXRX', 'IONQ'])
+  it('resolves cashtags and exchange-qualified symbols against a master', () => {
+    expect(extractTickersFromText('Watching $RXRX and NASDAQ:IONQ after the breakout', identityFixture)).toEqual(['RXRX', 'IONQ'])
   })
 
   it('filters common non-ticker finance words', () => {
-    expect(extractTickersFromText('FDA says CPI is cooling while GDP holds')).toEqual([])
+    expect(extractTickersFromText('FDA says CPI is cooling while GDP holds', identityFixture)).toEqual([])
   })
 })
 
@@ -34,7 +36,7 @@ describe('extractThemesFromText', () => {
 
 describe('deriveAdaptiveSeed and buildAdaptiveQueries', () => {
   it('builds adaptive queries from article and signal context', () => {
-    const seed = deriveAdaptiveSeed({
+    const seed = withSecurityMaster(identityFixture, () => deriveAdaptiveSeed({
       articles: [
         { title: 'RXRX jumps on phase 2 biotech trial update', description: 'FDA momentum building for RXRX' },
       ],
@@ -45,7 +47,7 @@ describe('deriveAdaptiveSeed and buildAdaptiveQueries', () => {
           themes: ['biotech', 'squeeze'],
         },
       ],
-    })
+    }))
 
     expect(seed.topThemes).toEqual(expect.arrayContaining(['biotech', 'squeeze']))
     expect(seed.topTickers).toContain('RXRX')
@@ -55,8 +57,8 @@ describe('deriveAdaptiveSeed and buildAdaptiveQueries', () => {
     expect(queries.length).toBeLessThanOrEqual(10)
   })
 
-  it('does not let mega-cap chatter dominate adaptive ticker searches', () => {
-    const seed = deriveAdaptiveSeed({
+  it('lets resolved mega-cap symbols compete for adaptive searches', () => {
+    const seed = withSecurityMaster(identityFixture, () => deriveAdaptiveSeed({
       baseSignals: [
         {
           text: '$TSLA trend continuation with heavy chatter',
@@ -77,10 +79,10 @@ describe('deriveAdaptiveSeed and buildAdaptiveQueries', () => {
           sourceRole: 'context',
         },
       ],
-    })
+    }))
 
     expect(seed.topTickers).toContain('RKLB')
-    expect(seed.topTickers).not.toContain('TSLA')
+    expect(seed.topTickers).toContain('TSLA')
   })
 })
 
