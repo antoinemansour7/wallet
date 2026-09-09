@@ -107,7 +107,7 @@ export async function reviewPrimaryCandidates(admission, quotesByTicker, { archi
       }
       if (item.status === 'accepted') {
         const pick = stampPick({ name: familyEvidence[0].name, reason: item.reason, bearCase: item.bearCase || null,
-          price: input.measurements.price, conviction: Number((item.score / 10).toFixed(1)), finalScore: item.score,
+          price: input.measurements.price, quoteVerified: true, conviction: Number((item.score / 10).toFixed(1)), finalScore: item.score,
           setupType: item.strategyFamily, experimental: true, signalCount: input.measurements.attention,
           sources: [...new Set(familyEvidence.map((e) => e.source.url))], measurements: input.measurements,
         }, candidate, item.strategyFamily, { now: completedAt, evidence: familyEvidence.filter((e) => item.evidenceIds.includes(e.id)) })

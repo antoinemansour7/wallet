@@ -114,8 +114,10 @@ export default async function handler(req, res) {
         }
         const candles = await candlesFor(pick.ticker)
         const sameCurrencyBenchmark = candles[0]?.currency === 'USD' ? benchmark : []
-        for (const checkpoint of sessionCheckpoints(candles, generatedAt, startedAt, sameCurrencyBenchmark, undefined, { ...pick, evaluationVersion: pick.evaluationVersion || LEGACY_EVALUATION_VERSION })) {
-          await storePickPerformance(dateKey, pick.ticker, checkpoint.entryPrice, checkpoint.exitPrice, checkpoint.horizon, {
+        const issuedAt = pick.generatedAt || generatedAt
+        const issuedDate = issuedAt?.slice(0, 10) || dateKey
+        for (const checkpoint of sessionCheckpoints(candles, issuedAt, startedAt, sameCurrencyBenchmark, undefined, { ...pick, evaluationVersion: pick.evaluationVersion || LEGACY_EVALUATION_VERSION })) {
+          await storePickPerformance(issuedDate, pick.ticker, checkpoint.entryPrice, checkpoint.exitPrice, checkpoint.horizon, {
             ...checkpoint, shadow, day1Open: checkpoint.entryPrice,
             candidateId: pick.candidateId, securityId: pick.securityId, issuerId: pick.issuerId,
             strategyFamily: pick.strategyFamily, declaredHorizon: pick.horizon, horizonPolicyVersion: pick.horizonPolicyVersion,

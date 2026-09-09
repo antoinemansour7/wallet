@@ -1,9 +1,9 @@
+import { Redis } from '@upstash/redis'
+import { randomUUID } from 'node:crypto'
 import { loadFoundation } from '../src/server/research/foundation.js'
 import { withSecurityMaster } from '../src/server/research/securityMaster.js'
 import { HISTORY_RETENTION_SECONDS, HISTORY_LIMIT } from '../src/server/research/policy.js'
-import { digest } from '../src/server/research/archive.js'
-
-import { Redis } from '@upstash/redis'
+import { cycleBoards, freezePublication, storeProjection, horizonPicks } from '../src/server/research/publication.js'
 import { collectXSignals } from '../src/server/xSignals.js'
 import {
   fetchAllYahooNews,
@@ -21,7 +21,6 @@ import { getMarketRegime, regimeSizeMultiplier } from '../src/server/marketRegim
 const RESEARCH_KEY = 'research:latest'
 const RESEARCH_TTL = 48 * 60 * 60 // 48 hours
 const HISTORY_TTL = HISTORY_RETENTION_SECONDS
-const HISTORY_INDEX_KEY = 'research:history-index'
 const HISTORY_MAX_ENTRIES = HISTORY_LIMIT
 
 function isAuthorized(req) {
@@ -75,7 +74,7 @@ async function runPremarketCheck(res) {
   const updated = { ...payload, picks: rescored, picksByHorizon: { ...payload.picksByHorizon, 5: rescored }, premarketCheckedAt: new Date().toISOString() }
   await redis.set(RESEARCH_KEY, updated, { ex: RESEARCH_TTL })
 
-  const dateKey = new Date().toISOString().slice(0, 10)
+  const dateKey = payload.generatedAt.slice(0, 10)
   const history = await redis.get(`research:history:${dateKey}`)
   if (history) await redis.set(`research:history:${dateKey}`, { ...history, picks: rescored, picksByHorizon: { ...history.picksByHorizon, 5: rescored }, premarketCheckedAt: updated.premarketCheckedAt }, { ex: HISTORY_TTL })
 
@@ -97,7 +96,18 @@ export default async function handler(req, res) {
 
   const startedAt = Date.now()
   const { recordRun } = await import('../src/server/runLog.js')
+  const redis = getRedis()
+  if (!redis) return res.status(503).json({ error: 'Redis not configured' })
+  const lock = 'research:publication:lock:v1', token = randomUUID()
+  if (!await redis.set(lock, token, { nx: true, ex: 360 })) return res.status(409).json({ error: 'Research publication already running' })
+  try {
+    return await runLocked(req, res, startedAt, recordRun, redis)
+  } finally {
+    await redis.eval("if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end", [lock], [token])
+  }
+}
 
+async function runLocked(req, res, startedAt, recordRun, redis) {
   if (req.query?.mode === 'premarket') {
     try {
       const result = await runPremarketCheck(res)
@@ -111,12 +121,15 @@ export default async function handler(req, res) {
   }
 
   let foundation
-  try { foundation = await loadFoundation({ redis: getRedis() }) }
-  catch (error) { return res.status(503).json({ error: `Research foundation unavailable: ${error.message}` }) }
-  return withSecurityMaster(foundation.master, () => runDiscovery(req, res, startedAt, recordRun, foundation))
+  try { foundation = await loadFoundation({ redis }) }
+  catch (error) {
+    await recordRun('nightly-research', startedAt, { errors: [{ step: 'foundation', error: error.message }] })
+    return res.status(503).json({ error: `Research foundation unavailable: ${error.message}` })
+  }
+  return withSecurityMaster(foundation.master, () => runDiscovery(res, startedAt, recordRun, foundation))
 }
 
-async function runDiscovery(req, res, startedAt, recordRun, foundation) {
+async function runDiscovery(res, startedAt, recordRun, foundation) {
   const errors = []
 
   // Step 1: collect adaptive X signals (primary discovery layer)
@@ -185,6 +198,8 @@ async function runDiscovery(req, res, startedAt, recordRun, foundation) {
     errors.push({ step: 'day-trade', error: err.message })
   }
 
+  // Primary disclosures can qualify without a single attention signal.
+
   // Market regime — rates the tape, never an individual pick. Recorded on
   // every pick so this becomes calibratable once the history spans more than
   // the single month it currently covers; it cannot be backfilled.
@@ -225,6 +240,10 @@ async function runDiscovery(req, res, startedAt, recordRun, foundation) {
     console.error('[nightly-research] ticker extraction failed:', err.message)
     errors.push({ step: 'claude', error: err.message })
   }
+  if (!primaryReview) {
+    await recordRun('nightly-research', startedAt, { errors })
+    return res.status(503).json({ error: 'Research review unavailable; previous briefing retained', errors })
+  }
 
   // Step 3.5: Contrarian Agent — stress-test each pick with bear case
   if (tickers.length > 0) {
@@ -258,34 +277,51 @@ async function runDiscovery(req, res, startedAt, recordRun, foundation) {
     console.log(`[nightly-research] finalized order: ${before.join(',')} → ${tickers.map((t) => t.ticker).join(',')}`)
   }
 
-  // Step 4: generate Perplexity reports
-  let picks = tickers
-  if (tickers.length > 0) {
+  const redis = getRedis()
+  const dateKey = new Date().toISOString().slice(0, 10)
+  const generatedAt = new Date().toISOString()
+
+  // Carry the best of the cycle forward. A run between scheduled runs should
+  // improve the board, not replace it, so every pick made since the last
+  // scheduled hour competes on finalScore for the same five slots.
+  let prior = null
+  if (redis) {
     try {
-      picks = await generateResearchReports(tickers)
-      console.log(`[nightly-research] generated ${picks.length} reports`)
+      prior = await redis.get(RESEARCH_KEY)
     } catch (err) {
-      console.error('[nightly-research] report generation failed:', err.message)
-      errors.push({ step: 'perplexity', error: err.message })
+      console.error('[nightly-research] reading the cycle board failed:', err.message)
+      errors.push({ step: 'cycle-read', error: err.message })
     }
   }
 
-  // Step 5: store in Redis
   // Stamp the tape onto each pick, so a later calibration can ask what the
-  // regime was on the day it was made without reconstructing it.
-  const stampedPicks = regime
-    ? picks.map((p) => ({
+  // regime was on the day it was made without reconstructing it. Only this
+  // run's picks are stamped; carried picks keep the regime of the run that
+  // made them.
+  const stamp = (list) => (regime
+    ? list.map((p) => ({
       ...p,
       regimeScore: regime.score,
       regimeLabel: regime.label,
       suggestedSizeMultiplier: regimeSizeMultiplier(regime.score),
     }))
-    : picks
+    : list)
 
-  const payload = {
-    generatedAt: new Date().toISOString(),
-    picks: stampedPicks,
-    picksByHorizon: { 5: stampedPicks, 20: primaryReview?.picksByHorizon[20] || [], 60: primaryReview?.picksByHorizon[60] || [] },
+  const picksByHorizon = cycleBoards(prior, {
+    5: stamp(tickers),
+    20: stamp(primaryReview?.picksByHorizon[20] || []),
+    60: stamp(primaryReview?.picksByHorizon[60] || []),
+  }, { generatedAt, master: foundation.master, vetoes: [
+    ...(primaryReview?.vetoes || []),
+    ...(primaryReview?.admission.audit.rejected || []).filter((r) => r.evidenceId).map((r) => r.securityId),
+  ] })
+  // Only new winners need reports. A candidate that lost to a carried decision
+  // must not overwrite that decision's report, even when the ticker is equal.
+  const reportCandidates = Object.values(picksByHorizon).flat().filter((p) => p.generatedAt === generatedAt)
+  let payload = {
+    generatedAt,
+    picks: picksByHorizon[5],
+    picksByHorizon,
     admissionId: primaryReview?.admission.id || null,
     reviewId: primaryReview?.id || null,
     regime,
@@ -295,32 +331,57 @@ async function runDiscovery(req, res, startedAt, recordRun, foundation) {
     queryCount: queries.length,
     xBreakdown: signalStats,
     errors,
+    reportsPending: reportCandidates.length > 0,
   }
 
-  // Freeze publication separately from the mutable latest/date projections.
-  // Final analysis/report completion also constrains the earliest live fill.
-  for (const pick of Object.values(payload.picksByHorizon).flat()) {
-    pick.earliestActionAt = new Date(Math.max(Date.parse(pick.earliestActionAt), Date.parse(payload.generatedAt) + 60000)).toISOString()
+  // Step 3.9: store the ranked picks BEFORE writing their reports.
+  // Report generation is the longest leg of the run, so it is the leg most
+  // likely to be cut short by the function time limit. Storing first means a
+  // kill there costs the reports, not the entire night's picks — the failure
+  // degrades instead of erasing. Archive even an empty decision, so selective
+  // runs remain auditable. Never publish decisions whose archive failed.
+  try {
+    payload = await freezePublication(foundation.archive, payload)
+  } catch (err) {
+    errors.push({ step: 'publication', error: err.message })
+    await recordRun('nightly-research', startedAt, { errors })
+    return res.status(503).json({ error: 'Could not archive research decisions', errors })
   }
-  const publicationId = digest(payload)
-  await foundation.archive.put('publication', publicationId, { ...payload, id: publicationId, availableAt: payload.generatedAt }, 'publications', payload.generatedAt)
-  payload.publicationId = publicationId
-  const redis = getRedis()
+  try {
+    await storeProjection(redis, payload)
+  } catch (err) {
+    errors.push({ step: 'store-partial', error: err.message })
+  }
+
+  // Step 4: generate research reports for this run's tickers only. A carried
+  // pick already has the report its own run wrote, and regenerating it would
+  // spend the run's longest leg rewriting work that is already done.
+  let reports = reportCandidates
+  if (reportCandidates.length > 0) {
+    try {
+      reports = await generateResearchReports(reportCandidates)
+      console.log(`[nightly-research] generated ${reports.length} reports`)
+    } catch (err) {
+      console.error('[nightly-research] report generation failed:', err.message)
+      errors.push({ step: 'reports', error: err.message })
+    }
+  }
+
+  // Step 5: store the completed run, replacing the pre-report payload
+  const reportsById = new Map(reports.map((p) => [p.candidateId, p]))
+  const completed = Object.fromEntries(Object.entries(picksByHorizon).map(([horizon, list]) => [horizon,
+    list.map((p) => p.generatedAt === generatedAt ? reportsById.get(p.candidateId) || p : p),
+  ]))
+  payload = { ...payload, picks: completed[5], picksByHorizon: completed, reportsPending: false }
+  const board = payload.picks
+
   if (redis) {
-    await redis.set(RESEARCH_KEY, payload, { ex: RESEARCH_TTL })
-
-    // Store history entry
-    const dateKey = new Date().toISOString().slice(0, 10)
-    const historyKey = `research:history:${dateKey}`
-    await redis.set(historyKey, payload, { ex: HISTORY_TTL })
-    await redis.lrem(HISTORY_INDEX_KEY, 0, dateKey)
-    await redis.lpush(HISTORY_INDEX_KEY, dateKey)
-    await redis.ltrim(HISTORY_INDEX_KEY, 0, HISTORY_MAX_ENTRIES - 1)
+    await storeProjection(redis, payload)
 
     // Shadow tracking: the top-15 board candidates that didn't make the cut.
     // Tracked like real picks (but never shown) to ~3x the learning data
     // behind setup/source win rates.
-    const pickedSet = new Set(picks.map((p) => p.ticker))
+    const pickedSet = new Set(Object.values(completed).flat().map((p) => p.ticker))
     const shadowPicks = shadowBoard
       .filter((item) => !pickedSet.has(item.ticker) && Number.isFinite(item.price) && item.price > 0)
       .map((item) => ({
@@ -342,10 +403,11 @@ async function runDiscovery(req, res, startedAt, recordRun, foundation) {
     console.warn('[nightly-research] Redis not configured — results not persisted')
   }
 
-  // Step 6: Send Slack alerts
-  if (picks.length > 0) {
+  // Step 6: Send Slack alerts. The board, not this run's picks — the alert
+  // should say what is on screen, which mid-cycle may include a carried pick.
+  if (board.length > 0) {
     try {
-      await sendPickAlerts(picks)
+      await sendPickAlerts(board)
     } catch (err) {
       console.error('[nightly-research] slack alert failed:', err.message)
       errors.push({ step: 'slack', error: err.message })
@@ -356,13 +418,18 @@ async function runDiscovery(req, res, startedAt, recordRun, foundation) {
     errors,
     signals: signals.length,
     articles: articles.length,
-    picks: picks.length,
+    picks: board.length,
     tickers: tickers.map((t) => t.ticker),
   })
 
   return res.status(200).json({
     stored: Boolean(redis),
-    picks: picks.length,
+    picks: board.length,
+    // What this run contributed vs what the cycle already held, so a rerun's
+    // effect on the board is legible from the response alone.
+    board: board.map((p) => p.ticker),
+    carried: board.filter((p) => p.generatedAt !== generatedAt).map((p) => p.ticker),
+    boards: Object.fromEntries([5, 20, 60].map((h) => [h, horizonPicks(payload, h).map((p) => p.ticker)])),
     signalCount: signals.length,
     tweetCount: signals.length,
     queryCount: queries.length,

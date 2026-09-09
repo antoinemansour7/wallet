@@ -41,7 +41,7 @@ async function realHandler(req, res) {
           generatedAt: data.generatedAt,
           signalCount: data.signalCount || 0,
           picksByHorizon: Object.fromEntries(Object.entries(data.picksByHorizon || { 5: data.picks || [] }).map(([horizon, picks]) => [horizon, picks.map((p) => ({ ticker: p.ticker, candidateId: p.candidateId, securityId: p.securityId, horizon: p.horizon || 5, strategyFamily: p.strategyFamily || 'attention', conviction: p.conviction, reason: p.reason, price: p.price }))])) ,
-          picks: data.picks.map((p) => ({
+          picks: (data.picks || []).map((p) => ({
             ticker: p.ticker,
             conviction: p.conviction,
             reason: p.reason,

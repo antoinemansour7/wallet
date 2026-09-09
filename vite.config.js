@@ -15,6 +15,7 @@ function serverlessHandlerPlugin({ name, route, loadHandler }) {
     configureServer(server) {
       server.middlewares.use(route, async (req, res) => {
         try {
+          req.query = Object.fromEntries(new URL(req.url, 'http://localhost').searchParams)
           req.setEncoding('utf8')
           let rawBody = ''
           for await (const chunk of req) rawBody += chunk
@@ -224,69 +225,6 @@ function getResearchPlugin() {
   }
 }
 
-function nightlyResearchPlugin(env) {
-  return {
-    name: 'nightly-research-api',
-    configureServer(server) {
-      server.middlewares.use('/api/nightly-research', (req, res) => {
-        if (req.method !== 'GET' && req.method !== 'POST') {
-          res.statusCode = 405
-          return res.end(JSON.stringify({ error: 'Method not allowed' }))
-        }
-
-        const cronSecret = env.CRON_SECRET
-        const authHeader = req.headers['authorization']
-        if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-          res.statusCode = 401
-          return res.end(JSON.stringify({ error: 'Unauthorized' }))
-        }
-
-        req.on('data', () => {})
-        req.on('end', async () => {
-          try {
-            // Dynamic imports to pick up env at call time
-            const { scrapeFinanceTweets } = await import('./src/server/twitterScraper.js')
-            const { fetchAllYahooNews, extractTickers, generateResearchReports } = await import('./src/server/researchEngine.js')
-
-            const errors = []
-            let tweets = []
-            try { tweets = await scrapeFinanceTweets() } catch (e) { errors.push({ step: 'twitter', error: e.message }) }
-
-            let articles = []
-            try { articles = await fetchAllYahooNews() } catch (e) { errors.push({ step: 'yahoo', error: e.message }) }
-
-            if (tweets.length === 0 && articles.length === 0) {
-              res.statusCode = 503
-              res.setHeader('Content-Type', 'application/json')
-              return res.end(JSON.stringify({ error: 'No content available', errors }))
-            }
-
-            let tickers = []
-            try { tickers = await extractTickers(tweets, articles) } catch (e) { errors.push({ step: 'groq', error: e.message }) }
-
-            let picks = tickers
-            if (tickers.length > 0) {
-              try { picks = await generateResearchReports(tickers) } catch (e) { errors.push({ step: 'perplexity', error: e.message }) }
-            }
-
-            const payload = { generatedAt: new Date().toISOString(), picks, articles, tweetCount: tweets.length, errors }
-            const redis = getRedisClient()
-            if (redis) await redis.set('research:latest', payload, { ex: 172800 })
-
-            res.setHeader('Content-Type', 'application/json')
-            res.end(JSON.stringify({ stored: Boolean(redis), picks: picks.length, tweetCount: tweets.length, articles: articles.length, tickers: tickers.map(t => t.ticker), errors }))
-          } catch (err) {
-            res.statusCode = 500
-            res.setHeader('Content-Type', 'application/json')
-            res.end(JSON.stringify({ error: err.message }))
-          }
-        })
-      })
-    },
-  }
-}
-
-// ─── Config ────────────────────────────────────────────────────────────────
 export default defineConfig(({ mode }) => {
   // loadEnv with '' prefix loads ALL vars (not just VITE_) — API key stays server-side only
   const env = loadEnv(mode, process.cwd(), '')
@@ -307,7 +245,16 @@ export default defineConfig(({ mode }) => {
       livePricesPlugin(),
       refreshPricesPlugin(),
       getResearchPlugin(),
-      nightlyResearchPlugin(env),
+      serverlessHandlerPlugin({
+        name: 'nightly-research-api',
+        route: '/api/nightly-research',
+        loadHandler: () => import('./api/nightly-research.js'),
+      }),
+      serverlessHandlerPlugin({
+        name: 'research-foundation-api',
+        route: '/api/research-foundation',
+        loadHandler: () => import('./api/research-foundation.js'),
+      }),
       serverlessHandlerPlugin({
         name: 'plaid-api',
         route: '/api/plaid',

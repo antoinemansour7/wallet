@@ -146,10 +146,13 @@ export async function getAllPerformanceRecords() {
 
   const entries = await evaluationHistory(redis)
   const records = []
+  const seen = new Set()
   for (const history of entries) {
-    const dateKey = history.date
     for (const pick of allResearchPicks(history)) {
+      const dateKey = pick.generatedAt?.slice(0, 10) || history.date
       const perfKey = `${PERFORMANCE_KEY}:${dateKey}:${pick.candidateId || pick.ticker}`
+      if (seen.has(perfKey)) continue
+      seen.add(perfKey)
       const perf = await redis.get(perfKey)
       if (perf) {
         records.push({
