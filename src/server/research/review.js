@@ -15,7 +15,9 @@ export async function prepareDiscovery(signals, attentionBoard, foundation, opti
       streams: c.streams, admission: c.admission, evidenceIds: c.evidence.map((e) => e.id) })) }
   const id = digest(decision)
   await foundation.archive.put('admission', id, { ...decision, id }, 'admissions', asOf)
-  return { ...result, id, asOf }
+  // Keep the entire intake, including budget and adverse-evidence rejections,
+  // for the forward experiment. It is never a publication list.
+  return { ...result, id, asOf, allCandidates: candidates }
 }
 
 const clean = (bytes) => bytes.toString('utf8').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()

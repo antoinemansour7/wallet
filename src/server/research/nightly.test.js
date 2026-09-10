@@ -12,15 +12,17 @@ const mocks = vi.hoisted(() => {
     eval: vi.fn(async (_script, [key], [token]) => { if (values.get(key) === token) values.delete(key) }),
     lrem: vi.fn(async () => {}), lpush: vi.fn(async () => {}), ltrim: vi.fn(async () => {}),
   }
-  const archive = { put: vi.fn(async (_kind, _id, payload) => { publications.push(structuredClone(payload)); return payload }) }
+  const archive = { put: vi.fn(async (kind, _id, payload) => { if (kind === 'publication') publications.push(structuredClone(payload)); return payload }) }
   const master = { resolve: ({ ticker }) => [{ ticker, securityId: `figi:${ticker}` }] }
-  return { values, publications, redis, archive, master, load: vi.fn(), extract: vi.fn(), reports: vi.fn(), record: vi.fn(), quotes: vi.fn() }
+  return { values, publications, redis, archive, master, load: vi.fn(), extract: vi.fn(), reports: vi.fn(), record: vi.fn(), quotes: vi.fn(),
+    prepareEvaluation: vi.fn(), freezeEvaluation: vi.fn() }
 })
 vi.mock('@upstash/redis', () => ({ Redis: { fromEnv: () => mocks.redis } }))
+vi.mock('./evaluation.js', () => ({ prepareEvaluation: mocks.prepareEvaluation, freezeEvaluation: mocks.freezeEvaluation }))
 vi.mock('./foundation.js', () => ({ loadFoundation: mocks.load }))
 vi.mock('../runLog.js', () => ({ recordRun: mocks.record }))
 vi.mock('../xSignals.js', () => ({ collectXSignals: async () => ({ signals: [], queries: [], stats: { provider: 'fixture' } }), deriveAdaptiveSeed: () => ({}) }))
-vi.mock('../researchEngine.js', () => ({ fetchAllYahooNews: async () => [], extractTickers: mocks.extract, finalizePicks: (picks) => picks, generateResearchReports: mocks.reports }))
+vi.mock('../researchEngine.js', () => ({ fetchAllYahooNews: async () => [], extractTickers: (...args) => { args[2].onEvaluationInputs({}); return mocks.extract(...args) }, finalizePicks: (picks) => picks, generateResearchReports: mocks.reports }))
 vi.mock('../technicalScreener.js', () => ({ fetchBreakoutCandidates: async () => [], candidatesToSignals: () => [] }))
 vi.mock('../agents/contrarianAgent.js', () => ({ runContrarianAgent: async (picks) => picks }))
 vi.mock('../agents/catalystAgent.js', () => ({ runCatalystAgent: async (picks) => picks }))
@@ -42,6 +44,7 @@ beforeEach(() => {
   vi.stubEnv('CRON_SECRET', 'test'); vi.stubEnv('UPSTASH_REDIS_REST_URL', 'https://fixture.invalid'); vi.stubEnv('UPSTASH_REDIS_REST_TOKEN', 'test')
   mocks.load.mockResolvedValue({ redis: mocks.redis, archive: mocks.archive, master: mocks.master })
   mocks.extract.mockImplementation(async (_s, _a, options) => { options.onPrimaryReview(primary()); return [] })
+  mocks.prepareEvaluation.mockResolvedValue({ id: 'input' }); mocks.freezeEvaluation.mockResolvedValue({ id: 'run' })
   mocks.reports.mockImplementation(async (picks) => picks.map((p) => ({ ...p, report: 'Supplement' })))
 })
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs() })
@@ -107,6 +110,19 @@ describe('nightly foundation integration', () => {
     expect(mocks.values.get('research:latest').picks[0].ticker).toBe('OLD')
     expect(mocks.record).toHaveBeenCalled()
     expect(mocks.values.has('research:publication:lock:v1')).toBe(false)
+  })
+
+  it('still publishes the briefing when the shadow experiment cannot be frozen', async () => {
+    mocks.prepareEvaluation.mockRejectedValue(new Error('archive unavailable'))
+    mocks.extract.mockImplementation(async (_s, _a, options) => { options.onPrimaryReview(primary({ 20: [pick('QUIET', 20)] })); return [] })
+    const res = response()
+    await handler(request(), res)
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(mocks.values.get('research:latest').picksByHorizon[20][0].ticker).toBe('QUIET')
+    // Nothing is recorded for an experiment whose inputs were never frozen.
+    expect(mocks.freezeEvaluation).not.toHaveBeenCalled()
+    expect(mocks.archive.put).not.toHaveBeenCalledWith('evaluation-delivery', expect.anything(), expect.anything(), expect.anything())
+    expect(res.json.mock.calls[0][0].errors).toContainEqual({ step: 'evaluation', error: 'archive unavailable' })
   })
 
   it('does not allow overlapping publishers to overwrite a newer board', async () => {

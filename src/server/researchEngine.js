@@ -574,7 +574,7 @@ export function rankHighUpsideBoard(signalBoard, quotesByTicker = new Map(), sec
     })
 }
 
-async function getRankedSignalBoard(signals, articles, { discoveryHealthy = true, foundation } = {}) {
+async function getRankedSignalBoard(signals, articles, { discoveryHealthy = true, foundation, evaluation = false, evaluationSignals = signals } = {}) {
   const baseBoard = buildSignalBoard(signals, articles)
 
   // Coverage is read and written against the raw board, before selection,
@@ -610,6 +610,18 @@ async function getRankedSignalBoard(signals, articles, { discoveryHealthy = true
     select: (candidates, options) => selectCandidates(candidates, 30, { ...options, structuredResult: true }),
   }) : null
   const candidateTickers = [...new Set((admission?.candidates || selectCandidates(baseBoard)).map((item) => item.ticker))]
+  let baselineBoard = []
+  let baselineSignals = []
+  if (evaluation) {
+    const frozen = await import('./research/frozen/engine.js')
+    baselineSignals = frozen.prepareResearchSignals(evaluationSignals)
+    baselineBoard = frozen.buildSignalBoard(baselineSignals, articles)
+    for (const item of baselineBoard) item.coverageCount = baseBoard.find((b) => b.ticker === item.ticker)?.coverageCount
+    // The baseline's original 30-name budget is independent of fundamentals.
+    for (const item of frozen.selectCandidates(baselineBoard)) {
+      if (!candidateTickers.includes(item.ticker)) candidateTickers.push(item.ticker)
+    }
+  }
   let quotesByTicker = new Map()
   let sectorTrends = new Map()
 
@@ -634,9 +646,9 @@ async function getRankedSignalBoard(signals, articles, { discoveryHealthy = true
     }
   }
 
-  const permitted = new Set(candidateTickers)
+  const permitted = new Set(admission ? admission.candidates.map((c) => c.ticker) : candidateTickers)
   const ranked = rankHighUpsideBoard(baseBoard.filter((c) => permitted.has(c.ticker)), quotesByTicker, sectorTrends, coverageHistory)
-  return { board: ranked, sectorTrends, admission, quotesByTicker }
+  return { board: ranked, sectorTrends, admission, quotesByTicker, baselineBoard, baselineSignals, coverageHistory }
 }
 
 function sanitizeSignalText(text) {
@@ -1122,10 +1134,13 @@ export async function extractTickers(signals, articles, options = {}) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
 
+  const evaluationSignals = signals
   signals = prepareResearchSignals(signals)
-  const { board: initialBoard, sectorTrends, admission, quotesByTicker } = await getRankedSignalBoard(signals, articles, {
+  const { board: initialBoard, sectorTrends, admission, quotesByTicker, baselineBoard, baselineSignals, coverageHistory } = await getRankedSignalBoard(signals, articles, {
     discoveryHealthy: options.discoveryHealthy !== false,
     foundation: options.foundation,
+    evaluation: Boolean(options.onEvaluationInputs),
+    evaluationSignals,
   })
   // Review disclosures before the baseline, so a supported adverse filing can
   // veto an otherwise popular attention candidate in the same run.
@@ -1138,6 +1153,9 @@ export async function extractTickers(signals, articles, options = {}) {
   // Fetch per-ticker technical analysis for top candidates
   const { analyzeTickersBatch } = await import('./technicalAnalysis.js')
   const candidateTickers = signalBoard.filter((item) => item.quoteVerified).slice(0, 30).map((item) => item.ticker)
+  if (options.onEvaluationInputs) {
+    for (const ticker of quotesByTicker.keys()) if (!candidateTickers.includes(ticker)) candidateTickers.push(ticker)
+  }
   let technicals = new Map()
   try {
     technicals = await analyzeTickersBatch(candidateTickers, { concurrency: 3 })
@@ -1163,6 +1181,8 @@ export async function extractTickers(signals, articles, options = {}) {
     console.error('[researchEngine] performance stats load failed:', err.message)
   }
 
+  options.onEvaluationInputs?.({ signals, articles, baselineBoard, baselineSignals, quotesByTicker, sectorTrends, coverageHistory,
+    technicals, performanceStats, performanceBlock, admission, primary, regime: options.regime })
   const candidateSignalBoard = signalBoard.filter((item) => item.quoteVerified)
   if (candidateSignalBoard.length === 0) return []
 
@@ -1171,7 +1191,8 @@ export async function extractTickers(signals, articles, options = {}) {
   options.onBoard?.(candidateSignalBoard)
 
   const client = new Anthropic({ apiKey })
-  const userContent = buildTickerUserMessage(signals, articles, candidateSignalBoard, sectorTrends, technicals, options.regime)
+  const liveTechnicals = new Map([...technicals].filter(([ticker]) => signalBoard.some((c) => c.ticker === ticker)))
+  const userContent = buildTickerUserMessage(signals, articles, candidateSignalBoard, sectorTrends, liveTechnicals, options.regime)
 
   // Inject performance feedback into the system prompt
   const systemPrompt = performanceBlock

@@ -47,4 +47,11 @@ async function realHandler(req, res) {
   }
 }
 
-export default withRunLog('get-research', realHandler)
+const publicHandler = withRunLog('get-research', realHandler)
+export default async function handler(req, res) {
+  if (req.query?.evaluation === '1') {
+    const { default: evaluationHandler } = await import('../src/server/research/evaluationApi.js')
+    return evaluationHandler(req, res)
+  }
+  return publicHandler(req, res)
+}

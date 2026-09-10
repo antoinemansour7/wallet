@@ -67,17 +67,22 @@ beforeEach(async () => {
   handler = (await import('./plaid.js')).default
 })
 
-/** A fake Firestore db exposing just the chain handleHoldings walks. */
+/**
+ * A fake Firestore db exposing just the chain handleHoldings walks.
+ *
+ * Two collections, because the access token no longer sits with the
+ * connection: top-level `plaidTokens` holds the credential, and each
+ * connection snapshot carries the `ref.firestore` handle that
+ * `readAccessToken` reaches back through to reach it.
+ */
 function makeFirestoreDb(docs) {
-  return {
-    collection: () => ({
-      doc: () => ({
-        collection: () => ({
-          get: async () => ({ empty: docs.length === 0, docs }),
-        }),
-      }),
-    }),
+  const db = {
+    collection: (name) => name === 'plaidTokens'
+      ? { doc: (id) => ({ get: async () => ({ exists: true, data: () => docs.find((d) => d.id === id)?.data() }) }) }
+      : { doc: () => ({ collection: () => ({ get: async () => ({ empty: docs.length === 0, docs: snapshots }) }) }) },
   }
+  const snapshots = docs.map((doc) => ({ ...doc, ref: { firestore: db, parent: { parent: { id: 'user-1' } } } }))
+  return db
 }
 
 /** A minimal stand-in for the (req, res) pair Vercel functions receive. */

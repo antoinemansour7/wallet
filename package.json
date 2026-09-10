@@ -8,9 +8,9 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "cross-env NODE_ENV=test VITE_MOCK_AUTH=false vitest src",
-    "test:run": "cross-env NODE_ENV=test VITE_MOCK_AUTH=false vitest run src",
-    "test:coverage": "cross-env NODE_ENV=test VITE_MOCK_AUTH=false vitest run src --coverage"
+    "test": "cross-env NODE_ENV=test VITE_MOCK_AUTH=false vitest",
+    "test:run": "cross-env NODE_ENV=test VITE_MOCK_AUTH=false vitest run",
+    "test:coverage": "cross-env NODE_ENV=test VITE_MOCK_AUTH=false vitest run --coverage"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
