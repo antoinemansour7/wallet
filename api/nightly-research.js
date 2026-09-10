@@ -231,6 +231,7 @@ async function runDiscovery(res, startedAt, recordRun, foundation, budget) {
 
   // Step 3: extract tickers via Claude
   let tickers = []
+  let modelBoard = []
   let shadowBoard = []
   let primaryReview = null
   let evaluationInputs = null
@@ -247,7 +248,13 @@ async function runDiscovery(res, startedAt, recordRun, foundation, budget) {
       extractTickers(signals, articles, {
         foundation,
         onPrimaryReview: (result) => { primaryReview = result },
-        onBoard: (board) => { shadowBoard = board.slice(0, 15) },
+        onBoard: (board) => {
+          // summarizeSignalsForPrompt serializes at most 30 candidates. Keep
+          // that exact model input for observability; the existing 15-name
+          // shadow experiment remains a separate, unchanged sample below.
+          modelBoard = board.slice(0, 30)
+          shadowBoard = modelBoard.slice(0, 15)
+        },
         regime,
         discoveryHealthy,
         // Capture the already-collected evidence, but do not start the shadow
@@ -260,7 +267,8 @@ async function runDiscovery(res, startedAt, recordRun, foundation, budget) {
       // pipeline does not actually have.
       metrics: (accepted) => ({
         accepted: accepted.length,
-        boardSize: shadowBoard.length,
+        boardSize: modelBoard.length,
+        admitted: primaryReview?.admission?.audit?.funnel?.admitted,
         rejected: primaryReview?.admission?.audit?.rejected?.length,
         budgetExhausted: primaryReview?.admission?.audit?.notReviewed?.length,
       }),
@@ -360,12 +368,15 @@ async function runDiscovery(res, startedAt, recordRun, foundation, budget) {
   // Trace every candidate this run considered while the reasons are still in
   // scope. Recorded before reports are written, for the same reason the picks
   // are: a run cut short at its longest leg should still explain itself.
-  recordCandidates(candidateTraces({
-    board: shadowBoard,
+  const publishedThisRun = Object.values(picksByHorizon).flat().filter((pick) => pick.generatedAt === generatedAt)
+  const traces = candidateTraces({
+    board: modelBoard,
     admission: primaryReview?.admission,
+    primaryReview,
     accepted: tickers,
-    published: Object.values(picksByHorizon).flat(),
-  }))
+    published: publishedThisRun,
+  })
+  recordCandidates(traces, primaryReview?.admission)
 
   // Only new winners need reports. A candidate that lost to a carried decision
   // must not overwrite that decision's report, even when the ticker is equal.

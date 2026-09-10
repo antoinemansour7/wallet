@@ -173,7 +173,9 @@ describe('quarterly comparability', () => {
 })
 
 describe('stream admission', () => {
-  const candidate = (id, families, priority = 1, adverse = false) => ({ ...security(id), evidence: families.map((family) => ({ id: `${id}:${family}`, strategyFamily: family, publicAt, availableAt: seenAt, priority, decision: { status: adverse ? 'rejected' : 'eligible', reason: adverse ? 'Material adverse filing' : 'Valid evidence' }, interpretation: { adverse } })) })
+  const candidate = (id, families, priority = 1, adverse = false) => ({ ...security(id), evidence: families.map((family) => ({ id: `${id}:${family}`, strategyFamily: family, horizon: family === 'fundamentals' ? 20 : family === 'attention' ? 5 : 60,
+    source: family === 'attention' ? { url: 'https://x.com/research/status/1', type: 'account', labels: ['@research'] } : { url: 'https://www.sec.gov/filing.htm', accession: 'fixture' },
+    publicAt, availableAt: seenAt, priority, decision: { status: adverse ? 'rejected' : 'eligible', reason: adverse ? 'Material adverse filing' : 'Valid evidence' }, interpretation: { adverse } })) })
   it('honors 12/10/5/3 even when zero-attention candidates have lower priority', () => {
     const board = [...Array.from({ length: 30 }, (_, i) => candidate(`A${i}`, ['attention'], 100)), ...Array.from({ length: 15 }, (_, i) => candidate(`F${i}`, ['fundamentals'])), ...Array.from({ length: 8 }, (_, i) => candidate(`D${i}`, ['filing_changes'])), ...Array.from({ length: 6 }, (_, i) => candidate(`I${i}`, ['insider']))]
     const result = selectCandidates(board, 30, { asOf: reviewedAt, structuredResult: true })
@@ -197,6 +199,30 @@ describe('stream admission', () => {
     expect(result.candidates).toEqual([])
     expect(result.audit.rejected.find((r) => r.securityId === popular.securityId).reason).toBe('Material adverse filing')
     expect(() => admitCandidates([], { budgets: { attention: 30 } })).toThrow('exactly 30')
+  })
+  it('records identity, evidence, ranks, stream usage and the names immediately below each cutoff', () => {
+    const board = [
+      ...Array.from({ length: 12 }, (_, i) => candidate(`A${i}`, ['attention'], 100 - i)),
+      ...Array.from({ length: 11 }, (_, i) => candidate(`F${i}`, ['fundamentals'], 90 - i)),
+      ...Array.from({ length: 5 }, (_, i) => candidate(`D${i}`, ['filing_changes'], 70 - i)),
+      ...Array.from({ length: 3 }, (_, i) => candidate(`I${i}`, ['insider'], 60 - i)),
+    ]
+
+    const result = admitCandidates(board, { asOf: reviewedAt })
+    const excluded = result.audit.notReviewed.find((item) => item.ticker === 'F10')
+    const fundamentals = result.audit.streams.find((stream) => stream.strategy === 'fundamentals')
+
+    expect(result.candidates).toHaveLength(30)
+    expect(result.audit.funnel).toEqual({ discovered: 31, eligible: 31, admitted: 30, notReviewed: 1, rejected: 0 })
+    expect(excluded).toMatchObject({
+      ticker: 'F10', name: 'F10 Corporation', securityId: 'figi:F10', priority: 80,
+      streams: ['fundamentals'], streamRanks: { fundamentals: 11 }, reason: 'review_budget_exhausted',
+      sources: ['SEC'], budgetUsage: { fundamentals: { configured: 10, reservedUsed: 10, selected: 10, reallocatedIn: 0, reallocatedOut: 0 } },
+    })
+    expect(excluded.evidence[0]).toMatchObject({ id: 'F10:fundamentals', strategy: 'fundamentals', horizon: 20, source: 'SEC', type: 'SEC filing' })
+    expect(fundamentals).toMatchObject({ configured: 10, reservedUsed: 10, selected: 10, waiting: 1, reallocatedIn: 0, reallocatedOut: 0 })
+    expect(fundamentals.lowestAdmitted).toMatchObject({ ticker: 'F9', priority: 81, streamRanks: { fundamentals: 10 } })
+    expect(fundamentals.belowCutoff[0]).toMatchObject({ ticker: 'F10', priority: 80, priorityGap: 1 })
   })
 })
 

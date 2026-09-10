@@ -198,9 +198,9 @@ describe('nightly foundation integration', () => {
     const [, line] = mocks.redis.lpush.mock.calls.find(([key]) => key === RESEARCH_RUNS_KEY)
     const byTicker = Object.fromEntries(JSON.parse(line).candidates.map((c) => [c.ticker, c]))
     expect(byTicker.FAST).toMatchObject({ outcome: 'published', reviewed: true, rank: 1 })
-    expect(byTicker.XYZ).toMatchObject({ outcome: 'rejected', reason: 'unresolved_identity', reviewed: false })
+    expect(byTicker.XYZ).toMatchObject({ outcome: 'discovered', reason: 'unresolved_identity', reviewed: false, sentToClaude: false })
     expect(byTicker.LATE).toMatchObject({ outcome: 'not_reviewed', reason: 'review_budget_exhausted', reviewed: false })
-    expect(byTicker.QUIET).toMatchObject({ outcome: 'board', reviewed: false })
+    expect(byTicker.QUIET).toMatchObject({ outcome: 'reviewed_rejected', reviewed: true, sentToClaude: true })
   })
 
   it('does not allow overlapping publishers to overwrite a newer board', async () => {

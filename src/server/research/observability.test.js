@@ -162,8 +162,8 @@ describe('candidateTraces', () => {
     const traces = candidateTraces({ admission })
 
     expect(traces).toEqual(expect.arrayContaining([
-      expect.objectContaining({ ticker: 'XYZ', outcome: 'rejected', reason: 'unresolved_identity', reviewed: false }),
-      expect.objectContaining({ ticker: 'LATE', outcome: 'not_reviewed', reason: 'review_budget_exhausted', reviewed: false }),
+      expect.objectContaining({ ticker: 'XYZ', outcome: 'discovered', reason: 'unresolved_identity', reviewed: false, sentToClaude: false }),
+      expect.objectContaining({ ticker: 'LATE', outcome: 'not_reviewed', reason: 'review_budget_exhausted', reviewed: false, sentToClaude: false }),
     ]))
   })
 
@@ -201,7 +201,37 @@ describe('candidateTraces', () => {
     })
 
     expect(traces.filter((t) => t.ticker === 'XYZ')).toHaveLength(1)
-    expect(traces.find((t) => t.ticker === 'QUIET')).toMatchObject({ outcome: 'board', reviewed: false })
+    expect(traces.find((t) => t.ticker === 'QUIET')).toMatchObject({ outcome: 'reviewed_rejected', reviewed: true, sentToClaude: true })
+  })
+
+  it('joins a published pick that omitted its ID to the admitted security instead of emitting a contradictory duplicate', () => {
+    const traced = candidateTraces({
+      admission: { audit: { selected: [{ ticker: 'RKLB', securityId: 'figi:RKLB', name: 'Rocket Lab USA', streams: ['attention'], sources: ['X / attention'] }] } },
+      board: [{ ticker: 'RKLB', securityId: 'figi:RKLB' }],
+      published: [{ ticker: 'RKLB', finalScore: 84 }],
+    })
+
+    expect(traced).toHaveLength(1)
+    expect(traced[0]).toMatchObject({ ticker: 'RKLB', securityId: 'figi:RKLB', name: 'Rocket Lab USA', outcome: 'published', sentToClaude: true })
+  })
+
+  it('distinguishes primary candidates sent to Claude from quote failures that never reached it', () => {
+    const traced = candidateTraces({
+      admission: { audit: { selected: [
+        { ticker: 'SENT', securityId: 'figi:SENT', streams: ['fundamentals'] },
+        { ticker: 'NOQUOTE', securityId: 'figi:NOQUOTE', streams: ['fundamentals'] },
+      ] } },
+      primaryReview: {
+        reviewedSecurityIds: ['figi:SENT'],
+        decisions: [
+          { securityId: 'figi:SENT', status: 'rejected', reason: 'Thesis too weak' },
+          { securityId: 'figi:NOQUOTE', status: 'rejected', reason: 'Fresh matching-currency quote unavailable' },
+        ],
+      },
+    })
+
+    expect(traced.find((item) => item.ticker === 'SENT')).toMatchObject({ outcome: 'reviewed_rejected', sentToClaude: true })
+    expect(traced.find((item) => item.ticker === 'NOQUOTE')).toMatchObject({ outcome: 'discovered', sentToClaude: false })
   })
 })
 
@@ -267,6 +297,26 @@ describe('recordResearchRun', () => {
     })
 
     expect(stored(fake).candidates).toEqual([{ ticker: 'RKLB', outcome: 'published', rank: 1 }])
+  })
+
+  it('persists an exact admission-to-publication funnel with the stream diagnostic', async () => {
+    const fake = redis()
+    const admission = { audit: {
+      funnel: { discovered: 82, eligible: 82, admitted: 15, notReviewed: 67, rejected: 0 },
+      streams: [{ strategy: 'attention', configured: 12, reservedUsed: 12, selected: 12, waiting: 14 }],
+      reallocations: [],
+    } }
+    const traces = [
+      { ticker: 'RKLB', outcome: 'published', sentToClaude: true, claudeStatus: 'accepted' },
+      { ticker: 'LATE', outcome: 'not_reviewed', sentToClaude: false, claudeStatus: 'not_sent' },
+    ]
+
+    await recordResearchRun(fake, { job: 'nightly-research' }, async () => recordCandidates(traces, admission))
+
+    expect(stored(fake).admission).toMatchObject({
+      funnel: { discovered: 82, eligible: 82, admitted: 15, sentToClaude: 1, claudeAccepted: 1, published: 1, notReviewed: 67 },
+      streams: [{ strategy: 'attention', configured: 12, reservedUsed: 12, waiting: 14 }],
+    })
   })
 
   it('bounds retention so the run history cannot grow without limit', async () => {

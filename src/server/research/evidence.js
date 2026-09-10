@@ -125,7 +125,8 @@ export async function archiveAttentionSignals(signals, master, archive, now = ne
     const document = await archive.putDocument({ issuerId: security.issuerId, eventId: signal.id || digest(signal), url: sourceUrl,
       publicAt: iso(published, 'publicAt'), firstSeenAt: now, mediaType: 'application/json',
       availabilityBasis: signal.createdAt ? 'source_timestamp' : 'first_observed', bytes: JSON.stringify(signal) })
-    const item = createEvidence({ security, strategyFamily: 'attention', source: { documentId: document.id, eventId: document.eventId, url: sourceUrl, excerpt: signal.text || 'Structured screener observation' },
+    const item = createEvidence({ security, strategyFamily: 'attention', source: { documentId: document.id, eventId: document.eventId, url: sourceUrl,
+      type: signal.sourceType || null, labels: signal.sourceLabels || [], excerpt: signal.text || 'Structured screener observation' },
       publicAt: document.publicAt, firstSeenAt: document.firstSeenAt, extractionCompletedAt: now,
       interpretation: { thesis: signal.text || '', role: signal.sourceRole || 'conviction' },
       measurements: { attention: { mentions: 1, publisher: signal.username || null, sourceLabels: signal.sourceLabels || [] } },

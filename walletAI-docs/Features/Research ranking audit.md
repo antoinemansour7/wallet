@@ -43,3 +43,15 @@ The SEC distinguishes actual performance from hypothetical backtested results an
 ## Validation
 
 Regression coverage includes ranking preservation, duplicate/spam evidence, invalid model output, quote failures, risk-gate abstention, traceable event citations, completed-session timing, weekend/holiday handling, overnight gaps, historical checkpoint backfills, cost/benchmark calculations, small-sample feedback suppression, and idempotent versioned storage. These tests establish software behavior, not future investment returns.
+
+## Review-budget investigation (September 10, 2026)
+
+The production run starting at `2026-09-10T23:04:21.316Z` reported `boardSize: 15`, `accepted: 4`, and `budgetExhausted: 67`. A read-only reconstruction from admission `556faf03c8abd41bec5658b7d02c94651311c4ad678f344ce7b0bf8b053173e1` established:
+
+- The admission pool contained 97 unique eligible securities, all from the attention strategy. None of the 67 excluded securities was admitted from fundamentals, filing changes, or insider evidence in that run.
+- Attention filled its 12 reserved slots. Because the other three strategies had no eligible candidates, their 18 unused slots were reallocated to attention. This admitted 30 securities in total and left 67 eligible securities below the cutoff.
+- All 67 stable security IDs still resolved through the decision-time security master. The first five excluded identities, in the order retained by the old admission audit, were RGTI (Rigetti Computing), CRWV (CoreWeave), QBTS (D-Wave Quantum), IONQ (IonQ), and LOVE (The Lovesac Company).
+- `review_budget_exhausted` described exhaustion of the fixed 30-candidate admission quota, not exhaustion of the Vercel runtime budget.
+- The old `boardSize: 15` metric measured a `slice(0, 15)` retained for shadow logging. It proved only that at least 15 attention candidates reached that point; it did not prove that Claude received exactly 15. The prompt itself accepted up to 30.
+
+The old audit retained excluded security IDs in rank order but discarded their ticker, company, exact decision-time priority, evidence IDs, source breakdown, and cutoff gap. Those missing values cannot be reconstructed exactly after the fact because attention evidence from repeated signals is immutable and may carry an earlier archive timestamp. From this change forward, the run log stores those decision-time values directly, separately records the full Claude input and the unchanged top-15 shadow cohort, and presents the ten candidates immediately below every stream cutoff. No budget, rank, horizon, frozen baseline, or shadow-sampling policy changed as part of this investigation.

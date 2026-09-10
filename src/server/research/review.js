@@ -65,7 +65,7 @@ export function stampPick(pick, candidate, family, { now = new Date().toISOStrin
 // or trader-conviction gate enter this path. Quotes are supplied from the same
 // 30-name admission budget used by the baseline engine.
 export async function reviewPrimaryCandidates(admission, quotesByTicker, { archive, reviewer = primaryReviewer, now = () => new Date().toISOString() }) {
-  const picksByHorizon = { 20: [], 60: [] }, decisions = [], vetoes = new Set(), documentCache = new Map()
+  const picksByHorizon = { 20: [], 60: [] }, decisions = [], vetoes = new Set(), reviewedSecurityIds = new Set(), documentCache = new Map()
   for (const horizon of [20, 60]) {
     const inputs = []
     for (const candidate of admission.candidates) {
@@ -94,6 +94,7 @@ export async function reviewPrimaryCandidates(admission, quotesByTicker, { archi
         measurements: { price, liquidity: { volume: quote.volume ?? null }, priceResponse: { changePercent: quote.changePercent ?? null }, attention: candidate.attention?.signalCount ?? 0 } })
     }
     if (!inputs.length) continue
+    inputs.forEach((input) => reviewedSecurityIds.add(input.securityId))
     const output = await reviewer({ horizon, candidates: inputs })
     const seen = new Set()
     for (const item of output) {
@@ -134,7 +135,8 @@ export async function reviewPrimaryCandidates(admission, quotesByTicker, { archi
     const ranked = picksByHorizon[horizon].filter((p) => !vetoes.has(p.securityId)).sort((a, b) => b.finalScore - a.finalScore || a.securityId.localeCompare(b.securityId))
     picksByHorizon[horizon] = [...new Map(ranked.map((p) => [p.securityId, ranked.find((r) => r.securityId === p.securityId)])).values()].slice(0, 5)
   }
-  const record = { admissionId: admission.id, decisions, picksByHorizon, vetoes: [...vetoes], availableAt: now(), modelVersion: RESEARCH_MODEL_VERSION, evaluationVersion: EVALUATION_VERSION }
+  const record = { admissionId: admission.id, decisions, picksByHorizon, vetoes: [...vetoes], reviewedSecurityIds: [...reviewedSecurityIds],
+    availableAt: now(), modelVersion: RESEARCH_MODEL_VERSION, evaluationVersion: EVALUATION_VERSION }
   const id = digest(record)
   await archive.put('review', id, { ...record, id }, 'reviews', record.availableAt)
   return { ...record, id }
