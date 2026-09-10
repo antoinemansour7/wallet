@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 export function Logo({ size = 30, withWordmark = true, inverted = false }) {
@@ -86,7 +86,7 @@ function Avatar({ user, size = 32 }) {
 // Account dropdown. Three nav items don't justify a persistent rail, but the
 // account details still need somewhere to live — a menu keeps the bar itself
 // down to identity and navigation.
-function AccountMenu({ user, onSignOut }) {
+function AccountMenu({ user, onSignOut, isResearchOwner }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
 
@@ -139,6 +139,31 @@ function AccountMenu({ user, onSignOut }) {
               <p className="truncate text-[11px] text-ink/35">{user.email}</p>
             </div>
           </div>
+          {/* Rendered only once the server has confirmed this session as the
+              research owner — never for a regular signed-in user. See
+              AuthContext's isResearchOwner check. */}
+          {isResearchOwner && (
+            <>
+              <Link
+                to="/research/logs"
+                role="menuitem"
+                onClick={() => setOpen(false)}
+                className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] text-ink/60 transition-colors hover:bg-ink/[0.05] hover:text-ink focus-visible:outline-none focus-visible:bg-ink/[0.05]"
+              >
+                <ResearchIcon />
+                Research logs
+              </Link>
+              <Link
+                to="/research/evaluation"
+                role="menuitem"
+                onClick={() => setOpen(false)}
+                className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] text-ink/60 transition-colors hover:bg-ink/[0.05] hover:text-ink focus-visible:outline-none focus-visible:bg-ink/[0.05]"
+              >
+                <ResearchIcon />
+                Research evaluation
+              </Link>
+            </>
+          )}
           <button
             type="button"
             role="menuitem"
@@ -158,7 +183,7 @@ function AccountMenu({ user, onSignOut }) {
 // bar gives the full window width back to the dashboard, which is the dense
 // part of this app. Mobile keeps the native-style bottom tab bar.
 export default function Navbar() {
-  const { user, signOut } = useAuth()
+  const { user, signOut, isResearchOwner } = useAuth()
 
   return (
     <>
@@ -202,7 +227,7 @@ export default function Navbar() {
 
           <div className="ml-auto flex shrink-0 items-center gap-1">
             {user && <ThemeToggle />}
-            {user && <AccountMenu user={user} onSignOut={signOut} />}
+            {user && <AccountMenu user={user} onSignOut={signOut} isResearchOwner={isResearchOwner} />}
           </div>
         </div>
       </header>

@@ -15,14 +15,14 @@ const mocks = vi.hoisted(() => {
   const archive = { put: vi.fn(async (kind, _id, payload) => { if (kind === 'publication') publications.push(structuredClone(payload)); return payload }) }
   const master = { resolve: ({ ticker }) => [{ ticker, securityId: `figi:${ticker}` }] }
   return { values, publications, redis, archive, master, load: vi.fn(), extract: vi.fn(), reports: vi.fn(), record: vi.fn(), quotes: vi.fn(),
-    prepareEvaluation: vi.fn(), freezeEvaluation: vi.fn() }
+    yahoo: vi.fn(), prepareEvaluation: vi.fn(), freezeEvaluation: vi.fn() }
 })
 vi.mock('@upstash/redis', () => ({ Redis: { fromEnv: () => mocks.redis } }))
 vi.mock('./evaluation.js', () => ({ prepareEvaluation: mocks.prepareEvaluation, freezeEvaluation: mocks.freezeEvaluation }))
 vi.mock('./foundation.js', () => ({ loadFoundation: mocks.load }))
 vi.mock('../runLog.js', () => ({ recordRun: mocks.record }))
 vi.mock('../xSignals.js', () => ({ collectXSignals: async () => ({ signals: [], queries: [], stats: { provider: 'fixture' } }), deriveAdaptiveSeed: () => ({}) }))
-vi.mock('../researchEngine.js', () => ({ fetchAllYahooNews: async () => [], extractTickers: (...args) => { args[2].onEvaluationInputs({}); return mocks.extract(...args) }, finalizePicks: (picks) => picks, generateResearchReports: mocks.reports }))
+vi.mock('../researchEngine.js', () => ({ fetchAllYahooNews: mocks.yahoo, extractTickers: (...args) => { args[2].onEvaluationInputs({}); return mocks.extract(...args) }, finalizePicks: (picks) => picks, generateResearchReports: mocks.reports }))
 vi.mock('../technicalScreener.js', () => ({ fetchBreakoutCandidates: async () => [], candidatesToSignals: () => [] }))
 vi.mock('../agents/contrarianAgent.js', () => ({ runContrarianAgent: async (picks) => picks }))
 vi.mock('../agents/catalystAgent.js', () => ({ runCatalystAgent: async (picks) => picks }))
@@ -44,6 +44,7 @@ beforeEach(() => {
   vi.stubEnv('CRON_SECRET', 'test'); vi.stubEnv('UPSTASH_REDIS_REST_URL', 'https://fixture.invalid'); vi.stubEnv('UPSTASH_REDIS_REST_TOKEN', 'test')
   mocks.load.mockResolvedValue({ redis: mocks.redis, archive: mocks.archive, master: mocks.master })
   mocks.extract.mockImplementation(async (_s, _a, options) => { options.onPrimaryReview(primary()); return [] })
+  mocks.yahoo.mockResolvedValue([])
   mocks.prepareEvaluation.mockResolvedValue({ id: 'input' }); mocks.freezeEvaluation.mockResolvedValue({ id: 'run' })
   mocks.reports.mockImplementation(async (picks) => picks.map((p) => ({ ...p, report: 'Supplement' })))
 })
@@ -85,7 +86,7 @@ describe('nightly foundation integration', () => {
     mocks.redis.lpush.mockRejectedValueOnce(new Error('index unavailable'))
     mocks.reports.mockRejectedValueOnce(new Error('report unavailable'))
     await handler(request(), response())
-    expect(mocks.redis.lpush).toHaveBeenCalledTimes(2)
+    expect(mocks.redis.lpush.mock.calls.filter(([key]) => key === 'research:history-index')).toHaveLength(2)
     expect(mocks.values.get('research:latest')).toMatchObject({ picks: [{ ticker: 'FAST' }], reportsPending: false })
     expect(mocks.values.get('research:latest').errors.map((e) => e.step)).toEqual(expect.arrayContaining(['store-partial', 'reports']))
   })
@@ -123,6 +124,55 @@ describe('nightly foundation integration', () => {
     expect(mocks.freezeEvaluation).not.toHaveBeenCalled()
     expect(mocks.archive.put).not.toHaveBeenCalledWith('evaluation-delivery', expect.anything(), expect.anything(), expect.anything())
     expect(res.json.mock.calls[0][0].errors).toContainEqual({ step: 'evaluation', error: 'archive unavailable' })
+  })
+
+  it('records a run summary naming the stages it ran, so an overnight run is legible by morning', async () => {
+    const { RESEARCH_RUNS_KEY } = await import('./observability.js')
+    await handler(request(), response())
+
+    const [, line] = mocks.redis.lpush.mock.calls.find(([key]) => key === RESEARCH_RUNS_KEY)
+    const summary = JSON.parse(line)
+    expect(summary).toMatchObject({ job: 'nightly-research', status: 'success', runId: expect.any(String) })
+    expect(summary.stages.map((s) => s.stage)).toEqual(expect.arrayContaining([
+      'foundation_load', 'x_discovery', 'news_discovery', 'claude_review',
+    ]))
+  })
+
+  it('reports a degraded discovery leg as a partial run rather than a clean one', async () => {
+    const { RESEARCH_RUNS_KEY } = await import('./observability.js')
+    mocks.yahoo.mockRejectedValueOnce(new Error('yahoo unavailable'))
+
+    await handler(request(), response())
+
+    const [, line] = mocks.redis.lpush.mock.calls.find(([key]) => key === RESEARCH_RUNS_KEY)
+    const summary = JSON.parse(line)
+    expect(summary.status).toBe('partial')
+    expect(summary.stages.find((s) => s.stage === 'news_discovery')).toMatchObject({
+      status: 'failed', error: { message: 'yahoo unavailable' },
+    })
+  })
+
+  it('traces why each candidate did or did not reach the board', async () => {
+    const { RESEARCH_RUNS_KEY } = await import('./observability.js')
+    mocks.extract.mockImplementation(async (_s, _a, options) => {
+      options.onBoard([{ ticker: 'QUIET', securityId: 'figi:QUIET' }])
+      options.onPrimaryReview(primary({ 20: [], 60: [] }, {
+        admission: { id: 'admission', audit: {
+          rejected: [{ securityId: 'figi:XYZ', ticker: 'XYZ', reason: 'unresolved_identity' }],
+          notReviewed: [{ securityId: 'figi:LATE', ticker: 'LATE', reason: 'review_budget_exhausted' }],
+        } },
+      }))
+      return [pick('FAST')]
+    })
+
+    await handler(request(), response())
+
+    const [, line] = mocks.redis.lpush.mock.calls.find(([key]) => key === RESEARCH_RUNS_KEY)
+    const byTicker = Object.fromEntries(JSON.parse(line).candidates.map((c) => [c.ticker, c]))
+    expect(byTicker.FAST).toMatchObject({ outcome: 'published', reviewed: true, rank: 1 })
+    expect(byTicker.XYZ).toMatchObject({ outcome: 'rejected', reason: 'unresolved_identity', reviewed: false })
+    expect(byTicker.LATE).toMatchObject({ outcome: 'not_reviewed', reason: 'review_budget_exhausted', reviewed: false })
+    expect(byTicker.QUIET).toMatchObject({ outcome: 'board', reviewed: false })
   })
 
   it('does not allow overlapping publishers to overwrite a newer board', async () => {

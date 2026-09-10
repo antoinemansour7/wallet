@@ -18,6 +18,7 @@ import { runExaDiscovery } from '../src/server/agents/exaDiscoveryAgent.js'
 import { sendPickAlerts } from '../src/server/agents/slackAgent.js'
 import { getMarketRegime, regimeSizeMultiplier } from '../src/server/marketRegime.js'
 import { prepareEvaluation, freezeEvaluation } from '../src/server/research/evaluation.js'
+import { STAGES, candidateTraces, recordCandidates, recordResearchRun, stage } from '../src/server/research/observability.js'
 
 const RESEARCH_KEY = 'research:latest'
 const RESEARCH_TTL = 48 * 60 * 60 // 48 hours
@@ -101,8 +102,9 @@ export default async function handler(req, res) {
   if (!redis) return res.status(503).json({ error: 'Redis not configured' })
   const lock = 'research:publication:lock:v1', token = randomUUID()
   if (!await redis.set(lock, token, { nx: true, ex: 360 })) return res.status(409).json({ error: 'Research publication already running' })
+  const job = req.query?.mode === 'premarket' ? 'premarket-check' : 'nightly-research'
   try {
-    return await runLocked(req, res, startedAt, recordRun, redis)
+    return await recordResearchRun(redis, { job }, () => runLocked(req, res, startedAt, recordRun, redis))
   } finally {
     await redis.eval("if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end", [lock], [token])
   }
@@ -111,7 +113,7 @@ export default async function handler(req, res) {
 async function runLocked(req, res, startedAt, recordRun, redis) {
   if (req.query?.mode === 'premarket') {
     try {
-      const result = await runPremarketCheck(res)
+      const result = await stage(STAGES.premarket_check, () => runPremarketCheck(res))
       await recordRun('premarket-check', startedAt, { errors: [] })
       return result
     } catch (err) {
@@ -122,7 +124,7 @@ async function runLocked(req, res, startedAt, recordRun, redis) {
   }
 
   let foundation
-  try { foundation = await loadFoundation({ redis }) }
+  try { foundation = await stage(STAGES.foundation_load, () => loadFoundation({ redis })) }
   catch (error) {
     await recordRun('nightly-research', startedAt, { errors: [{ step: 'foundation', error: error.message }] })
     return res.status(503).json({ error: `Research foundation unavailable: ${error.message}` })
@@ -138,7 +140,8 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
   let queries = []
   let signalStats = { accountSignals: 0, searchSignals: 0 }
   try {
-    const xResult = await collectXSignals()
+    const xResult = await stage(STAGES.x_discovery, () => collectXSignals(),
+      { metrics: (result) => ({ signals: result.signals.length, queries: result.queries.length, provider: result.stats?.provider }) })
     signals = xResult.signals
     queries = xResult.queries
     signalStats = xResult.stats
@@ -156,7 +159,7 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
   // Step 2: fetch Yahoo Finance RSS (secondary context / confirmation layer)
   let articles = []
   try {
-    articles = await fetchAllYahooNews()
+    articles = await stage(STAGES.news_discovery, () => fetchAllYahooNews(), { metrics: (found) => ({ articles: found.length }) })
     console.log(`[nightly-research] fetched ${articles.length} articles`)
   } catch (err) {
     console.error('[nightly-research] yahoo rss failed:', err.message)
@@ -165,8 +168,9 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
 
   // Step 2.5: technical screener (pre-breakout/squeeze detection)
   try {
-    const candidates = await fetchBreakoutCandidates()
-    const screenerSignals = candidatesToSignals(candidates)
+    const screenerSignals = await stage(STAGES.screener_discovery,
+      async () => candidatesToSignals(await fetchBreakoutCandidates()),
+      { metrics: (found) => ({ signals: found.length }) })
     signals = [...signals, ...screenerSignals]
     console.log(`[nightly-research] screener signals: ${screenerSignals.length}`)
   } catch (err) {
@@ -178,8 +182,9 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
   let exaSignalCount = 0
   try {
     const { deriveAdaptiveSeed } = await import('../src/server/xSignals.js')
-    const seed = deriveAdaptiveSeed({ baseSignals: signals })
-    const exaSignals = await runExaDiscovery(seed)
+    const exaSignals = await stage(STAGES.exa_discovery,
+      () => runExaDiscovery(deriveAdaptiveSeed({ baseSignals: signals })),
+      { metrics: (found) => ({ signals: found.length }) })
     signals = [...signals, ...exaSignals]
     exaSignalCount = exaSignals.length
     console.log(`[nightly-research] exa discovery: ${exaSignals.length} signals`)
@@ -191,7 +196,8 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
   // Step 2.8: day-trade catalysts — next-session earnings reporters
   try {
     const { collectDayTradeSignals } = await import('../src/server/dayTradeSignals.js')
-    const dayTradeSignals = await collectDayTradeSignals('nightly')
+    const dayTradeSignals = await stage(STAGES.day_trade_signals, () => collectDayTradeSignals('nightly'),
+      { metrics: (found) => ({ signals: found.length }) })
     signals = [...signals, ...dayTradeSignals]
     console.log(`[nightly-research] day-trade signals: ${dayTradeSignals.length}`)
   } catch (err) {
@@ -206,7 +212,8 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
   // the single month it currently covers; it cannot be backfilled.
   let regime = null
   try {
-    regime = await getMarketRegime()
+    regime = await stage(STAGES.market_regime, () => getMarketRegime(),
+      { metrics: (tape) => ({ score: tape?.score, label: tape?.label, coverage: tape?.coverage }) })
     if (regime) {
       console.log(`[nightly-research] market regime: ${regime.score}/10 (${regime.label})`
         + ` — drag: ${regime.drag?.label} | ${regime.coverage} components`)
@@ -230,7 +237,7 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
     const discoveryHealthy = !errors.some((e) => DISCOVERY_STEPS.includes(e.step))
     if (!discoveryHealthy) console.warn('[nightly-research] discovery degraded — coverage history will not record this run')
 
-    tickers = await extractTickers(signals, articles, {
+    tickers = await stage(STAGES.claude_review, () => extractTickers(signals, articles, {
       foundation,
       onPrimaryReview: (result) => { primaryReview = result },
       onBoard: (board) => { shadowBoard = board.slice(0, 15) },
@@ -242,6 +249,16 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
         evaluationPromise = prepareEvaluation({ ...inputs, discoveryHealthy }, foundation)
           .then((snapshot) => ({ snapshot }), (error) => ({ error }))
       },
+    }), {
+      // Admission and review-budget selection happen inside extractTickers, so
+      // they are reported here as counts rather than as a stage boundary the
+      // pipeline does not actually have.
+      metrics: (accepted) => ({
+        accepted: accepted.length,
+        boardSize: shadowBoard.length,
+        rejected: primaryReview?.admission?.audit?.rejected?.length,
+        budgetExhausted: primaryReview?.admission?.audit?.notReviewed?.length,
+      }),
     })
     console.log(`[nightly-research] extracted ${tickers.length} tickers:`, tickers.map((t) => t.ticker))
   } catch (err) {
@@ -262,7 +279,8 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
   // Step 3.5: Contrarian Agent — stress-test each pick with bear case
   if (tickers.length > 0) {
     try {
-      tickers = await runContrarianAgent(tickers)
+      tickers = await stage(STAGES.contrarian_review, () => runContrarianAgent(tickers),
+        { metrics: (reviewed) => ({ candidates: reviewed.length, bearCases: reviewed.filter((t) => t.bearCase).length }) })
       const bearCases = tickers.filter((t) => t.bearCase).length
       console.log(`[nightly-research] contrarian agent: ${bearCases}/${tickers.length} bear cases generated`)
     } catch (err) {
@@ -274,7 +292,8 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
   // Step 3.6: Catalyst Agent — verify catalysts via Exa search
   if (tickers.length > 0) {
     try {
-      tickers = await runCatalystAgent(tickers)
+      tickers = await stage(STAGES.catalyst_verification, () => runCatalystAgent(tickers),
+        { metrics: (checked) => ({ candidates: checked.length, verified: checked.filter((t) => t.catalystVerified).length }) })
       const verified = tickers.filter((t) => t.catalystVerified).length
       console.log(`[nightly-research] catalyst agent: ${verified}/${tickers.length} catalysts verified`)
     } catch (err) {
@@ -287,7 +306,8 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
   // catalyst verification) so delivery order reflects true expected edge
   if (tickers.length > 0) {
     const before = tickers.map((t) => t.ticker)
-    tickers = finalizePicks(tickers)
+    tickers = await stage(STAGES.final_ranking, async () => finalizePicks(tickers),
+      { metrics: (ranked) => ({ picks: ranked.length }) })
     console.log(`[nightly-research] finalized order: ${before.join(',')} → ${tickers.map((t) => t.ticker).join(',')}`)
   }
 
@@ -329,6 +349,16 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
     ...(primaryReview?.vetoes || []),
     ...(primaryReview?.admission.audit.rejected || []).filter((r) => r.evidenceId).map((r) => r.securityId),
   ] })
+  // Trace every candidate this run considered while the reasons are still in
+  // scope. Recorded before reports are written, for the same reason the picks
+  // are: a run cut short at its longest leg should still explain itself.
+  recordCandidates(candidateTraces({
+    board: shadowBoard,
+    admission: primaryReview?.admission,
+    accepted: tickers,
+    published: Object.values(picksByHorizon).flat(),
+  }))
+
   // Only new winners need reports. A candidate that lost to a carried decision
   // must not overwrite that decision's report, even when the ticker is equal.
   const reportCandidates = Object.values(picksByHorizon).flat().filter((p) => p.generatedAt === generatedAt)
@@ -356,7 +386,8 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
   // degrades instead of erasing. Archive even an empty decision, so selective
   // runs remain auditable. Never publish decisions whose archive failed.
   try {
-    payload = await freezePublication(foundation.archive, payload)
+    payload = await stage(STAGES.publication, () => freezePublication(foundation.archive, payload),
+      { metrics: (frozen) => ({ picks: frozen.picks?.length, publicationId: frozen.publicationId }) })
   } catch (err) {
     errors.push({ step: 'publication', error: err.message })
     await recordRun('nightly-research', startedAt, { errors })
@@ -365,13 +396,15 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
   // Same reasoning as above: the experiment records what the delivered run
   // decided, and cannot be a reason to withhold it.
   if (evaluation?.snapshot) {
-    try { evaluationRun = await freezeEvaluation(foundation.archive, evaluation.snapshot, payload) }
+    try { evaluationRun = await stage(STAGES.evaluation_snapshot, () => freezeEvaluation(foundation.archive, evaluation.snapshot, payload)) }
     catch (err) { errors.push({ step: 'evaluation-freeze', error: err.message }) }
   }
   try {
-    await storeProjection(redis, payload)
-    if (evaluationRun) await foundation.archive.put('evaluation-delivery', evaluationRun.id, { runId: evaluationRun.id,
-      availableAt: new Date().toISOString() }, 'evaluation-deliveries')
+    await stage(STAGES.persistence, async () => {
+      await storeProjection(redis, payload)
+      if (evaluationRun) await foundation.archive.put('evaluation-delivery', evaluationRun.id, { runId: evaluationRun.id,
+        availableAt: new Date().toISOString() }, 'evaluation-deliveries')
+    })
   } catch (err) {
     errors.push({ step: 'store-partial', error: err.message })
   }
@@ -382,7 +415,8 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
   let reports = reportCandidates
   if (reportCandidates.length > 0) {
     try {
-      reports = await generateResearchReports(reportCandidates)
+      reports = await stage(STAGES.report_generation, () => generateResearchReports(reportCandidates),
+        { metrics: (written) => ({ reports: written.length, candidates: reportCandidates.length }) })
       console.log(`[nightly-research] generated ${reports.length} reports`)
     } catch (err) {
       console.error('[nightly-research] report generation failed:', err.message)
@@ -432,7 +466,7 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
   // should say what is on screen, which mid-cycle may include a carried pick.
   if (board.length > 0) {
     try {
-      await sendPickAlerts(board)
+      await stage(STAGES.slack_alerts, () => sendPickAlerts(board), { metrics: () => ({ picks: board.length }) })
     } catch (err) {
       console.error('[nightly-research] slack alert failed:', err.message)
       errors.push({ step: 'slack', error: err.message })

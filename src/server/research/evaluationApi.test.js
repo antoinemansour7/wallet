@@ -80,3 +80,37 @@ describe('private read-only evaluation API', () => {
     expect(mocks.report).not.toHaveBeenCalled()
   })
 })
+
+// A cheap yes/no check the client polls to decide whether to show any
+// owner-only navigation at all — it must never touch Redis, since its whole
+// point is to be safe to call from every signed-in session, not just the
+// owner's.
+describe('private owner check (GET /api/get-research?owner=1)', () => {
+  const request = (extra = {}) => ({ method: 'GET', headers: { authorization: 'Bearer signed-token' }, query: { owner: '1' }, ...extra })
+
+  it('confirms a verified owner without reading any research data', async () => {
+    const res = response(); await handler(request(), res)
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(res.json).toHaveBeenCalledWith({ isOwner: true })
+    expect(mocks.redis).not.toHaveBeenCalled()
+  })
+
+  it('refuses a regular signed-in user without revealing anything else', async () => {
+    mocks.verify.mockResolvedValue({ uid: 'someone-else' })
+    const res = response(); await handler(request(), res)
+    expect(res.status).toHaveBeenCalledWith(403)
+    expect(mocks.redis).not.toHaveBeenCalled()
+  })
+
+  it('denies an unverified caller', async () => {
+    mocks.verify.mockRejectedValue(new Error('Invalid token'))
+    const res = response(); await handler(request(), res)
+    expect(res.status).toHaveBeenCalledWith(401)
+  })
+
+  it('does not permit mutations', async () => {
+    const res = response(); await handler(request({ method: 'POST' }), res)
+    expect(res.status).toHaveBeenCalledWith(405)
+    expect(mocks.verify).not.toHaveBeenCalled()
+  })
+})

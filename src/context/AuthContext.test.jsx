@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { renderHook, act, waitFor } from '@testing-library/react'
 import { AuthProvider, useAuth } from './AuthContext'
 
 vi.mock('../firebase/config', () => ({
@@ -22,7 +22,7 @@ vi.mock('firebase/auth', () => ({
   },
 }))
 
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, linkWithCredential, EmailAuthProvider } from 'firebase/auth'
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, linkWithCredential, EmailAuthProvider, onAuthStateChanged } from 'firebase/auth'
 import { auth } from '../firebase/config'
 
 function wrapper({ children }) {
@@ -107,5 +107,52 @@ describe('AuthContext linking', () => {
     await expect(result.current.linkPasswordToCurrentUser('secret1')).rejects.toMatchObject({
       code: 'auth/credential-already-in-use',
     })
+  })
+})
+
+describe('AuthContext research-owner check', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    auth.currentUser = null
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    // Restore the default "signed out" behaviour so an override here can
+    // never leak into another describe block's tests.
+    onAuthStateChanged.mockImplementation((_auth, cb) => { cb(null); return vi.fn() })
+  })
+
+  it('flags the signed-in user as the research owner once the server confirms it', async () => {
+    onAuthStateChanged.mockImplementation((_auth, cb) => {
+      cb({ uid: 'owner', getIdToken: async () => 'owner-token' })
+      return vi.fn()
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true })))
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    await waitFor(() => expect(result.current.isResearchOwner).toBe(true))
+    expect(fetch).toHaveBeenCalledWith('/api/get-research?owner=1', expect.objectContaining({
+      headers: { Authorization: 'Bearer owner-token' }, cache: 'no-store',
+    }))
+  })
+
+  it('does not flag a regular signed-in user, since the server refused them', async () => {
+    onAuthStateChanged.mockImplementation((_auth, cb) => {
+      cb({ uid: 'someone-else', getIdToken: async () => 'a-token' })
+      return vi.fn()
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })))
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    await waitFor(() => expect(fetch).toHaveBeenCalled())
+    expect(result.current.isResearchOwner).toBe(false)
+  })
+
+  it('never calls the owner check for a signed-out session', () => {
+    vi.stubGlobal('fetch', vi.fn())
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    expect(result.current.isResearchOwner).toBe(false)
+    expect(fetch).not.toHaveBeenCalled()
   })
 })

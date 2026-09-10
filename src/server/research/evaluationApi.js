@@ -32,6 +32,19 @@ export async function verifyOwner(req) {
   } catch { return { status: 401, error: 'Sign in required' } }
 }
 
+// A yes/no check with no storage read at all, so it is cheap enough for every
+// signed-in session to call on load — that is what lets the client decide
+// whether to show any owner-only navigation without shipping the owner's
+// identity into the public bundle.
+export async function checkOwner(req, res) {
+  res.setHeader('Cache-Control', 'private, no-store')
+  res.setHeader('Vary', 'Authorization')
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
+  const caller = await verifyOwner(req)
+  if (caller.error) return res.status(caller.status).json({ error: caller.error })
+  return res.status(200).json({ isOwner: true })
+}
+
 // Mounted on the existing research API to stay within the deployment's function
 // limit. Authorization precedes all storage reads, including empty-state reads.
 export default async function evaluationHandler(req, res) {
