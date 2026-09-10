@@ -1,0 +1,96 @@
+/* The evaluation notebook. It takes the research workspace's tokens because it
+   is that product seen from the inside — one system, not a private annex with a
+   look of its own. The roles are named separately so this page can be denser
+   and more numeric than the workspace without drifting off the palette. */
+.wallai-system.research-evaluation {
+  --re-paper: var(--wa-cream); --re-surface: var(--wa-soft); --re-text: var(--wa-ink);
+  --re-muted: var(--wa-muted); --re-line: var(--wa-line); --re-accent: var(--wa-forest);
+  --re-negative: var(--wa-error);
+  min-height: calc(100svh - 64px); background: var(--re-paper); color: var(--re-text);
+  font-size: var(--wa-small); line-height: 1.6;
+}
+/* Dark follows the app rather than the landing palette, exactly as the research
+   workspace does: brand green is a light-mode identity, and against the app's
+   near-black the accent resolves to neutral. */
+.dark .research-evaluation {
+  --re-paper: rgb(var(--color-wall-bg)); --re-surface: rgb(var(--color-wall-elevated));
+  --re-text: rgb(var(--color-text-primary)); --re-muted: rgb(var(--color-text-secondary));
+  --re-line: rgb(var(--color-border)); --re-accent: rgb(var(--color-accent));
+  --re-negative: rgb(var(--color-loss));
+  color-scheme: dark;
+}
+.research-evaluation :is(h1, h2, h3, p, dl, dd) { margin: 0; }
+.research-evaluation > * { width: min(100% - var(--wa-gutter), 1180px); margin-inline: auto; }
+
+/* A masthead rather than a title: the eyebrow carries the fact that governs
+   everything under it — this data is private, and nothing on the page writes. */
+.evaluation-head { padding-block: var(--wa-10) var(--wa-8); }
+.evaluation-eyebrow { display: inline-flex; align-items: center; gap: var(--wa-2); color: var(--re-muted); font-size: 11px; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; }
+.evaluation-eyebrow::before { content: ''; width: 5px; height: 5px; border-radius: var(--wa-pill); background: var(--re-accent); }
+.research-evaluation h1 { margin-top: var(--wa-4); font: 400 clamp(34px, 3.6vw, 48px)/1.15 var(--wa-display); letter-spacing: -.035em; }
+.evaluation-lede { max-width: 62ch; margin-top: var(--wa-4); color: var(--re-muted); font-size: var(--wa-body); line-height: 1.7; }
+/* The run rail states the experiment's identity before a single number is read. */
+.evaluation-run { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: var(--wa-8); border-top: 1px solid var(--re-line); }
+.evaluation-run > div { min-width: 0; padding-block: var(--wa-5); }
+.evaluation-run > div + div { padding-left: var(--wa-6); border-left: 1px solid var(--re-line); }
+.evaluation-run dt { color: var(--re-muted); font-size: 10px; letter-spacing: .09em; text-transform: uppercase; }
+.evaluation-run dd { margin-top: var(--wa-2); font-size: 17px; line-height: 1.4; letter-spacing: -.025em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.evaluation-alert { margin-top: var(--wa-5); padding: var(--wa-3) var(--wa-4); border-left: 2px solid var(--re-negative); background: var(--re-surface); font-size: var(--wa-label); }
+
+/* Disclosures: a hairline and a sign, no box. */
+.research-evaluation details { border-top: 1px solid var(--re-line); }
+.research-evaluation summary { display: flex; align-items: center; gap: var(--wa-3); min-height: 52px; list-style: none; cursor: pointer; font-size: 13px; }
+.research-evaluation summary::-webkit-details-marker { display: none; }
+.research-evaluation summary::after { content: '+'; margin-left: auto; color: var(--re-muted); font-size: 16px; line-height: 1; }
+.research-evaluation details[open] > summary::after { content: '\2013'; }
+.research-evaluation summary:hover { color: var(--re-muted); }
+.research-evaluation details > :last-child { margin-bottom: var(--wa-5); }
+.research-evaluation details p { max-width: 88ch; color: var(--re-muted); font-size: 13px; line-height: 1.75; }
+.research-evaluation details p + p { margin-top: var(--wa-2); }
+
+/* One arm to a panel. Six of them read as a list of experiments, so the panel
+   is a lifted surface with no border — the hairlines inside the table are the
+   only rules the eye needs. */
+.evaluation-arm { margin-top: var(--wa-6); padding: var(--wa-6); border-radius: var(--wa-card); background: var(--re-surface); }
+.evaluation-arm-title { display: flex; align-items: baseline; justify-content: space-between; gap: var(--wa-3); }
+.research-evaluation h2 { font: 400 24px/1.25 var(--wa-display); letter-spacing: -.03em; }
+.evaluation-arm-title span { padding: 3px var(--wa-3); border-radius: var(--wa-pill); background: var(--re-paper); color: var(--re-muted); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
+.evaluation-arm > p { margin-top: var(--wa-2); color: var(--re-muted); font-size: 12px; }
+.research-evaluation h3 { margin-top: var(--wa-6); color: var(--re-muted); font-size: 10px; font-weight: 500; letter-spacing: .09em; text-transform: uppercase; }
+
+/* Numbers are the content here: tabular figures, hairline rows, and column
+   headings small enough to stay out of the way of the figures beneath them. */
+.evaluation-table-wrap { margin-top: var(--wa-3); overflow-x: auto; }
+.research-evaluation table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; font-variant-numeric: tabular-nums; }
+.research-evaluation thead th { padding: 0 var(--wa-4) var(--wa-2) 0; border-bottom: 1px solid var(--re-line); color: var(--re-muted); font-size: 10px; font-weight: 500; letter-spacing: .09em; text-transform: uppercase; white-space: nowrap; }
+.research-evaluation tbody :is(th, td) { padding: var(--wa-3) var(--wa-4) var(--wa-3) 0; border-bottom: 1px solid var(--re-line); vertical-align: top; }
+.research-evaluation tbody tr:last-child :is(th, td) { border-bottom: 0; }
+.research-evaluation tbody th { font-weight: 500; white-space: nowrap; }
+.research-evaluation tbody td { color: var(--re-muted); }
+.research-evaluation small { display: block; margin-top: 3px; color: var(--re-muted); font-size: 10px; }
+
+.evaluation-filters { display: flex; flex-wrap: wrap; gap: var(--wa-4); margin-block: var(--wa-5) var(--wa-4); }
+.evaluation-filters label { display: grid; gap: var(--wa-2); color: var(--re-muted); font-size: 10px; letter-spacing: .09em; text-transform: uppercase; }
+.evaluation-filters :is(input, select) { min-height: 44px; min-width: 210px; max-width: 100%; padding: 0 var(--wa-3); border: 1px solid var(--re-line); border-radius: var(--wa-control); background: var(--re-paper); color: var(--re-text); font: 400 13px var(--wa-ui); letter-spacing: 0; text-transform: none; }
+.evaluation-filters :is(input, select):focus-visible { outline: 2px solid var(--wa-focus); outline-offset: 2px; }
+.evaluation-count { color: var(--re-muted); font-size: 12px; }
+.evaluation-stock { overflow-wrap: anywhere; }
+.evaluation-stock summary { font-variant-numeric: tabular-nums; }
+
+/* Loading and denial are screens too. Both keep the masthead's shape, so the
+   page does not appear to change identity between its states. */
+.evaluation-state { padding-block: var(--wa-16); }
+.evaluation-state p { max-width: 52ch; margin-top: var(--wa-3); color: var(--re-muted); font-size: var(--wa-body); line-height: 1.7; }
+.evaluation-state[role='alert'] .evaluation-eyebrow::before { background: var(--re-negative); }
+
+@media (max-width: 900px) {
+  .evaluation-run { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .evaluation-run > div:nth-child(3) { padding-left: 0; border-left: 0; }
+}
+@media (max-width: 640px) {
+  .evaluation-arm { padding: var(--wa-4); }
+  .evaluation-filters label { width: 100%; }
+}
+/* The shared .wallai-system focus ring is a mid-green from the landing palette;
+   on the app's near-black it would be the only green chrome left on the page. */
+.dark .research-evaluation :is(a, button, input, select):focus-visible { outline-color: var(--re-accent); }

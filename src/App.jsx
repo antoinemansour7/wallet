@@ -10,6 +10,7 @@ import Research from './pages/Research'
 import History from './pages/History'
 
 const LandingPage = lazy(() => import('../app/page'))
+const ResearchEvaluation = lazy(() => import('./pages/ResearchEvaluation'))
 
 function AppLayout({ children }) {
   // Keyed on the route: a crash on Portfolio should not follow you to
@@ -47,6 +48,10 @@ export default function App() {
                 </AppLayout>
               </ProtectedRoute>
             }
+          />
+          <Route
+            path="/research/evaluation"
+            element={<ProtectedRoute><AppLayout><Suspense fallback={null}><ResearchEvaluation /></Suspense></AppLayout></ProtectedRoute>}
           />
           <Route
             path="/research"
