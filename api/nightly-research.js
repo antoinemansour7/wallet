@@ -18,12 +18,17 @@ import { runExaDiscovery } from '../src/server/agents/exaDiscoveryAgent.js'
 import { sendPickAlerts } from '../src/server/agents/slackAgent.js'
 import { getMarketRegime, regimeSizeMultiplier } from '../src/server/marketRegime.js'
 import { prepareEvaluation, freezeEvaluation } from '../src/server/research/evaluation.js'
-import { STAGES, candidateTraces, recordCandidates, recordResearchRun, stage } from '../src/server/research/observability.js'
+import { STAGES, candidateTraces, recordCandidates, recordResearchRun, skipStage, stage } from '../src/server/research/observability.js'
+import { createCronBudget, withinCronBudget } from '../src/server/research/runtimeBudget.js'
 
 const RESEARCH_KEY = 'research:latest'
 const RESEARCH_TTL = 48 * 60 * 60 // 48 hours
 const HISTORY_TTL = HISTORY_RETENTION_SECONDS
 const HISTORY_MAX_ENTRIES = HISTORY_LIMIT
+const AGENT_MINIMUM_MS = 70_000
+const REPORT_MINIMUM_MS = 55_000
+const EVALUATION_MINIMUM_MS = 90_000
+const SLACK_MINIMUM_MS = 8_000
 
 function isAuthorized(req) {
   if (!process.env.CRON_SECRET) return false
@@ -97,6 +102,7 @@ export default async function handler(req, res) {
   }
 
   const startedAt = Date.now()
+  const budget = createCronBudget({ startedAt })
   const { recordRun } = await import('../src/server/runLog.js')
   const redis = getRedis()
   if (!redis) return res.status(503).json({ error: 'Redis not configured' })
@@ -104,13 +110,13 @@ export default async function handler(req, res) {
   if (!await redis.set(lock, token, { nx: true, ex: 360 })) return res.status(409).json({ error: 'Research publication already running' })
   const job = req.query?.mode === 'premarket' ? 'premarket-check' : 'nightly-research'
   try {
-    return await recordResearchRun(redis, { job }, () => runLocked(req, res, startedAt, recordRun, redis))
+    return await recordResearchRun(redis, { job }, () => runLocked(req, res, startedAt, recordRun, redis, budget))
   } finally {
     await redis.eval("if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end", [lock], [token])
   }
 }
 
-async function runLocked(req, res, startedAt, recordRun, redis) {
+async function runLocked(req, res, startedAt, recordRun, redis, budget) {
   if (req.query?.mode === 'premarket') {
     try {
       const result = await stage(STAGES.premarket_check, () => runPremarketCheck(res))
@@ -129,10 +135,10 @@ async function runLocked(req, res, startedAt, recordRun, redis) {
     await recordRun('nightly-research', startedAt, { errors: [{ step: 'foundation', error: error.message }] })
     return res.status(503).json({ error: `Research foundation unavailable: ${error.message}` })
   }
-  return withSecurityMaster(foundation.master, () => runDiscovery(res, startedAt, recordRun, foundation))
+  return withSecurityMaster(foundation.master, () => runDiscovery(res, startedAt, recordRun, foundation, budget))
 }
 
-async function runDiscovery(res, startedAt, recordRun, foundation) {
+async function runDiscovery(res, startedAt, recordRun, foundation, budget) {
   const errors = []
 
   // Step 1: collect adaptive X signals (primary discovery layer)
@@ -227,7 +233,7 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
   let tickers = []
   let shadowBoard = []
   let primaryReview = null
-  let evaluationPromise = null
+  let evaluationInputs = null
   try {
     // A run where a discovery feed failed produces low mention counts for every
     // ticker. Recorded as though it were real, the next run would read a
@@ -237,19 +243,18 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
     const discoveryHealthy = !errors.some((e) => DISCOVERY_STEPS.includes(e.step))
     if (!discoveryHealthy) console.warn('[nightly-research] discovery degraded — coverage history will not record this run')
 
-    tickers = await stage(STAGES.claude_review, () => extractTickers(signals, articles, {
-      foundation,
-      onPrimaryReview: (result) => { primaryReview = result },
-      onBoard: (board) => { shadowBoard = board.slice(0, 15) },
-      regime,
-      discoveryHealthy,
-      onEvaluationInputs: (inputs) => {
-        // Independent model policies require independent reviews, but use the
-        // same already-collected evidence, prices, technicals and market context.
-        evaluationPromise = prepareEvaluation({ ...inputs, discoveryHealthy }, foundation)
-          .then((snapshot) => ({ snapshot }), (error) => ({ error }))
-      },
-    }), {
+    tickers = await stage(STAGES.claude_review, () => withinCronBudget(budget, 'Claude review', (signal, timeout) =>
+      extractTickers(signals, articles, {
+        foundation,
+        onPrimaryReview: (result) => { primaryReview = result },
+        onBoard: (board) => { shadowBoard = board.slice(0, 15) },
+        regime,
+        discoveryHealthy,
+        // Capture the already-collected evidence, but do not start the shadow
+        // model pipeline before the user-facing result is safely persisted.
+        onEvaluationInputs: (inputs) => { evaluationInputs = { ...inputs, discoveryHealthy } },
+        requestOptions: { signal, timeout },
+      })), {
       // Admission and review-budget selection happen inside extractTickers, so
       // they are reported here as counts rather than as a stage boundary the
       // pipeline does not actually have.
@@ -270,35 +275,38 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
     return res.status(503).json({ error: 'Research review unavailable; previous briefing retained', errors })
   }
 
-  // The experiment is shadow, so a failure to freeze its inputs is recorded and
-  // the run carries on. The briefing people actually read must never be lost to
-  // a measurement that was only ever observing it.
-  const evaluation = await evaluationPromise
-  if (!evaluation?.snapshot) errors.push({ step: 'evaluation', error: evaluation?.error?.message || 'Decision inputs unavailable' })
-
-  // Step 3.5: Contrarian Agent — stress-test each pick with bear case
+  // Steps 3.5–3.6 are independent reads of the same reviewed board. Running
+  // them together saves one full model round trip without changing either
+  // agent's inputs; their fields are merged before final ranking.
   if (tickers.length > 0) {
-    try {
-      tickers = await stage(STAGES.contrarian_review, () => runContrarianAgent(tickers),
-        { metrics: (reviewed) => ({ candidates: reviewed.length, bearCases: reviewed.filter((t) => t.bearCase).length }) })
-      const bearCases = tickers.filter((t) => t.bearCase).length
-      console.log(`[nightly-research] contrarian agent: ${bearCases}/${tickers.length} bear cases generated`)
-    } catch (err) {
-      console.error('[nightly-research] contrarian agent failed:', err.message)
-      errors.push({ step: 'contrarian', error: err.message })
-    }
-  }
-
-  // Step 3.6: Catalyst Agent — verify catalysts via Exa search
-  if (tickers.length > 0) {
-    try {
-      tickers = await stage(STAGES.catalyst_verification, () => runCatalystAgent(tickers),
-        { metrics: (checked) => ({ candidates: checked.length, verified: checked.filter((t) => t.catalystVerified).length }) })
-      const verified = tickers.filter((t) => t.catalystVerified).length
-      console.log(`[nightly-research] catalyst agent: ${verified}/${tickers.length} catalysts verified`)
-    } catch (err) {
-      console.error('[nightly-research] catalyst agent failed:', err.message)
-      errors.push({ step: 'catalyst', error: err.message })
+    if (!budget.canStart(AGENT_MINIMUM_MS)) {
+      skipStage(STAGES.contrarian_review, 'time_budget', { availableMs: budget.availableMs() })
+      skipStage(STAGES.catalyst_verification, 'time_budget', { availableMs: budget.availableMs() })
+      errors.push({ step: 'contrarian', error: 'deferred to preserve the cron completion budget' })
+      errors.push({ step: 'catalyst', error: 'deferred to preserve the cron completion budget' })
+    } else {
+      const reviewed = tickers
+      const [contrarian, catalyst] = await Promise.allSettled([
+        stage(STAGES.contrarian_review, () => withinCronBudget(budget, 'Contrarian review', (signal, timeout) =>
+          runContrarianAgent(reviewed, new Map(), { requestOptions: { signal, timeout } })),
+        { metrics: (items) => ({ candidates: items.length, bearCases: items.filter((item) => item.bearCase).length }) }),
+        stage(STAGES.catalyst_verification, () => withinCronBudget(budget, 'Catalyst verification', (signal, timeout) =>
+          runCatalystAgent(reviewed, { requestOptions: { signal, timeout } })),
+        { metrics: (items) => ({ candidates: items.length, verified: items.filter((item) => item.catalystVerified).length }) }),
+      ])
+      if (contrarian.status === 'rejected') {
+        console.error('[nightly-research] contrarian agent failed:', contrarian.reason.message)
+        errors.push({ step: 'contrarian', error: contrarian.reason.message })
+      }
+      if (catalyst.status === 'rejected') {
+        console.error('[nightly-research] catalyst agent failed:', catalyst.reason.message)
+        errors.push({ step: 'catalyst', error: catalyst.reason.message })
+      }
+      const risks = new Map((contrarian.value || []).map((item) => [item.ticker, item]))
+      const catalysts = new Map((catalyst.value || []).map((item) => [item.ticker, item]))
+      tickers = reviewed.map((item) => ({ ...item, ...risks.get(item.ticker), ...catalysts.get(item.ticker) }))
+      console.log(`[nightly-research] agent enrichment: ${tickers.filter((item) => item.bearCase).length} bear cases, `
+        + `${tickers.filter((item) => item.catalystVerified).length} verified catalysts across ${tickers.length} picks`)
     }
   }
 
@@ -393,17 +401,9 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
     await recordRun('nightly-research', startedAt, { errors })
     return res.status(503).json({ error: 'Could not archive research decisions', errors })
   }
-  // Same reasoning as above: the experiment records what the delivered run
-  // decided, and cannot be a reason to withhold it.
-  if (evaluation?.snapshot) {
-    try { evaluationRun = await stage(STAGES.evaluation_snapshot, () => freezeEvaluation(foundation.archive, evaluation.snapshot, payload)) }
-    catch (err) { errors.push({ step: 'evaluation-freeze', error: err.message }) }
-  }
   try {
     await stage(STAGES.persistence, async () => {
       await storeProjection(redis, payload)
-      if (evaluationRun) await foundation.archive.put('evaluation-delivery', evaluationRun.id, { runId: evaluationRun.id,
-        availableAt: new Date().toISOString() }, 'evaluation-deliveries')
     })
   } catch (err) {
     errors.push({ step: 'store-partial', error: err.message })
@@ -413,10 +413,16 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
   // pick already has the report its own run wrote, and regenerating it would
   // spend the run's longest leg rewriting work that is already done.
   let reports = reportCandidates
+  let reportsComplete = reportCandidates.length === 0
   if (reportCandidates.length > 0) {
-    try {
-      reports = await stage(STAGES.report_generation, () => generateResearchReports(reportCandidates),
+    if (!budget.canStart(REPORT_MINIMUM_MS)) {
+      skipStage(STAGES.report_generation, 'time_budget', { availableMs: budget.availableMs(), candidates: reportCandidates.length })
+      errors.push({ step: 'reports', error: 'deferred to preserve the cron completion budget' })
+    } else try {
+      reports = await stage(STAGES.report_generation, () => withinCronBudget(budget, 'Report generation', (signal, timeout) =>
+        generateResearchReports(reportCandidates, { requestOptions: { signal, timeout } })),
         { metrics: (written) => ({ reports: written.length, candidates: reportCandidates.length }) })
+      reportsComplete = reports.every((report) => !report.reportError)
       console.log(`[nightly-research] generated ${reports.length} reports`)
     } catch (err) {
       console.error('[nightly-research] report generation failed:', err.message)
@@ -429,14 +435,11 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
   const completed = Object.fromEntries(Object.entries(picksByHorizon).map(([horizon, list]) => [horizon,
     list.map((p) => p.generatedAt === generatedAt ? reportsById.get(p.candidateId) || p : p),
   ]))
-  payload = { ...payload, picks: completed[5], picksByHorizon: completed, reportsPending: false }
+  payload = { ...payload, picks: completed[5], picksByHorizon: completed, errors, reportsPending: !reportsComplete }
   const board = payload.picks
 
   if (redis) {
     await storeProjection(redis, payload)
-    if (evaluationRun) await foundation.archive.put('evaluation-delivery', evaluationRun.id, { runId: evaluationRun.id,
-      availableAt: new Date().toISOString() }, 'evaluation-deliveries')
-
     // Shadow tracking: the top-15 board candidates that didn't make the cut.
     // Tracked like real picks (but never shown) to ~3x the learning data
     // behind setup/source win rates.
@@ -465,11 +468,40 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
   // Step 6: Send Slack alerts. The board, not this run's picks — the alert
   // should say what is on screen, which mid-cycle may include a carried pick.
   if (board.length > 0) {
-    try {
-      await stage(STAGES.slack_alerts, () => sendPickAlerts(board), { metrics: () => ({ picks: board.length }) })
+    if (!budget.canStart(SLACK_MINIMUM_MS)) {
+      skipStage(STAGES.slack_alerts, 'time_budget', { availableMs: budget.availableMs(), picks: board.length })
+      errors.push({ step: 'slack', error: 'deferred to preserve the cron completion budget' })
+    } else try {
+      await stage(STAGES.slack_alerts, () => withinCronBudget(budget, 'Slack alerts', () => sendPickAlerts(board)),
+        { metrics: () => ({ picks: board.length }) })
     } catch (err) {
       console.error('[nightly-research] slack alert failed:', err.message)
       errors.push({ step: 'slack', error: err.message })
+    }
+  }
+
+  // The experiment is deliberately last and optional. It observes the same
+  // captured inputs, but can no longer delay publication, persistence or alerts.
+  if (!evaluationInputs) {
+    skipStage(STAGES.evaluation_snapshot, 'inputs_unavailable')
+    errors.push({ step: 'evaluation', error: 'Decision inputs unavailable' })
+  } else if (!budget.canStart(EVALUATION_MINIMUM_MS)) {
+    skipStage(STAGES.evaluation_snapshot, 'time_budget', { availableMs: budget.availableMs() })
+    errors.push({ step: 'evaluation', error: 'deferred to preserve the cron completion budget' })
+  } else {
+    try {
+      evaluationRun = await stage(STAGES.evaluation_snapshot, () => withinCronBudget(budget, 'Evaluation snapshot', async (signal, timeout) => {
+        const snapshot = await prepareEvaluation(evaluationInputs, {
+          ...foundation,
+          requestOptions: { signal, timeout },
+        })
+        return freezeEvaluation(foundation.archive, snapshot, payload)
+      }))
+      await foundation.archive.put('evaluation-delivery', evaluationRun.id, { runId: evaluationRun.id,
+        availableAt: new Date().toISOString() }, 'evaluation-deliveries')
+    } catch (err) {
+      console.error('[nightly-research] evaluation snapshot failed:', err.message)
+      errors.push({ step: 'evaluation', error: err.message })
     }
   }
 

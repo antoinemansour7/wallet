@@ -45,6 +45,9 @@
     "api/research-foundation.js": {
       "maxDuration": 300
     },
+    "api/track-performance.js": {
+      "maxDuration": 300
+    },
     "api/plaid.js": {
       "maxDuration": 300
     }

@@ -87,7 +87,7 @@ describe('nightly foundation integration', () => {
     mocks.reports.mockRejectedValueOnce(new Error('report unavailable'))
     await handler(request(), response())
     expect(mocks.redis.lpush.mock.calls.filter(([key]) => key === 'research:history-index')).toHaveLength(2)
-    expect(mocks.values.get('research:latest')).toMatchObject({ picks: [{ ticker: 'FAST' }], reportsPending: false })
+    expect(mocks.values.get('research:latest')).toMatchObject({ picks: [{ ticker: 'FAST' }], reportsPending: true })
     expect(mocks.values.get('research:latest').errors.map((e) => e.step)).toEqual(expect.arrayContaining(['store-partial', 'reports']))
   })
 
@@ -135,6 +135,34 @@ describe('nightly foundation integration', () => {
     expect(summary).toMatchObject({ job: 'nightly-research', status: 'success', runId: expect.any(String) })
     expect(summary.stages.map((s) => s.stage)).toEqual(expect.arrayContaining([
       'foundation_load', 'x_discovery', 'news_discovery', 'claude_review',
+    ]))
+  })
+
+  it('publishes within five minutes by skipping optional work when the finishing reserve is reached', async () => {
+    mocks.extract.mockImplementation(async (_s, _a, options) => {
+      options.onPrimaryReview(primary())
+      vi.setSystemTime(new Date('2026-09-09T12:03:50Z'))
+      return [pick('FAST')]
+    })
+
+    const res = response()
+    await handler(request(), res)
+
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(mocks.values.get('research:latest')).toMatchObject({
+      picks: [{ ticker: 'FAST' }],
+      reportsPending: true,
+    })
+    expect(mocks.reports).not.toHaveBeenCalled()
+    const [, line] = mocks.redis.lpush.mock.calls.find(([key]) => key === 'research:runs:v1')
+    const summary = JSON.parse(line)
+    expect(summary.status).toBe('partial')
+    expect(summary.stages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ stage: 'contrarian_review', status: 'skipped' }),
+      expect.objectContaining({ stage: 'catalyst_verification', status: 'skipped' }),
+      expect.objectContaining({ stage: 'report_generation', status: 'skipped' }),
+      expect.objectContaining({ stage: 'evaluation_snapshot', status: 'skipped' }),
+      expect.objectContaining({ stage: 'persistence', status: 'success' }),
     ]))
   })
 

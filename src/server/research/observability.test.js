@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { RESEARCH_RUNS_KEY, STAGES, candidateTraces, recordCandidates, recordResearchRun, researchLog, stage, withResearchRun } from './observability.js'
+import { RESEARCH_RUNS_KEY, STAGES, candidateTraces, recordCandidates, recordResearchRun, researchLog, skipStage, stage, withResearchRun } from './observability.js'
 
 let lines
 beforeEach(() => {
@@ -122,6 +122,15 @@ describe('stage', () => {
     })
   })
 
+  it('records optional work deferred by the cron budget as skipped', () => {
+    run(() => skipStage('report_generation', 'time_budget', { availableMs: 1200 }))
+
+    expect(emitted()[0]).toMatchObject({
+      stage: 'report_generation', event: 'stage_skipped', status: 'skipped',
+      metrics: { reason: 'time_budget', availableMs: 1200 },
+    })
+  })
+
 })
 
 describe('STAGES', () => {
@@ -136,6 +145,7 @@ describe('STAGES', () => {
       'day_trade_signals', 'market_regime', 'claude_review', 'contrarian_review',
       'catalyst_verification', 'final_ranking', 'publication', 'persistence',
       'report_generation', 'evaluation_snapshot', 'slack_alerts', 'premarket_check',
+      'foundation_sync', 'foundation_followup', 'performance_tracking', 'performance_evaluation',
     ]))
   })
 })

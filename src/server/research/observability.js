@@ -30,6 +30,10 @@ export const STAGES = Object.freeze(Object.fromEntries([
   'evaluation_snapshot',
   'slack_alerts',
   'premarket_check',
+  'foundation_sync',
+  'foundation_followup',
+  'performance_tracking',
+  'performance_evaluation',
 ].map((name) => [name, name])))
 
 const context = new AsyncLocalStorage()
@@ -119,6 +123,18 @@ export async function stage(name, work, { metrics } = {}) {
     }))
     throw error
   }
+}
+
+/** Record deliberately deferred optional work without pretending it succeeded. */
+export function skipStage(name, reason, metrics) {
+  const record = researchLog({
+    stage: name,
+    event: 'stage_skipped',
+    status: 'skipped',
+    metrics: { reason, ...metrics },
+  })
+  remember(record)
+  return record
 }
 
 // The persisted stage record reuses the emitted one, so redaction and the
