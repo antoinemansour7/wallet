@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import '../components/landing/tokens.css'
 import './ResearchEvaluation.css'
@@ -47,12 +48,6 @@ function Arm({ arm }) {
 
 const Eyebrow = () => <span className="evaluation-eyebrow">Private · Read only</span>
 
-function State({ role, body, note }) {
-  return <div className="wallai-system research-evaluation"><div className="evaluation-state" role={role}>
-    <Eyebrow /><h1>Research evaluation</h1><p>{body}</p>{note && <p>{note}</p>}
-  </div></div>
-}
-
 export default function ResearchEvaluation() {
   const { user } = useAuth()
   const [state, setState] = useState(null)
@@ -77,11 +72,11 @@ export default function ResearchEvaluation() {
     return () => controller.abort()
   }, [user])
   const current = state?.uid === user?.uid ? state : null
-  // Loading and denial keep the masthead, so the page reads as the same page in
-  // every state rather than a bare line of text where a screen should be.
-  if (!current) return <State role="status" body="Reading the experiment record…" />
-  if (current.error) return <State role="alert" body={current.error}
-    note="The evaluation is limited to the account that owns the experiment. Nothing on this page is shared, and nothing here can be written to." />
+  // A non-owner must never learn this page exists: no title, no "Private ·
+  // Read only" framing, nothing while loading, and an immediate exit on
+  // denial — the same redirect a truly unknown route would produce.
+  if (!current) return null
+  if (current.error) return <Navigate to="/portfolio" replace />
   const data = current.data
   const stocks = data.observations.filter((o) => (arm === 'all' || o.arm === arm) && (status === 'all' || o.status === status)
     && `${o.ticker} ${o.securityId} ${o.issuerId}`.toLowerCase().includes(search.toLowerCase()))

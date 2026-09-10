@@ -1,8 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, fireEvent, cleanup } from '@testing-library/react'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import ResearchEvaluation from './ResearchEvaluation'
 const auth = vi.hoisted(() => ({ user: null }))
 vi.mock('../context/AuthContext', () => ({ useAuth: () => auth }))
+
+// A non-owner must never learn this page exists, so every render happens
+// inside a router with a real destination: the assertion is what the *app*
+// shows after the redirect, not a mocked navigate() call.
+function renderEvaluation() {
+  return render(
+    <MemoryRouter initialEntries={['/research/evaluation']}>
+      <Routes>
+        <Route path="/research/evaluation" element={<ResearchEvaluation />} />
+        <Route path="/portfolio" element={<div>PORTFOLIO</div>} />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
 const horizon = (h) => ({ horizon: h, completed: 0, pending: 0, unavailable: 0, sampleSize: 0,
   benchmarkSampleSize: 0, sectorSampleSize: 0, meanReturn: null, medianReturn: null, meanNetReturn: null,
   medianNetReturn: null, benchmarkRelative: null, sectorRelative: null, status: 'Insufficient data' })
@@ -16,24 +31,29 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 describe('private evaluation page', () => {
   it('uses authenticated GET only and honestly shows zero completed sessions', async () => {
-    render(<ResearchEvaluation />)
+    renderEvaluation()
     expect(await screen.findByText('Frozen existing engine')).toBeInTheDocument()
     expect(screen.getAllByText('0 completed — insufficient data')).toHaveLength(2)
     expect(screen.getByText('20 sessions')).toBeInTheDocument()
     expect(fetch).toHaveBeenCalledWith('/api/get-research?evaluation=1', expect.objectContaining({ method: 'GET', cache: 'no-store', headers: { Authorization: 'Bearer signed-token' } }))
     expect(screen.queryAllByRole('button')).toHaveLength(0)
   })
-  it('does not load data for mock sessions and displays owner-only denial', async () => {
+  it('redirects away without ever fetching, for a session that cannot prove ownership', async () => {
     auth.user = { uid: 'preview' }
-    render(<ResearchEvaluation />)
-    expect(await screen.findByRole('alert')).toHaveTextContent('Owner sign-in required')
+    renderEvaluation()
+    expect(await screen.findByText('PORTFOLIO')).toBeInTheDocument()
+    expect(screen.queryByText(/Research evaluation/)).not.toBeInTheDocument()
     expect(fetch).not.toHaveBeenCalled()
   })
-  it('does not display experiment data when the API rejects a non-owner', async () => {
+  it('redirects away, rather than showing the refusal, when the API denies access', async () => {
     fetch.mockResolvedValue({ ok: false, json: async () => ({ error: 'Owner access required' }) })
-    render(<ResearchEvaluation />)
-    expect(await screen.findByRole('alert')).toHaveTextContent('Owner access required')
+    renderEvaluation()
+    expect(await screen.findByText('PORTFOLIO')).toBeInTheDocument()
     expect(screen.queryByText('Frozen existing engine')).not.toBeInTheDocument()
+  })
+  it('never renders the page title while ownership is still being checked', () => {
+    renderEvaluation()
+    expect(screen.queryByText(/Research evaluation/)).not.toBeInTheDocument()
   })
   it('allows stock inspection and client-side filtering without writes', async () => {
     const data = report()
@@ -42,7 +62,7 @@ describe('private evaluation page', () => {
       rejectionReason: 'rank_capacity', score: 55, rank: 6, price: 100, currency: 'USD', evidenceIds: ['evidence-original'],
       outcomes: [{ horizon: 5, status: 'pending' }, { horizon: 20, status: 'pending' }] }]
     fetch.mockResolvedValue({ ok: true, json: async () => data })
-    render(<ResearchEvaluation />)
+    renderEvaluation()
     expect(await screen.findByText(/QUIET · 2026-09-09/)).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Decision'), { target: { value: 'accepted' } })
     expect(screen.queryByText(/QUIET · 2026-09-09/)).not.toBeInTheDocument()
@@ -51,10 +71,17 @@ describe('private evaluation page', () => {
     expect(fetch).toHaveBeenCalledTimes(1)
   })
   it('clears owner data immediately when the signed-in identity changes', async () => {
-    const { rerender } = render(<ResearchEvaluation />)
+    const { rerender } = renderEvaluation()
     await screen.findByText('Frozen existing engine')
     auth.user = { uid: 'other', getIdToken: () => new Promise(() => {}) }
-    rerender(<ResearchEvaluation />)
+    rerender(
+      <MemoryRouter initialEntries={['/research/evaluation']}>
+        <Routes>
+          <Route path="/research/evaluation" element={<ResearchEvaluation />} />
+          <Route path="/portfolio" element={<div>PORTFOLIO</div>} />
+        </Routes>
+      </MemoryRouter>,
+    )
     await waitFor(() => expect(screen.queryByText('Frozen existing engine')).not.toBeInTheDocument())
   })
 })

@@ -58,6 +58,7 @@ function MockAuthBanner() {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(MOCK_AUTH ? MOCK_USER : null)
   const [loading, setLoading] = useState(!MOCK_AUTH)
+  const [isResearchOwner, setIsResearchOwner] = useState(false)
 
   useEffect(() => {
     if (MOCK_AUTH) return undefined
@@ -66,6 +67,20 @@ export function AuthProvider({ children }) {
       setLoading(false)
     })
   }, [])
+
+  // A cheap, storage-free check so the account menu can decide whether to show
+  // any research-owner navigation at all, without shipping the owner's
+  // identity into the public bundle. Every signed-in session may call it; only
+  // the actual owner gets back true.
+  useEffect(() => {
+    if (!user?.getIdToken) { setIsResearchOwner(false); return undefined }
+    let cancelled = false
+    user.getIdToken()
+      .then((token) => fetch('/api/get-research?owner=1', { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' }))
+      .then((response) => { if (!cancelled) setIsResearchOwner(response.ok) })
+      .catch(() => { if (!cancelled) setIsResearchOwner(false) })
+    return () => { cancelled = true }
+  }, [user])
 
   const signInWithGoogle = () => (
     MOCK_AUTH ? Promise.resolve(setUser(MOCK_USER)) : signInWithPopup(auth, googleProvider)
@@ -109,7 +124,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, signInWithGoogle, signUpWithEmail, signInWithEmail, linkPasswordToCurrentUser, resetPassword, signOut, isMockAuth: MOCK_AUTH }}>
+    <AuthContext.Provider value={{ user, signInWithGoogle, signUpWithEmail, signInWithEmail, linkPasswordToCurrentUser, resetPassword, signOut, isMockAuth: MOCK_AUTH, isResearchOwner }}>
       {children}
       {/* Always visible while mocked. A bypass you can forget is running is the
           one that ends up demoed to someone as if it were real. */}

@@ -53,5 +53,13 @@ export default async function handler(req, res) {
     const { default: evaluationHandler } = await import('../src/server/research/evaluationApi.js')
     return evaluationHandler(req, res)
   }
+  if (req.query?.owner === '1') {
+    const { checkOwner } = await import('../src/server/research/evaluationApi.js')
+    return checkOwner(req, res)
+  }
+  if (req.query?.runs === '1') {
+    const { default: runsHandler } = await import('../src/server/research/runsApi.js')
+    return runsHandler(req, res)
+  }
   return publicHandler(req, res)
 }

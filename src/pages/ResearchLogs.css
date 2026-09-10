@@ -1,0 +1,55 @@
+/* The run log takes the research workspace's tokens for the same reason the
+   evaluation notebook does: it is that product seen from the inside. Roles are
+   named separately so this page can be denser and more tabular than the
+   workspace without drifting off the palette. */
+.wallai-system.research-logs {
+  --rl-paper: var(--wa-cream); --rl-surface: var(--wa-soft); --rl-text: var(--wa-ink);
+  --rl-muted: var(--wa-muted); --rl-line: var(--wa-line); --rl-accent: var(--wa-forest);
+  --rl-negative: var(--wa-error);
+  min-height: calc(100svh - 64px); background: var(--rl-paper); color: var(--rl-text);
+  font-size: var(--wa-small); line-height: 1.6;
+  padding: 24px clamp(16px, 4vw, 48px) 64px;
+}
+
+/* Dark follows the app rather than the landing palette, exactly as the research
+   workspace does: brand green is a light-mode identity. */
+.dark .research-logs {
+  --rl-paper: rgb(var(--color-wall-bg)); --rl-surface: rgb(var(--color-wall-elevated));
+  --rl-text: rgb(var(--color-text-primary)); --rl-muted: rgb(var(--color-text-secondary));
+  --rl-line: rgb(var(--color-border)); --rl-accent: rgb(var(--color-accent));
+  --rl-negative: rgb(var(--color-loss));
+  color-scheme: dark;
+}
+
+.research-logs h1 { font-size: clamp(24px, 2.6vw, 36px); font-weight: 400; margin: 4px 0 8px; }
+.research-logs h2 { font-size: 16px; font-weight: 500; margin: 0; }
+.logs-eyebrow { display: inline-block; font-size: var(--wa-label, 12px); letter-spacing: .12em;
+  text-transform: uppercase; color: var(--rl-muted); }
+.logs-lede { color: var(--rl-muted); max-width: 68ch; margin: 0 0 16px; }
+.logs-head { border-bottom: 1px solid var(--rl-line); padding-bottom: 16px; margin-bottom: 24px; }
+.logs-state { padding: 48px 0; }
+.logs-empty { color: var(--rl-muted); }
+
+.logs-filters { display: flex; align-items: center; gap: 8px; }
+.logs-filters label { color: var(--rl-muted); }
+.logs-filters input {
+  font: inherit; color: inherit; background: var(--rl-paper);
+  border: 1px solid var(--wa-border, var(--rl-line)); border-radius: 12px;
+  padding: 8px 12px; min-height: 44px; min-width: 12ch;
+}
+.logs-filters input:focus-visible { outline: 2px solid var(--wa-focus, var(--rl-accent)); outline-offset: 4px; }
+
+.logs-run { border: 1px solid var(--rl-line); border-radius: 20px; padding: 16px; margin-bottom: 20px; background: var(--rl-surface); }
+.logs-run-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; margin-bottom: 12px; color: var(--rl-muted); }
+.logs-status { border-radius: 9999px; border: 1px solid var(--rl-line); padding: 2px 12px; color: var(--rl-text); }
+.logs-status-partial, .logs-stage-degraded th { color: var(--wa-warning, var(--rl-accent)); }
+.logs-status-failed, .logs-stage-failed th { color: var(--rl-negative); }
+
+/* Wide tables scroll inside their own container so the page body never does. */
+.logs-table-wrap { overflow-x: auto; margin-bottom: 12px; }
+.research-logs table { width: 100%; border-collapse: collapse; text-align: left; }
+.research-logs caption { text-align: left; color: var(--rl-muted); padding-bottom: 6px; }
+.research-logs th, .research-logs td { border-bottom: 1px solid var(--rl-line); padding: 8px 12px 8px 0; vertical-align: top; white-space: nowrap; }
+.research-logs thead th { color: var(--rl-muted); font-weight: 500; }
+.research-logs tbody th { font-weight: 500; }
+.research-logs td:last-child { white-space: normal; color: var(--rl-muted); }

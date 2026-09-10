@@ -1,0 +1,209 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { randomUUID } from 'node:crypto'
+
+// Deliberately not `logs:runs`. That list is shared with request-level routes
+// whose polling evicts the nightly run before morning, which is the blind spot
+// this key exists to close.
+export const RESEARCH_RUNS_KEY = 'research:runs:v1'
+const DEFAULT_RUN_HISTORY = 500
+
+// The shared vocabulary. #167's smoke test reports against these same names, so
+// the E2E run and production speak one language. Stages are the awaited steps
+// the pipeline actually has: admission and review-budget selection happen
+// inside `claude_review` and are reported as its metrics rather than invented
+// as a boundary the code does not have.
+export const STAGES = Object.freeze(Object.fromEntries([
+  'foundation_load',
+  'x_discovery',
+  'news_discovery',
+  'screener_discovery',
+  'exa_discovery',
+  'day_trade_signals',
+  'market_regime',
+  'claude_review',
+  'contrarian_review',
+  'catalyst_verification',
+  'final_ranking',
+  'publication',
+  'persistence',
+  'report_generation',
+  'evaluation_snapshot',
+  'slack_alerts',
+  'premarket_check',
+].map((name) => [name, name])))
+
+const context = new AsyncLocalStorage()
+
+export const withResearchRun = (run, fn) => context.run(run, fn)
+export const currentResearchRun = () => context.getStore()
+
+// Bounds, not cosmetics: these records are kept 500-deep, and an HTTP client
+// that puts a response body in the message would otherwise carry it into
+// storage on every failure.
+const MAX_MESSAGE = 600
+const MAX_STACK = 2000
+const clip = (value, limit) => (typeof value === 'string' && value.length > limit ? `${value.slice(0, limit - 1)}…` : value)
+
+// An Error serializes to `{}`, so every error is flattened to plain fields
+// before it reaches JSON.stringify.
+function normalizeError(error) {
+  if (error == null) return null
+  if (error instanceof Error) {
+    return { name: error.name, message: clip(error.message, MAX_MESSAGE), stack: clip(error.stack, MAX_STACK) }
+  }
+  return { name: 'Error', message: clip(String(error), MAX_MESSAGE) }
+}
+
+// Metrics are counts and flags, never payloads. Restricting them to scalars
+// structurally prevents a model response, filing or post corpus from being
+// serialized, rather than relying on every call site to remember.
+//
+// Redaction errs towards false positives: a wrongly hidden count costs a
+// number on a dashboard, a wrongly published token costs the credential.
+const SECRET_KEY = /key|token|secret|password|auth|credential|bearer|cookie|session/i
+
+function scalarMetrics(metrics) {
+  if (!metrics || typeof metrics !== 'object') return null
+  const safe = {}
+  for (const [key, value] of Object.entries(metrics)) {
+    if (SECRET_KEY.test(key)) safe[key] = '[redacted]'
+    else if (typeof value === 'boolean' || typeof value === 'string') safe[key] = value
+    else if (typeof value === 'number' && Number.isFinite(value)) safe[key] = value
+  }
+  return safe
+}
+
+export function researchLog({ level, error, metrics, ...event }) {
+  const run = currentResearchRun()
+  const failure = normalizeError(error)
+  const counts = scalarMetrics(metrics)
+  const severity = level ?? (failure ? 'error' : 'info')
+  const record = {
+    service: 'research',
+    runId: run?.runId ?? null,
+    job: run?.job ?? null,
+    level: severity,
+    ...event,
+  }
+  if (counts) record.metrics = counts
+  if (failure) record.error = failure
+  const line = JSON.stringify(record)
+  if (severity === 'error') console.error(line)
+  else console.log(line)
+  return record
+}
+
+// A throwing stage is recorded and then propagates. Callers that absorb a
+// failure keep doing so in their own catch, which is what keeps the `errors`
+// array the API already returns byte-for-byte unchanged.
+export async function stage(name, work, { metrics } = {}) {
+  researchLog({ stage: name, event: 'stage_started' })
+  const startedAt = Date.now()
+  try {
+    const result = await work()
+    remember(researchLog({
+      stage: name,
+      event: 'stage_completed',
+      status: 'success',
+      durationMs: Date.now() - startedAt,
+      metrics: typeof metrics === 'function' ? metrics(result) : metrics,
+    }))
+    return result
+  } catch (error) {
+    remember(researchLog({
+      stage: name,
+      event: 'stage_failed',
+      status: 'failed',
+      durationMs: Date.now() - startedAt,
+      error,
+    }))
+    throw error
+  }
+}
+
+// The persisted stage record reuses the emitted one, so redaction and the
+// scalar filter apply to storage exactly as they apply to the log line.
+function remember({ stage: name, status, durationMs, metrics, error }) {
+  const run = currentResearchRun()
+  if (!run?.stages) return
+  run.stages.push({ stage: name, status, durationMs, ...(metrics && { metrics }), ...(error && { error }) })
+}
+
+// Why a ticker did or did not make the board. Every field here is already
+// computed during a run — admission publishes its own reject/notReviewed audit
+// — so this reshapes existing decisions rather than measuring anything new.
+// Later entries never overwrite earlier ones: the list is built outcome-first,
+// so a published pick is not downgraded by also appearing on the board.
+export function candidateTraces({ board = [], admission, accepted = [], published = [] } = {}) {
+  const audit = admission?.audit || {}
+  const traces = new Map()
+  const add = (candidate, trace) => {
+    const id = candidate.securityId || candidate.ticker
+    if (!id || traces.has(id)) return
+    traces.set(id, { ticker: candidate.ticker ?? null, securityId: candidate.securityId ?? null, ...trace })
+  }
+
+  published.forEach((pick, index) => add(pick, {
+    outcome: 'published',
+    reviewed: true,
+    rank: index + 1,
+    finalScore: pick.finalScore,
+    catalystVerified: pick.catalystVerified,
+  }))
+  accepted.forEach((pick) => add(pick, {
+    outcome: 'accepted',
+    reviewed: true,
+    finalScore: pick.finalScore,
+    catalystVerified: pick.catalystVerified,
+  }))
+  ;(audit.rejected || []).forEach((entry) => add(entry, { outcome: 'rejected', reviewed: false, reason: entry.reason }))
+  ;(audit.notReviewed || []).forEach((entry) => add(entry, { outcome: 'not_reviewed', reviewed: false, reason: entry.reason }))
+  board.forEach((entry) => add(entry, { outcome: 'board', reviewed: false }))
+
+  return [...traces.values()]
+}
+
+/** Attach this run's candidate traces to the summary it will persist. */
+export function recordCandidates(traces) {
+  const run = currentResearchRun()
+  if (run) run.candidates = traces
+}
+
+function runHistoryLimit(raw = process.env.RESEARCH_RUN_LOG_LIMIT) {
+  const configured = Number(raw)
+  return Number.isInteger(configured) && configured > 0 ? configured : DEFAULT_RUN_HISTORY
+}
+
+async function persistRun(redis, summary) {
+  if (!redis) return
+  try {
+    await redis.lpush(RESEARCH_RUNS_KEY, JSON.stringify(summary))
+    await redis.ltrim(RESEARCH_RUNS_KEY, 0, runHistoryLimit() - 1)
+  } catch (error) {
+    // Observability must never be the reason a research run fails.
+    console.error(`[research] run summary not persisted: ${error.message}`)
+  }
+}
+
+export async function recordResearchRun(redis, { job, runId = randomUUID() }, work) {
+  const run = { runId, job, startedAt: new Date().toISOString(), stages: [] }
+  const startedAt = Date.now()
+  let fatal = false
+  try {
+    return await withResearchRun(run, work)
+  } catch (error) {
+    fatal = true
+    throw error
+  } finally {
+    await persistRun(redis, {
+      runId,
+      job,
+      startedAt: run.startedAt,
+      finishedAt: new Date().toISOString(),
+      durationMs: Date.now() - startedAt,
+      status: fatal ? 'failed' : run.stages.some((s) => s.status !== 'success') ? 'partial' : 'success',
+      stages: run.stages,
+      candidates: run.candidates || [],
+    })
+  }
+}
