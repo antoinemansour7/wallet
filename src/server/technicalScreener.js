@@ -1,7 +1,9 @@
 import { Redis } from '@upstash/redis'
 
 const SCREENER_CACHE_KEY = 'screener:breakout-candidates'
+const SCREENER_LAST_GOOD_KEY = 'screener:breakout-candidates:last-good'
 const SCREENER_CACHE_TTL = 43200 // 12 hours
+const SCREENER_LAST_GOOD_TTL = 30 * 24 * 60 * 60
 
 // Finviz paginates at 20 rows and, without an explicit sort, orders results
 // alphabetically. Requesting only the first page therefore returned nothing but
@@ -68,15 +70,19 @@ function totalMatches(html) {
 async function fetchFinvizPage(url) {
   const res = await fetch(url, {
     headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-      'Accept': 'text/html',
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Referer': 'https://finviz.com/',
     },
+    redirect: 'follow',
     signal: AbortSignal.timeout(15000),
   })
 
   if (!res.ok) {
-    console.error(`[technicalScreener] Finviz returned ${res.status} for ${url}`)
-    return { tickers: [], total: null }
+    const error = new Error(`Finviz returned ${res.status}`)
+    error.status = res.status
+    throw error
   }
 
   const html = await res.text()
@@ -109,32 +115,54 @@ async function fetchFinvizScreener(baseUrl, maxPages = MAX_PAGES) {
 export async function fetchBreakoutCandidates() {
   // Try cache first
   const redis = getRedis()
+  let lastGood = []
   try {
     const cached = await redis.get(SCREENER_CACHE_KEY)
     if (cached && Array.isArray(cached) && cached.length > 0) {
       console.log(`[technicalScreener] cache hit: ${cached.length} candidates`)
       return cached
     }
+    const backup = await redis.get(SCREENER_LAST_GOOD_KEY)
+    if (Array.isArray(backup)) lastGood = backup
   } catch (err) {
     console.error('[technicalScreener] cache read failed:', err.message)
   }
 
   console.log('[technicalScreener] fetching from Finviz...')
 
-  // One market-wide run plus a sector-scoped run per focus sector, on both
-  // screens. Each screen is independent and non-fatal: a failure (or a drifted
-  // Finviz code) degrades to no extra candidates, never an error.
-  const screen = (url, maxPages, label) => fetchFinvizScreener(url, maxPages).catch((err) => {
-    console.error(`[technicalScreener] ${label} fetch failed:`, err.message)
-    return []
-  })
-  const sectorScreens = (baseUrl, label) =>
-    FOCUS_SECTOR_FILTERS.map((sec) => screen(withSectorFilter(baseUrl, sec), SECTOR_SCREEN_PAGES, `${label}/${sec}`))
+  const screen = async (url, maxPages, label) => {
+    try { return { tickers: await fetchFinvizScreener(url, maxPages), error: null } }
+    catch (error) {
+      console.error(`[technicalScreener] ${label} fetch failed:`, error.message)
+      return { tickers: [], error }
+    }
+  }
 
-  const [squeezeLists, breakoutLists] = await Promise.all([
-    Promise.all([screen(SQUEEZE_URL, MAX_PAGES, 'squeeze'), ...sectorScreens(SQUEEZE_URL, 'squeeze')]),
-    Promise.all([screen(BREAKOUT_URL, MAX_PAGES, 'breakout'), ...sectorScreens(BREAKOUT_URL, 'breakout')]),
+  // Probe the two broad screens first. Vercel IPs can be blocked by Finviz;
+  // when both probes fail, do not amplify that into ten simultaneous 403s.
+  const broad = await Promise.all([
+    screen(SQUEEZE_URL, MAX_PAGES, 'squeeze'),
+    screen(BREAKOUT_URL, MAX_PAGES, 'breakout'),
   ])
+  if (broad.every((result) => result.error)) {
+    if (lastGood.length > 0) {
+      console.warn(`[technicalScreener] Finviz unavailable; using ${lastGood.length} last-known-good candidates`)
+      return lastGood
+    }
+    throw new Error(`Finviz unavailable: ${broad.map((result) => result.error.message).join(', ')}`)
+  }
+
+  // Limit sector fan-out to two requests at a time to avoid provider blocking.
+  const sectorTasks = FOCUS_SECTOR_FILTERS.flatMap((sec) => [
+    () => screen(withSectorFilter(SQUEEZE_URL, sec), SECTOR_SCREEN_PAGES, `squeeze/${sec}`),
+    () => screen(withSectorFilter(BREAKOUT_URL, sec), SECTOR_SCREEN_PAGES, `breakout/${sec}`),
+  ])
+  const sectorResults = []
+  for (let index = 0; index < sectorTasks.length; index += 2) {
+    sectorResults.push(...await Promise.all(sectorTasks.slice(index, index + 2).map((task) => task())))
+  }
+  const squeezeLists = [broad[0].tickers, ...sectorResults.filter((_, index) => index % 2 === 0).map((result) => result.tickers)]
+  const breakoutLists = [broad[1].tickers, ...sectorResults.filter((_, index) => index % 2 === 1).map((result) => result.tickers)]
 
   const squeezeTickers = [...new Set(squeezeLists.flat())]
   const breakoutTickers = [...new Set(breakoutLists.flat())]
@@ -158,6 +186,7 @@ export async function fetchBreakoutCandidates() {
   if (candidates.length > 0) {
     try {
       await redis.set(SCREENER_CACHE_KEY, candidates, { ex: SCREENER_CACHE_TTL })
+      await redis.set(SCREENER_LAST_GOOD_KEY, candidates, { ex: SCREENER_LAST_GOOD_TTL })
     } catch (err) {
       console.error('[technicalScreener] cache write failed:', err.message)
     }

@@ -88,7 +88,10 @@ const CLAUDE_MODEL = 'claude-sonnet-5'
 // older { type: 'enabled', budget_tokens } shape is rejected outright with a
 // 400. Verified live on this key — 'high' returns a thinking block and clean
 // JSON, 'medium' returns no thinking block at all.
-const RESEARCH_EFFORT = process.env.RESEARCH_EFFORT || 'high'
+// Medium remains thorough for the structured ranking prompt but avoids spending
+// most of a five-minute cron invocation in adaptive thinking. Operators can
+// still opt into high effort for non-cron/manual research runs.
+const RESEARCH_EFFORT = process.env.RESEARCH_EFFORT || 'medium'
 
 const SQUEEZE_REGEX = /(short squeeze|short interest|gamma squeeze|squeez(?:e|ing)|days to cover|float rotation|covering)/i
 const VOLUME_REGEX = /(unusual volume|relative volume|rvol|options sweep|dark pool|heavy volume|flow|accumulation)/i
@@ -1223,7 +1226,7 @@ export async function extractTickers(signals, articles, options = {}) {
       stream: false,
       system: systemPrompt,
       messages,
-    })
+    }, options.requestOptions)
     const message = typeof response === 'string' ? JSON.parse(response) : response
 
     // Find the text block (skip thinking blocks)
@@ -1411,13 +1414,13 @@ function isCreditError(err) {
   return err.status === 402 || err.status === 429 || err.message?.includes('credit')
 }
 
-async function generateOneReport(client, tickerObj) {
+async function generateOneReport(client, tickerObj, requestOptions) {
   const response = await client.messages.create({
     model: RESEARCH_REPORT_MODEL,
     max_tokens: 4096,
     tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 6 }],
     messages: [{ role: 'user', content: buildResearchPrompt(tickerObj) }],
-  })
+  }, requestOptions)
 
   const blocks = response.content || []
   const report = blocks
@@ -1460,7 +1463,7 @@ async function mapWithConcurrency(items, limit, task) {
   return results
 }
 
-export async function generateResearchReports(tickers) {
+export async function generateResearchReports(tickers, options = {}) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
     console.warn('[researchEngine] ANTHROPIC_API_KEY not set — returning picks without reports')
@@ -1478,7 +1481,7 @@ export async function generateResearchReports(tickers) {
     if (creditExhausted) return { ...tickerObj, report: null, citations: [] }
 
     try {
-      return await generateOneReport(client, tickerObj)
+      return await generateOneReport(client, tickerObj, options.requestOptions)
     } catch (err) {
       console.error(`[researchEngine] report failed for ${tickerObj.ticker}:`, err.message)
       if (isCreditError(err)) {

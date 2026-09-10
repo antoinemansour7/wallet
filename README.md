@@ -56,7 +56,7 @@ screeners, extracts candidate tickers, and generates reports.
 
 ## Running it
 
-Requires **Node 20**.
+Requires **Node 22**.
 
 ```bash
 git clone https://github.com/antoinemansour7/wallet.git
@@ -275,8 +275,8 @@ which keeps the whole connect flow inside fixtures.
 npm run test:run
 ```
 
-Node 20 is the project baseline. Tests use jsdom 26 so the full suite works
-across Node 20 patch releases. The npm scripts also force mock auth off, and
+Node 22 is the project and Vercel runtime baseline. Tests use jsdom 26 so the full suite works
+across Node 22 patch releases. The npm scripts also force mock auth off, and
 Vite does not mirror `.env` secrets into the test process, so local credentials
 cannot silently turn unit tests into integration tests.
 

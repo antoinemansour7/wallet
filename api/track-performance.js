@@ -8,6 +8,8 @@ import { trackEvaluation } from '../src/server/research/evaluationPerformance.js
 import { Redis } from '@upstash/redis'
 import { storePickPerformance, invalidateStatsCache } from '../src/server/agents/signalHistoryTools.js'
 import { sessionCheckpoints, LEGACY_EVALUATION_VERSION } from '../src/server/researchPerformance.js'
+import { STAGES, recordResearchRun, skipStage, stage } from '../src/server/research/observability.js'
+import { createCronBudget, withinCronBudget } from '../src/server/research/runtimeBudget.js'
 
 /**
  * Map days-held to a tracking checkpoint. Tolerant windows instead of exact
@@ -85,8 +87,11 @@ export default async function handler(req, res) {
   }
 
   const startedAt = Date.now()
+  const budget = createCronBudget({ startedAt })
+  return recordResearchRun(redis, { job: 'track-performance' }, () => stage(STAGES.performance_tracking, async () => {
   const errors = []
   let tracked = 0
+  let deferred = false
   let master = null
   try { master = (await loadFoundation({ redis, refresh: false })).master }
   catch (error) { errors.push({ stage: 'identity', error: error.message }) }
@@ -105,6 +110,7 @@ export default async function handler(req, res) {
     // Old histories without an issuance timestamp cannot establish a fill.
     if (!generatedAt) return
     for (const pick of picks) {
+      if (!budget.canStart(12_000)) { deferred = true; return }
       if (!pick.ticker) continue
       try {
         // Never fetch a reused ticker as though it were the original security.
@@ -136,10 +142,12 @@ export default async function handler(req, res) {
   }
 
   for (const history of histories) {
+    if (deferred || !budget.canStart(12_000)) { deferred = true; break }
     if (history?.picks) await trackPicks(history.date, allResearchPicks(history), history.generatedAt)
   }
-  const shadowDates = [...new Set(await redis.lrange('research:shadow-index', 0, HISTORY_LIMIT - 1) || [])]
+  const shadowDates = deferred ? [] : [...new Set(await redis.lrange('research:shadow-index', 0, HISTORY_LIMIT - 1) || [])]
   for (const dateKey of shadowDates) {
+    if (deferred || !budget.canStart(12_000)) { deferred = true; break }
     const shadowEntry = await redis.get(`research:shadow:${dateKey}`)
     if (shadowEntry?.picks) await trackPicks(dateKey, shadowEntry.picks, shadowEntry.generatedAt, { shadow: true })
   }
@@ -147,8 +155,20 @@ export default async function handler(req, res) {
   // Experiment outcomes live in a separate immutable namespace. They never
   // inflate the delivered learning cohort or change the ordinary Research feed.
   let experimentTracked = 0
-  try { experimentTracked = await trackEvaluation(createArchive(redis), { master, candlesFor, now: startedAt }) }
-  catch (err) { errors.push({ stage: 'evaluation', error: err.message }) }
+  if (!budget.canStart(30_000)) {
+    deferred = true
+    skipStage(STAGES.performance_evaluation, 'time_budget', { availableMs: budget.availableMs() })
+  } else {
+    try {
+      experimentTracked = await withinCronBudget(budget, 'Performance evaluation', () =>
+        trackEvaluation(createArchive(redis), { master, candlesFor, now: startedAt }))
+    } catch (err) {
+      if (err.code === 'CRON_TIME_BUDGET_EXCEEDED') deferred = true
+      errors.push({ stage: 'evaluation', error: err.message })
+    }
+  }
+
+  if (deferred) errors.push({ stage: 'time-budget', error: 'remaining records deferred to the next idempotent run' })
 
   console.log(`[track-performance] tracked ${tracked} pick-price updates`)
 
@@ -169,6 +189,8 @@ export default async function handler(req, res) {
     tracked,
     experimentTracked,
     checkedDates: historyIndex.length,
+    deferred,
     errors,
   })
+  }))
 }

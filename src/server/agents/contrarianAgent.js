@@ -35,7 +35,7 @@ Rules:
 - Cover ALL tickers provided
 - Be honest — if a pick genuinely has low risk, give it a low riskScore. Don't force bearishness.`
 
-export async function runContrarianAgent(picks, technicals = new Map()) {
+export async function runContrarianAgent(picks, technicals = new Map(), options = {}) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
   if (!picks || picks.length === 0) return []
@@ -115,7 +115,7 @@ export async function runContrarianAgent(picks, technicals = new Map()) {
     stream: false,
     system: CONTRARIAN_SYSTEM_PROMPT,
     messages: [{ role: 'user', content: userMessage }],
-  })
+  }, options.requestOptions)
 
   const textBlock = (response.content || []).find((b) => b.type === 'text')
   const raw = (textBlock?.text ?? '').trim()
