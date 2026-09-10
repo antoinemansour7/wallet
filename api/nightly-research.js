@@ -17,6 +17,7 @@ import { runCatalystAgent } from '../src/server/agents/catalystAgent.js'
 import { runExaDiscovery } from '../src/server/agents/exaDiscoveryAgent.js'
 import { sendPickAlerts } from '../src/server/agents/slackAgent.js'
 import { getMarketRegime, regimeSizeMultiplier } from '../src/server/marketRegime.js'
+import { prepareEvaluation, freezeEvaluation } from '../src/server/research/evaluation.js'
 
 const RESEARCH_KEY = 'research:latest'
 const RESEARCH_TTL = 48 * 60 * 60 // 48 hours
@@ -219,6 +220,7 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
   let tickers = []
   let shadowBoard = []
   let primaryReview = null
+  let evaluationPromise = null
   try {
     // A run where a discovery feed failed produces low mention counts for every
     // ticker. Recorded as though it were real, the next run would read a
@@ -234,6 +236,12 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
       onBoard: (board) => { shadowBoard = board.slice(0, 15) },
       regime,
       discoveryHealthy,
+      onEvaluationInputs: (inputs) => {
+        // Independent model policies require independent reviews, but use the
+        // same already-collected evidence, prices, technicals and market context.
+        evaluationPromise = prepareEvaluation({ ...inputs, discoveryHealthy }, foundation)
+          .then((snapshot) => ({ snapshot }), (error) => ({ error }))
+      },
     })
     console.log(`[nightly-research] extracted ${tickers.length} tickers:`, tickers.map((t) => t.ticker))
   } catch (err) {
@@ -244,6 +252,12 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
     await recordRun('nightly-research', startedAt, { errors })
     return res.status(503).json({ error: 'Research review unavailable; previous briefing retained', errors })
   }
+
+  // The experiment is shadow, so a failure to freeze its inputs is recorded and
+  // the run carries on. The briefing people actually read must never be lost to
+  // a measurement that was only ever observing it.
+  const evaluation = await evaluationPromise
+  if (!evaluation?.snapshot) errors.push({ step: 'evaluation', error: evaluation?.error?.message || 'Decision inputs unavailable' })
 
   // Step 3.5: Contrarian Agent — stress-test each pick with bear case
   if (tickers.length > 0) {
@@ -333,6 +347,7 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
     errors,
     reportsPending: reportCandidates.length > 0,
   }
+  let evaluationRun = null
 
   // Step 3.9: store the ranked picks BEFORE writing their reports.
   // Report generation is the longest leg of the run, so it is the leg most
@@ -347,8 +362,16 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
     await recordRun('nightly-research', startedAt, { errors })
     return res.status(503).json({ error: 'Could not archive research decisions', errors })
   }
+  // Same reasoning as above: the experiment records what the delivered run
+  // decided, and cannot be a reason to withhold it.
+  if (evaluation?.snapshot) {
+    try { evaluationRun = await freezeEvaluation(foundation.archive, evaluation.snapshot, payload) }
+    catch (err) { errors.push({ step: 'evaluation-freeze', error: err.message }) }
+  }
   try {
     await storeProjection(redis, payload)
+    if (evaluationRun) await foundation.archive.put('evaluation-delivery', evaluationRun.id, { runId: evaluationRun.id,
+      availableAt: new Date().toISOString() }, 'evaluation-deliveries')
   } catch (err) {
     errors.push({ step: 'store-partial', error: err.message })
   }
@@ -377,6 +400,8 @@ async function runDiscovery(res, startedAt, recordRun, foundation) {
 
   if (redis) {
     await storeProjection(redis, payload)
+    if (evaluationRun) await foundation.archive.put('evaluation-delivery', evaluationRun.id, { runId: evaluationRun.id,
+      availableAt: new Date().toISOString() }, 'evaluation-deliveries')
 
     // Shadow tracking: the top-15 board candidates that didn't make the cut.
     // Tracked like real picks (but never shown) to ~3x the learning data

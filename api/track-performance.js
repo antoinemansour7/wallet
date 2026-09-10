@@ -2,6 +2,8 @@ import { evaluationHistory } from '../src/server/research/history.js'
 import { HISTORY_LIMIT } from '../src/server/research/policy.js'
 import { allResearchPicks } from '../src/server/research/review.js'
 import { loadFoundation } from '../src/server/research/foundation.js'
+import { createArchive } from '../src/server/research/archive.js'
+import { trackEvaluation } from '../src/server/research/evaluationPerformance.js'
 
 import { Redis } from '@upstash/redis'
 import { storePickPerformance, invalidateStatsCache } from '../src/server/agents/signalHistoryTools.js'
@@ -142,6 +144,12 @@ export default async function handler(req, res) {
     if (shadowEntry?.picks) await trackPicks(dateKey, shadowEntry.picks, shadowEntry.generatedAt, { shadow: true })
   }
 
+  // Experiment outcomes live in a separate immutable namespace. They never
+  // inflate the delivered learning cohort or change the ordinary Research feed.
+  let experimentTracked = 0
+  try { experimentTracked = await trackEvaluation(createArchive(redis), { master, candlesFor, now: startedAt }) }
+  catch (err) { errors.push({ stage: 'evaluation', error: err.message }) }
+
   console.log(`[track-performance] tracked ${tracked} pick-price updates`)
 
   try {
@@ -159,6 +167,7 @@ export default async function handler(req, res) {
 
   return res.status(200).json({
     tracked,
+    experimentTracked,
     checkedDates: historyIndex.length,
     errors,
   })
