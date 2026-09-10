@@ -5,7 +5,7 @@ import reactHooks from 'eslint-plugin-react-hooks'
 
 export default [
   {
-    ignores: ['coverage/**', 'dist/**', 'node_modules/**', '.vercel/**'],
+    ignores: ['coverage/**', 'dist/**', 'node_modules/**', '.vercel/**', '.playwright-mcp/**'],
   },
   {
     linterOptions: { reportUnusedDisableDirectives: 'error' },
