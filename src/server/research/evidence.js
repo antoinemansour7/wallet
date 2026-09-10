@@ -1,5 +1,5 @@
 import { digest } from './archive.js'
-import { EVIDENCE_VERSION, DATA_VERSION, HORIZON_POLICY_VERSION, strategyPolicy } from './policy.js'
+import { EVIDENCE_VERSION, DATA_VERSION, HORIZON_POLICY_VERSION, strategyPolicy, declaredHorizons } from './policy.js'
 
 const iso = (value, field) => {
   const timestamp = Date.parse(value)
@@ -22,7 +22,8 @@ export function earliestAction({ publicAt, firstSeenAt, extractionCompletedAt, m
 
 export function createEvidence(input) {
   const policy = strategyPolicy(input.strategyFamily)
-  if (input.horizon != null && input.horizon !== policy.horizon) throw new Error('Horizon must be declared by the strategy policy, not chosen per outcome')
+  // A caller may name any horizon the strategy predeclared, but nothing else.
+  if (input.horizon != null && !policy.horizons.includes(input.horizon)) throw new Error('Horizon must be declared by the strategy policy, not chosen per outcome')
   const s = input.security
   if (!s?.securityId?.startsWith('figi:') || !s.issuerId?.startsWith('cik:') || s.countryOfListing !== 'US'
     || s.type !== 'common_stock' || !s.ticker || !s.exchange || !s.currency) throw new Error('Evidence requires a resolved US common-stock identity')
@@ -42,6 +43,9 @@ export function createEvidence(input) {
   const record = {
     schemaVersion: EVIDENCE_VERSION, dataVersion: DATA_VERSION, modelVersion: input.modelVersion || 'disclosure-extraction-v1',
     horizonPolicyVersion: HORIZON_POLICY_VERSION, strategyFamily: input.strategyFamily, horizon: policy.horizon,
+    // The declared set travels with the record, so a later reader can see what
+    // was predeclared when it was written rather than trusting today's policy.
+    horizons: declaredHorizons(input.strategyFamily),
     ...s, source: { ...source }, ...timestamps, execution, eligibleAt, availableAt: timestamps.extractionCompletedAt,
     observedFacts, interpretation: { thesis: '', adverse: false, ...input.interpretation },
     measurements: { liquidity: null, priceResponse: null, attention: null, ...input.measurements }, decision,

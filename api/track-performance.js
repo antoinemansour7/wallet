@@ -121,6 +121,7 @@ export default async function handler(req, res) {
             ...checkpoint, shadow, day1Open: checkpoint.entryPrice,
             candidateId: pick.candidateId, securityId: pick.securityId, issuerId: pick.issuerId,
             strategyFamily: pick.strategyFamily, declaredHorizon: pick.horizon, horizonPolicyVersion: pick.horizonPolicyVersion,
+            horizons: pick.horizons, experiment: pick.experiment,
             earliestActionAt: pick.earliestActionAt,
             modelVersion: pick.modelVersion || 'legacy',
           })

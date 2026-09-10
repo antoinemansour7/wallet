@@ -3,7 +3,7 @@ import { collectFoundationCandidates } from './foundation.js'
 import { admitCandidates } from './admission.js'
 import { digest } from './archive.js'
 import { earliestAction, archiveEvidence, createEvidence } from './evidence.js'
-import { HORIZON_POLICY_VERSION, strategyPolicy } from './policy.js'
+import { HORIZON_POLICY_VERSION, strategyPolicy, quietCondition } from './policy.js'
 import { RESEARCH_MODEL_VERSION, EVALUATION_VERSION } from '../researchPerformance.js'
 
 export async function prepareDiscovery(signals, attentionBoard, foundation, options = {}) {
@@ -43,6 +43,14 @@ export function stampPick(pick, candidate, family, { now = new Date().toISOStrin
   const execution = { mode: 'live', executionLatencyMs: 60000 }
   return { ...pick, securityId: candidate.securityId, issuerId: candidate.issuerId, ticker: candidate.ticker,
     exchange: candidate.exchange, currency: candidate.currency, strategyFamily: family, horizon: policy.horizon,
+    // Ranked on `horizon`, evaluated at every horizon in `horizons`. Carrying
+    // the set on the pick means track-performance and the experiment read what
+    // was declared for this decision, not what policy says today.
+    horizons: policy.horizons,
+    // Arm assignment for the #107 experiment. Attention and the price reaction
+    // are both decision-time facts that cannot be recovered afterwards, so they
+    // are stamped now or the comparison can never be run.
+    experiment: quietCondition({ attention: pick.measurements?.attention, repricingPercent: pick.measurements?.priceResponse?.changePercent }),
     horizonPolicyVersion: HORIZON_POLICY_VERSION, modelVersion: RESEARCH_MODEL_VERSION, evaluationVersion: EVALUATION_VERSION,
     publicAt, firstSeenAt, extractionCompletedAt, execution,
     earliestActionAt: earliestAction({ publicAt, firstSeenAt, extractionCompletedAt, ...execution }),

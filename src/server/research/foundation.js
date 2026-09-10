@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Redis } from '@upstash/redis'
 import { createArchive, digest } from './archive.js'
+import { ingestIssuerBudget } from './policy.js'
 import { loadSecurityMaster, refreshSecurityMaster, MASTER_MAX_AGE_MS } from './securityMaster.js'
 import { createSecClient, ingestIssuer, parseDailyIndex } from './secDisclosures.js'
 import { archiveAttentionSignals } from './evidence.js'
@@ -54,7 +55,7 @@ export async function syncFoundation(options = {}) {
   }
 }
 
-async function syncUnlocked({ redis = Redis.fromEnv(), archive = createArchive(redis), deadline = Date.now() + 240000, client, maxIssuers = 5, now = new Date().toISOString(), refresh = true, forceMasterRefresh = false } = {}) {
+async function syncUnlocked({ redis = Redis.fromEnv(), archive = createArchive(redis), deadline = Date.now() + 240000, client, maxIssuers = ingestIssuerBudget(), now = new Date().toISOString(), refresh = true, forceMasterRefresh = false } = {}) {
   if (!Number.isInteger(maxIssuers) || maxIssuers < 1) throw new Error('maxIssuers must be positive')
   const { master, masterRefresh } = await loadFoundation({ redis, archive, refresh, forceMasterRefresh, now, masterOptions: { deadline: Math.min(deadline, Date.now() + 120000) } })
   const errors = []

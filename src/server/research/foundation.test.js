@@ -143,7 +143,12 @@ describe('immutable archive, evidence and causal time', () => {
   it('locks horizon at creation and makes inference corrections distinct', async () => {
     const archive = createArchive(memoryRedis(), { objectStore: memoryObjectStore() })
     const original = await evidenceFixture(archive)
-    expect(() => createEvidence({ ...original, security: original, horizon: 5 })).toThrow('Horizon')
+    // Fundamentals predeclares 5 and 20, so naming either is allowed and both
+    // still rank on 20. Naming a horizon it never declared is the retrospective
+    // pick, and still throws.
+    expect(createEvidence({ ...original, security: original, horizon: 5 }).horizon).toBe(20)
+    expect(createEvidence({ ...original, security: original, horizon: 5 }).horizons).toEqual([5, 20])
+    expect(() => createEvidence({ ...original, security: original, horizon: 60 })).toThrow('Horizon')
     const revised = createEvidence({ ...original, security: original, decision: { status: 'rejected', reason: 'Material accounting discrepancy' } })
     expect(revised.id).not.toBe(original.id)
     expect(Object.isFrozen(revised.decision)).toBe(true)
@@ -227,6 +232,13 @@ describe('zero-mention end-to-end acceptance', () => {
     expect(reviewer).toHaveBeenCalledTimes(2)
     expect(reviewer.mock.calls.every(([input]) => input.candidates[0].measurements.attention === 0)).toBe(true)
     expect(reviewed.picksByHorizon[20][0]).toMatchObject({ ticker: 'QUIET', strategyFamily: 'fundamentals', horizon: 20, signalCount: 0, earliestActionAt: '2026-02-02T12:02:00.000Z' })
+    // #107: the pick carries both predeclared horizons and the experiment arm it
+    // was assigned at decision time. Neither can be reconstructed later, so if
+    // they are not stamped here the comparison can never be run.
+    expect(reviewed.picksByHorizon[20][0].horizons).toEqual([5, 20])
+    expect(reviewed.picksByHorizon[20][0].experiment).toMatchObject({ version: 'fundamentals-quiet-v1', attention: 0 })
+    // Zero mentions and no measured day change is the quiet arm.
+    expect(reviewed.picksByHorizon[20][0].experiment.quiet).toBe(null)
     expect(reviewed.picksByHorizon[60][0].horizon).toBe(60)
     expect(reviewed.picksByHorizon[5]).toBeUndefined()
     expect(await archive.list('admissions', reviewedAt)).toHaveLength(1)
@@ -332,12 +344,26 @@ describe('low-cost reference ingestion', () => {
       expect(fetchImpl).not.toHaveBeenCalled()
     } finally { vi.unstubAllEnvs() }
   })
-  it('runs ingestion daily with room for Hobby timing jitter before research', () => {
+  it('drains the backlog with several staggered daily ingestion runs, still Hobby-compatible', () => {
     const config = JSON.parse(readFileSync(new URL('../../../vercel.json', import.meta.url), 'utf8'))
-    const cron = (path) => config.crons.find((entry) => entry.path === path).schedule.split(' ')
-    const ingestion = cron('/api/research-foundation'), research = cron('/api/nightly-research')
-    expect(ingestion).toEqual(['0', '4', '*', '*', '*'])
-    expect(Number(research[1]) - Number(ingestion[1])).toBeGreaterThanOrEqual(2)
+    const fields = (entry) => entry.schedule.split(' ')
+    const ingestion = config.crons.filter((entry) => entry.path === '/api/research-foundation')
+    const research = fields(config.crons.find((entry) => entry.path === '/api/nightly-research'))
+    // More than one run a day is the whole point — the pilot's single 04:00 run
+    // could not keep pace with SEC arrivals.
+    expect(ingestion.length).toBeGreaterThanOrEqual(4)
+    // Each entry must itself be a once-per-day expression or Hobby rejects the
+    // deployment; minute and hour are fixed, day/month/weekday are wildcards.
+    const hours = ingestion.map((entry) => {
+      const [minute, hour, dom, month, dow] = fields(entry)
+      expect(minute).toBe('0')
+      expect([dom, month, dow]).toEqual(['*', '*', '*'])
+      return Number(hour)
+    }).sort((a, b) => a - b)
+    // At least one run lands well before the 07:00 ranking, and no two runs are
+    // close enough for Hobby's within-the-hour jitter to make them collide.
+    expect(Math.min(...hours)).toBeLessThanOrEqual(Number(research[1]) - 2)
+    for (let i = 1; i < hours.length; i++) expect(hours[i] - hours[i - 1]).toBeGreaterThanOrEqual(2)
     expect(config.functions['api/research-foundation.js'].maxDuration).toBe(300)
   })
 })
