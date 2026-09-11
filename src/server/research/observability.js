@@ -30,7 +30,6 @@ export const STAGES = Object.freeze(Object.fromEntries([
   'evaluation_input_freeze',
   'evaluation_snapshot',
   'evaluation_job',
-  'slack_alerts',
   'premarket_check',
   'foundation_sync',
   'foundation_followup',

@@ -144,7 +144,7 @@ describe('STAGES', () => {
       'foundation_load', 'x_discovery', 'news_discovery', 'screener_discovery', 'exa_discovery',
       'day_trade_signals', 'market_regime', 'claude_review', 'contrarian_review',
       'catalyst_verification', 'final_ranking', 'publication', 'persistence',
-      'report_generation', 'evaluation_snapshot', 'slack_alerts', 'premarket_check',
+      'report_generation', 'evaluation_snapshot', 'premarket_check',
       'foundation_sync', 'foundation_followup', 'performance_tracking', 'performance_evaluation',
     ]))
   })
@@ -153,6 +153,7 @@ describe('STAGES', () => {
     expect(STAGES.evaluation_input_freeze).toBe('evaluation_input_freeze')
     expect(STAGES.evaluation_job).toBe('evaluation_job')
     expect(STAGES.evaluation_snapshot).toBe('evaluation_snapshot')
+    expect(STAGES).not.toHaveProperty('slack_alerts')
   })
 })
 

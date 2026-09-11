@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => {
   const archive = { put: vi.fn(async (kind, _id, payload) => { if (kind === 'publication') publications.push(structuredClone(payload)); return payload }) }
   const master = { resolve: ({ ticker }) => [{ ticker, securityId: `figi:${ticker}` }] }
   return { values, publications, redis, archive, master, load: vi.fn(), extract: vi.fn(), reports: vi.fn(), record: vi.fn(), quotes: vi.fn(),
-    yahoo: vi.fn(), freezeEvaluationJob: vi.fn() }
+    yahoo: vi.fn(), freezeEvaluationJob: vi.fn(), slack: vi.fn() }
 })
 vi.mock('@upstash/redis', () => ({ Redis: { fromEnv: () => mocks.redis } }))
 vi.mock('./evaluationJob.js', () => ({ freezeEvaluationJob: mocks.freezeEvaluationJob }))
@@ -27,7 +27,7 @@ vi.mock('../technicalScreener.js', () => ({ fetchBreakoutCandidates: async () =>
 vi.mock('../agents/contrarianAgent.js', () => ({ runContrarianAgent: async (picks) => picks }))
 vi.mock('../agents/catalystAgent.js', () => ({ runCatalystAgent: async (picks) => picks }))
 vi.mock('../agents/exaDiscoveryAgent.js', () => ({ runExaDiscovery: async () => [] }))
-vi.mock('../agents/slackAgent.js', () => ({ sendPickAlerts: vi.fn() }))
+vi.mock('../agents/slackAgent.js', () => ({ sendPickAlerts: mocks.slack }))
 vi.mock('../dayTradeSignals.js', () => ({ collectDayTradeSignals: async () => [] }))
 vi.mock('../marketRegime.js', () => ({ getMarketRegime: async () => ({ score: 6, label: 'Mixed' }), regimeSizeMultiplier: () => 0.75 }))
 vi.mock('../marketQuotes.js', () => ({ fetchMarketQuotes: mocks.quotes }))
@@ -71,6 +71,24 @@ describe('nightly foundation integration', () => {
     expect(res.status).toHaveBeenCalledWith(200)
   })
 
+  it('orders the durable evaluation handoff before optional report generation', async () => {
+    mocks.extract.mockImplementation(async (_s, _a, options) => { options.onPrimaryReview(primary()); return [pick('FAST')] })
+
+    await handler(request(), response())
+
+    const [, line] = mocks.redis.lpush.mock.calls.find(([key]) => key === 'research:runs:v1')
+    const stages = JSON.parse(line).stages.map((entry) => entry.stage)
+      .filter((stage) => ['publication', 'persistence', 'evaluation_input_freeze', 'report_generation'].includes(stage))
+    expect(stages).toEqual(['publication', 'persistence', 'evaluation_input_freeze', 'report_generation'])
+    expect(mocks.freezeEvaluationJob).toHaveBeenCalledWith(mocks.archive, {
+      runId: expect.any(String),
+      publicationId: mocks.values.get('research:latest').publicationId,
+      decisionAt: '2026-09-09T12:00:00.000Z',
+      evaluationInputs: { discoveryHealthy: false },
+    })
+    expect(mocks.freezeEvaluationJob.mock.invocationCallOrder[0]).toBeLessThan(mocks.reports.mock.invocationCallOrder[0])
+  })
+
   it('carries winners whole, removes vetoes, and reports only new winners', async () => {
     mocks.values.set('research:latest', { generatedAt: '2026-09-09T10:00:00Z', picks: [pick('BAD')], picksByHorizon: { 20: [{ ...pick('KEPT', 20, 95), report: 'Original' }] } })
     mocks.extract.mockImplementation(async (_s, _a, options) => { options.onPrimaryReview(primary({ 20: [pick('KEPT', 20, 50)], 60: [pick('NEW', 60)] }, { vetoes: ['figi:BAD'] })); return [] })
@@ -81,7 +99,7 @@ describe('nightly foundation integration', () => {
     expect(mocks.reports.mock.calls[0][0].map((p) => p.ticker)).toEqual(['NEW'])
   })
 
-  it('retries history indexing after a partial write failure and retains picks on report failure', async () => {
+  it('freezes the evaluation packet before a report failure and retains the published picks', async () => {
     mocks.extract.mockImplementation(async (_s, _a, options) => { options.onPrimaryReview(primary()); return [pick('FAST')] })
     mocks.redis.lpush.mockRejectedValueOnce(new Error('index unavailable'))
     mocks.reports.mockRejectedValueOnce(new Error('report unavailable'))
@@ -89,6 +107,25 @@ describe('nightly foundation integration', () => {
     expect(mocks.redis.lpush.mock.calls.filter(([key]) => key === 'research:history-index')).toHaveLength(2)
     expect(mocks.values.get('research:latest')).toMatchObject({ picks: [{ ticker: 'FAST' }], reportsPending: true })
     expect(mocks.values.get('research:latest').errors.map((e) => e.step)).toEqual(expect.arrayContaining(['store-partial', 'reports']))
+    expect(mocks.freezeEvaluationJob).toHaveBeenCalledOnce()
+    expect(mocks.freezeEvaluationJob.mock.invocationCallOrder[0]).toBeLessThan(mocks.reports.mock.invocationCallOrder[0])
+
+    const [, line] = mocks.redis.lpush.mock.calls.find(([key]) => key === 'research:runs:v1')
+    const stages = JSON.parse(line).stages
+    expect(stages.find((entry) => entry.stage === 'evaluation_input_freeze')).toMatchObject({ status: 'success' })
+    expect(stages.find((entry) => entry.stage === 'report_generation')).toMatchObject({ status: 'failed' })
+  })
+
+  it('does not send Slack alerts or record a Slack stage from nightly research', async () => {
+    mocks.extract.mockImplementation(async (_s, _a, options) => { options.onPrimaryReview(primary()); return [pick('FAST')] })
+    const res = response()
+
+    await handler(request(), res)
+
+    expect(mocks.slack).not.toHaveBeenCalled()
+    const [, line] = mocks.redis.lpush.mock.calls.find(([key]) => key === 'research:runs:v1')
+    expect(JSON.parse(line).stages.map((entry) => entry.stage)).not.toContain('slack_alerts')
+    expect(res.json.mock.calls[0][0].errors.some((error) => error.step === 'slack')).toBe(false)
   })
 
   it('synchronizes only the five-session premarket projection', async () => {

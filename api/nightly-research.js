@@ -15,7 +15,6 @@ import { fetchBreakoutCandidates, candidatesToSignals } from '../src/server/tech
 import { runContrarianAgent } from '../src/server/agents/contrarianAgent.js'
 import { runCatalystAgent } from '../src/server/agents/catalystAgent.js'
 import { runExaDiscovery } from '../src/server/agents/exaDiscoveryAgent.js'
-import { sendPickAlerts } from '../src/server/agents/slackAgent.js'
 import { getMarketRegime, regimeSizeMultiplier } from '../src/server/marketRegime.js'
 import { freezeEvaluationJob } from '../src/server/research/evaluationJob.js'
 import { STAGES, candidateTraces, currentResearchRun, recordCandidates, recordResearchRun, researchLog, skipStage, stage } from '../src/server/research/observability.js'
@@ -31,7 +30,6 @@ const REPORT_MINIMUM_MS = 55_000
 // review that used to need ~90s here now runs in the separate
 // research-evaluation cron, which has its own full 300s budget.
 const EVALUATION_FREEZE_MINIMUM_MS = 5_000
-const SLACK_MINIMUM_MS = 8_000
 
 function isAuthorized(req) {
   if (!process.env.CRON_SECRET) return false
@@ -422,6 +420,32 @@ async function runDiscovery(res, startedAt, recordRun, foundation, budget) {
     errors.push({ step: 'store-partial', error: err.message })
   }
 
+  // Freeze the exact decision-time inputs immediately after the publication is
+  // durable and its projection has been stored. Report generation is the
+  // longest optional leg, so it must never be able to consume the handoff's
+  // remaining time. The six-arm review still runs only in research-evaluation.
+  if (!evaluationInputs) {
+    skipStage(STAGES.evaluation_input_freeze, 'inputs_unavailable')
+    errors.push({ step: 'evaluation', error: 'Decision inputs unavailable' })
+  } else if (!budget.canStart(EVALUATION_FREEZE_MINIMUM_MS)) {
+    skipStage(STAGES.evaluation_input_freeze, 'time_budget', { availableMs: budget.availableMs() })
+    errors.push({ step: 'evaluation', error: 'deferred to preserve the cron completion budget' })
+  } else {
+    try {
+      const job = await stage(STAGES.evaluation_input_freeze, () => freezeEvaluationJob(foundation.archive, {
+        runId: currentResearchRun()?.runId ?? null,
+        publicationId: payload.publicationId,
+        decisionAt: payload.generatedAt,
+        evaluationInputs,
+      }), { metrics: (record) => ({ jobId: record.id }) })
+      researchLog({ event: 'evaluation_input_frozen', stage: STAGES.evaluation_input_freeze, metrics: { jobId: job.id } })
+      researchLog({ event: 'evaluation_job_pending', stage: STAGES.evaluation_input_freeze, metrics: { jobId: job.id } })
+    } catch (err) {
+      console.error('[nightly-research] evaluation input freeze failed:', err.message)
+      errors.push({ step: 'evaluation', error: err.message })
+    }
+  }
+
   // Step 4: generate research reports for this run's tickers only. A carried
   // pick already has the report its own run wrote, and regenerating it would
   // spend the run's longest leg rewriting work that is already done.
@@ -476,47 +500,6 @@ async function runDiscovery(res, startedAt, recordRun, foundation, budget) {
     console.log('[nightly-research] stored research:latest + history in Redis')
   } else {
     console.warn('[nightly-research] Redis not configured — results not persisted')
-  }
-
-  // Step 6: Send Slack alerts. The board, not this run's picks — the alert
-  // should say what is on screen, which mid-cycle may include a carried pick.
-  if (board.length > 0) {
-    if (!budget.canStart(SLACK_MINIMUM_MS)) {
-      skipStage(STAGES.slack_alerts, 'time_budget', { availableMs: budget.availableMs(), picks: board.length })
-      errors.push({ step: 'slack', error: 'deferred to preserve the cron completion budget' })
-    } else try {
-      await stage(STAGES.slack_alerts, () => withinCronBudget(budget, 'Slack alerts', () => sendPickAlerts(board)),
-        { metrics: () => ({ picks: board.length }) })
-    } catch (err) {
-      console.error('[nightly-research] slack alert failed:', err.message)
-      errors.push({ step: 'slack', error: err.message })
-    }
-  }
-
-  // The experiment is deliberately last and optional. Freezing its inputs is
-  // the only work left here — the six-arm review itself runs in the separate
-  // research-evaluation cron, so a slow provider night no longer has to
-  // reserve ~90s here just to start that review.
-  if (!evaluationInputs) {
-    skipStage(STAGES.evaluation_input_freeze, 'inputs_unavailable')
-    errors.push({ step: 'evaluation', error: 'Decision inputs unavailable' })
-  } else if (!budget.canStart(EVALUATION_FREEZE_MINIMUM_MS)) {
-    skipStage(STAGES.evaluation_input_freeze, 'time_budget', { availableMs: budget.availableMs() })
-    errors.push({ step: 'evaluation', error: 'deferred to preserve the cron completion budget' })
-  } else {
-    try {
-      const job = await stage(STAGES.evaluation_input_freeze, () => freezeEvaluationJob(foundation.archive, {
-        runId: currentResearchRun()?.runId ?? null,
-        publicationId: payload.publicationId,
-        decisionAt: payload.generatedAt,
-        evaluationInputs,
-      }), { metrics: (record) => ({ jobId: record.id }) })
-      researchLog({ event: 'evaluation_input_frozen', stage: STAGES.evaluation_input_freeze, metrics: { jobId: job.id } })
-      researchLog({ event: 'evaluation_job_pending', stage: STAGES.evaluation_input_freeze, metrics: { jobId: job.id } })
-    } catch (err) {
-      console.error('[nightly-research] evaluation input freeze failed:', err.message)
-      errors.push({ step: 'evaluation', error: err.message })
-    }
   }
 
   await recordRun('nightly-research', startedAt, {
