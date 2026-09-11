@@ -30,9 +30,18 @@ export default async function runsHandler(req, res) {
   }
 
   try {
+    // The logs UI needs the whole selected window, not just the latest 30
+    // records (frequent ingestion runs can otherwise hide nightly candidates).
+    // Read the existing retained list only; storage and retention are unchanged.
+    const hours = req.query?.hours === undefined ? null : Number(req.query.hours)
+    if (hours !== null && ![12, 24, 72, 168, 720].includes(hours)) {
+      return res.status(400).json({ error: 'Invalid time window' })
+    }
     const redis = Redis.fromEnv()
-    const stored = await redis.lrange(RESEARCH_RUNS_KEY, 0, DEFAULT_LIMIT - 1)
-    const parsed = (stored || []).map(parseRun).filter(Boolean)
+    const stored = await redis.lrange(RESEARCH_RUNS_KEY, 0, hours === null ? DEFAULT_LIMIT - 1 : -1)
+    const now = Date.now()
+    const parsed = (stored || []).map(parseRun).filter((run) => run && (hours === null
+      || (Date.parse(run.startedAt) >= now - hours * 3600000 && Date.parse(run.startedAt) <= now)))
 
     // Only nightly-research runs hand off to an evaluation job; attaching a
     // null elsewhere keeps the shape predictable for the frontend either way.

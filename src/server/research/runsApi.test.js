@@ -23,6 +23,7 @@ const run = (overrides = {}) => JSON.stringify({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-10T12:00:00.000Z'))
   vi.stubEnv('RESEARCH_EVALUATION_OWNER', 'owner-uid')
   vi.stubEnv('UPSTASH_REDIS_REST_URL', 'https://fixture.invalid'); vi.stubEnv('UPSTASH_REDIS_REST_TOKEN', 'test')
   mocks.verify.mockResolvedValue({ uid: 'owner-uid' })
@@ -30,7 +31,7 @@ beforeEach(() => {
   mocks.redis.mockReturnValue({ lrange: mocks.lrange })
   vi.mocked(evaluationJobsByRunId).mockResolvedValue(new Map())
 })
-afterEach(() => vi.unstubAllEnvs())
+afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks() })
 
 describe('private research run log', () => {
   it('returns recent runs with their stages to the owner', async () => {
@@ -42,6 +43,48 @@ describe('private research run log', () => {
       stages: [{ stage: 'x_discovery', status: 'success' }],
     })
     expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, no-store')
+  })
+
+  it('reads beyond the default 30-run limit for windowed ticker search without changing records', async () => {
+    const history = Array.from({ length: 42 }, (_, i) => run({
+      runId: `run-${i}`, startedAt: new Date(Date.now() - i * 12 * 3600000).toISOString(),
+      candidates: [{ ticker: i === 41 ? 'LATE' : 'RKLB', reason: 'review_budget_exhausted', priority: i }],
+    }))
+    mocks.lrange.mockResolvedValue(history)
+    const res = response(); await handler(request({ hours: '720', ticker: 'late' }), res)
+    expect(mocks.lrange).toHaveBeenCalledWith('research:runs:v1', 0, -1)
+    expect(body(res).runs).toHaveLength(42)
+    expect(body(res).traces).toEqual([expect.objectContaining({ runId: 'run-41', ticker: 'LATE', reason: 'review_budget_exhausted', priority: 41 })])
+    expect(body(res).runs[41]).toMatchObject(JSON.parse(history[41]))
+  })
+
+  it.each([12, 24, 72, 168, 720])('limits a %s-hour window including its boundary', async (hours) => {
+    mocks.lrange.mockResolvedValue([
+      run({ runId: 'boundary', startedAt: new Date(Date.now() - hours * 3600000).toISOString() }),
+      run({ runId: 'older', startedAt: new Date(Date.now() - hours * 3600000 - 1).toISOString() }),
+      run({ runId: 'future', startedAt: new Date(Date.now() + 1).toISOString() }),
+      run({ runId: 'invalid', startedAt: 'invalid' }), 'not json',
+    ])
+    const res = response(); await handler(request({ hours: String(hours) }), res)
+    expect(body(res).runs.map((r) => r.runId)).toEqual(['boundary'])
+  })
+
+  it.each(['', '0', '-1', '721', 'Infinity', 'invalid'])('rejects an invalid window: %s', async (hours) => {
+    const res = response(); await handler(request({ hours }), res)
+    expect(res.status).toHaveBeenCalledWith(400)
+    expect(mocks.lrange).not.toHaveBeenCalled()
+  })
+
+  it('preserves the default query limit', async () => {
+    const res = response(); await handler(request(), res)
+    expect(mocks.lrange).toHaveBeenCalledWith('research:runs:v1', 0, 29)
+  })
+
+  it('requires owner authorization for the extended history query too', async () => {
+    mocks.verify.mockResolvedValue({ uid: 'someone-else' })
+    const res = response(); await handler(request({ hours: '720', ticker: 'RKLB' }), res)
+    expect(res.status).toHaveBeenCalledWith(403)
+    expect(mocks.lrange).not.toHaveBeenCalled()
   })
 
   it.each([undefined, '', 'Bearer cron-secret'])('denies unverified credentials: %s', async (authorization) => {
