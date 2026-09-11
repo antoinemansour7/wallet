@@ -15,10 +15,10 @@ const mocks = vi.hoisted(() => {
   const archive = { put: vi.fn(async (kind, _id, payload) => { if (kind === 'publication') publications.push(structuredClone(payload)); return payload }) }
   const master = { resolve: ({ ticker }) => [{ ticker, securityId: `figi:${ticker}` }] }
   return { values, publications, redis, archive, master, load: vi.fn(), extract: vi.fn(), reports: vi.fn(), record: vi.fn(), quotes: vi.fn(),
-    yahoo: vi.fn(), prepareEvaluation: vi.fn(), freezeEvaluation: vi.fn() }
+    yahoo: vi.fn(), freezeEvaluationJob: vi.fn() }
 })
 vi.mock('@upstash/redis', () => ({ Redis: { fromEnv: () => mocks.redis } }))
-vi.mock('./evaluation.js', () => ({ prepareEvaluation: mocks.prepareEvaluation, freezeEvaluation: mocks.freezeEvaluation }))
+vi.mock('./evaluationJob.js', () => ({ freezeEvaluationJob: mocks.freezeEvaluationJob }))
 vi.mock('./foundation.js', () => ({ loadFoundation: mocks.load }))
 vi.mock('../runLog.js', () => ({ recordRun: mocks.record }))
 vi.mock('../xSignals.js', () => ({ collectXSignals: async () => ({ signals: [], queries: [], stats: { provider: 'fixture' } }), deriveAdaptiveSeed: () => ({}) }))
@@ -45,7 +45,7 @@ beforeEach(() => {
   mocks.load.mockResolvedValue({ redis: mocks.redis, archive: mocks.archive, master: mocks.master })
   mocks.extract.mockImplementation(async (_s, _a, options) => { options.onPrimaryReview(primary()); return [] })
   mocks.yahoo.mockResolvedValue([])
-  mocks.prepareEvaluation.mockResolvedValue({ id: 'input' }); mocks.freezeEvaluation.mockResolvedValue({ id: 'run' })
+  mocks.freezeEvaluationJob.mockResolvedValue({ id: 'job-1' })
   mocks.reports.mockImplementation(async (picks) => picks.map((p) => ({ ...p, report: 'Supplement' })))
 })
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs() })
@@ -113,16 +113,14 @@ describe('nightly foundation integration', () => {
     expect(mocks.values.has('research:publication:lock:v1')).toBe(false)
   })
 
-  it('still publishes the briefing when the shadow experiment cannot be frozen', async () => {
-    mocks.prepareEvaluation.mockRejectedValue(new Error('archive unavailable'))
+  it('still publishes the briefing when the evaluation packet cannot be frozen', async () => {
+    mocks.freezeEvaluationJob.mockRejectedValue(new Error('archive unavailable'))
     mocks.extract.mockImplementation(async (_s, _a, options) => { options.onPrimaryReview(primary({ 20: [pick('QUIET', 20)] })); return [] })
     const res = response()
     await handler(request(), res)
     expect(res.status).toHaveBeenCalledWith(200)
     expect(mocks.values.get('research:latest').picksByHorizon[20][0].ticker).toBe('QUIET')
-    // Nothing is recorded for an experiment whose inputs were never frozen.
-    expect(mocks.freezeEvaluation).not.toHaveBeenCalled()
-    expect(mocks.archive.put).not.toHaveBeenCalledWith('evaluation-delivery', expect.anything(), expect.anything(), expect.anything())
+    expect(mocks.freezeEvaluationJob).toHaveBeenCalledOnce()
     expect(res.json.mock.calls[0][0].errors).toContainEqual({ step: 'evaluation', error: 'archive unavailable' })
   })
 
@@ -161,8 +159,24 @@ describe('nightly foundation integration', () => {
       expect.objectContaining({ stage: 'contrarian_review', status: 'skipped' }),
       expect.objectContaining({ stage: 'catalyst_verification', status: 'skipped' }),
       expect.objectContaining({ stage: 'report_generation', status: 'skipped' }),
-      expect.objectContaining({ stage: 'evaluation_snapshot', status: 'skipped' }),
+      expect.objectContaining({ stage: 'evaluation_input_freeze', status: 'success' }),
       expect.objectContaining({ stage: 'persistence', status: 'success' }),
+    ]))
+    expect(mocks.freezeEvaluationJob).toHaveBeenCalledOnce()
+  })
+
+  it('freezes the evaluation packet even with only ~30 seconds left — the exact Sep 10 production shortfall', async () => {
+    mocks.extract.mockImplementation(async (_s, _a, options) => {
+      options.onPrimaryReview(primary())
+      vi.setSystemTime(new Date('2026-09-09T12:04:03Z')) // ~32s left before the 275s work deadline
+      return [pick('FAST')]
+    })
+    await handler(request(), response())
+    expect(mocks.freezeEvaluationJob).toHaveBeenCalledOnce()
+    const [, line] = mocks.redis.lpush.mock.calls.find(([key]) => key === 'research:runs:v1')
+    const summary = JSON.parse(line)
+    expect(summary.stages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ stage: 'evaluation_input_freeze', status: 'success' }),
     ]))
   })
 

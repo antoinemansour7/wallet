@@ -17,8 +17,8 @@ import { runCatalystAgent } from '../src/server/agents/catalystAgent.js'
 import { runExaDiscovery } from '../src/server/agents/exaDiscoveryAgent.js'
 import { sendPickAlerts } from '../src/server/agents/slackAgent.js'
 import { getMarketRegime, regimeSizeMultiplier } from '../src/server/marketRegime.js'
-import { prepareEvaluation, freezeEvaluation } from '../src/server/research/evaluation.js'
-import { STAGES, candidateTraces, recordCandidates, recordResearchRun, skipStage, stage } from '../src/server/research/observability.js'
+import { freezeEvaluationJob } from '../src/server/research/evaluationJob.js'
+import { STAGES, candidateTraces, currentResearchRun, recordCandidates, recordResearchRun, researchLog, skipStage, stage } from '../src/server/research/observability.js'
 import { createCronBudget, withinCronBudget } from '../src/server/research/runtimeBudget.js'
 
 const RESEARCH_KEY = 'research:latest'
@@ -27,7 +27,10 @@ const HISTORY_TTL = HISTORY_RETENTION_SECONDS
 const HISTORY_MAX_ENTRIES = HISTORY_LIMIT
 const AGENT_MINIMUM_MS = 70_000
 const REPORT_MINIMUM_MS = 55_000
-const EVALUATION_MINIMUM_MS = 90_000
+// Freezing the packet is one archive write with no model calls — the six-arm
+// review that used to need ~90s here now runs in the separate
+// research-evaluation cron, which has its own full 300s budget.
+const EVALUATION_FREEZE_MINIMUM_MS = 5_000
 const SLACK_MINIMUM_MS = 8_000
 
 function isAuthorized(req) {
@@ -396,7 +399,6 @@ async function runDiscovery(res, startedAt, recordRun, foundation, budget) {
     errors,
     reportsPending: reportCandidates.length > 0,
   }
-  let evaluationRun = null
 
   // Step 3.9: store the ranked picks BEFORE writing their reports.
   // Report generation is the longest leg of the run, so it is the leg most
@@ -491,27 +493,28 @@ async function runDiscovery(res, startedAt, recordRun, foundation, budget) {
     }
   }
 
-  // The experiment is deliberately last and optional. It observes the same
-  // captured inputs, but can no longer delay publication, persistence or alerts.
+  // The experiment is deliberately last and optional. Freezing its inputs is
+  // the only work left here — the six-arm review itself runs in the separate
+  // research-evaluation cron, so a slow provider night no longer has to
+  // reserve ~90s here just to start that review.
   if (!evaluationInputs) {
-    skipStage(STAGES.evaluation_snapshot, 'inputs_unavailable')
+    skipStage(STAGES.evaluation_input_freeze, 'inputs_unavailable')
     errors.push({ step: 'evaluation', error: 'Decision inputs unavailable' })
-  } else if (!budget.canStart(EVALUATION_MINIMUM_MS)) {
-    skipStage(STAGES.evaluation_snapshot, 'time_budget', { availableMs: budget.availableMs() })
+  } else if (!budget.canStart(EVALUATION_FREEZE_MINIMUM_MS)) {
+    skipStage(STAGES.evaluation_input_freeze, 'time_budget', { availableMs: budget.availableMs() })
     errors.push({ step: 'evaluation', error: 'deferred to preserve the cron completion budget' })
   } else {
     try {
-      evaluationRun = await stage(STAGES.evaluation_snapshot, () => withinCronBudget(budget, 'Evaluation snapshot', async (signal, timeout) => {
-        const snapshot = await prepareEvaluation(evaluationInputs, {
-          ...foundation,
-          requestOptions: { signal, timeout },
-        })
-        return freezeEvaluation(foundation.archive, snapshot, payload)
-      }))
-      await foundation.archive.put('evaluation-delivery', evaluationRun.id, { runId: evaluationRun.id,
-        availableAt: new Date().toISOString() }, 'evaluation-deliveries')
+      const job = await stage(STAGES.evaluation_input_freeze, () => freezeEvaluationJob(foundation.archive, {
+        runId: currentResearchRun()?.runId ?? null,
+        publicationId: payload.publicationId,
+        decisionAt: payload.generatedAt,
+        evaluationInputs,
+      }), { metrics: (record) => ({ jobId: record.id }) })
+      researchLog({ event: 'evaluation_input_frozen', stage: STAGES.evaluation_input_freeze, metrics: { jobId: job.id } })
+      researchLog({ event: 'evaluation_job_pending', stage: STAGES.evaluation_input_freeze, metrics: { jobId: job.id } })
     } catch (err) {
-      console.error('[nightly-research] evaluation snapshot failed:', err.message)
+      console.error('[nightly-research] evaluation input freeze failed:', err.message)
       errors.push({ step: 'evaluation', error: err.message })
     }
   }
