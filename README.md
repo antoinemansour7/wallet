@@ -280,6 +280,20 @@ across Node 22 patch releases. The npm scripts also force mock auth off, and
 Vite does not mirror `.env` secrets into the test process, so local credentials
 cannot silently turn unit tests into integration tests.
 
+The deterministic catalyst pipeline smoke test is part of that command. It
+uses fixed service adapters while running the real discovery, admission,
+review-validation, catalyst, ranking, publication, API, and React UI code.
+
+To diagnose the configured live research services with a known upcoming event:
+
+```bash
+npm run research:e2e:live -- --ticker ABC --event "earnings on October 22 after close" --date 2026-10-22
+```
+
+The live smoke is opt-in and never runs in CI. It prints the first failing stage
+and keeps its persistence check in memory, so it cannot replace the published
+`research:latest` payload. Use `--help` for the accepted arguments.
+
 ## Deploying
 
 Vercel hosts both the static build and the functions in `api/`. `vercel.json`

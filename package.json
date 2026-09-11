@@ -13,7 +13,8 @@
     "preview": "vite preview",
     "test": "cross-env NODE_ENV=test VITE_MOCK_AUTH=false vitest",
     "test:run": "cross-env NODE_ENV=test VITE_MOCK_AUTH=false vitest run",
-    "test:coverage": "cross-env NODE_ENV=test VITE_MOCK_AUTH=false vitest run --coverage"
+    "test:coverage": "cross-env NODE_ENV=test VITE_MOCK_AUTH=false vitest run --coverage",
+    "research:e2e:live": "node scripts/research-catalyst-smoke.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
