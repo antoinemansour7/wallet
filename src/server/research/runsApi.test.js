@@ -5,7 +5,9 @@ vi.mock('firebase-admin/app', () => ({ getApps: () => [{ name: 'research-evaluat
 vi.mock('firebase-admin/auth', () => ({ getAuth: () => ({ verifyIdToken: mocks.verify }) }))
 vi.mock('@upstash/redis', () => ({ Redis: { fromEnv: mocks.redis } }))
 vi.mock('../runLog.js', () => ({ withRunLog: (_name, handler) => (...args) => { mocks.runLog(); return handler(...args) } }))
+vi.mock('./evaluationJob.js', () => ({ evaluationJobsByRunId: vi.fn() }))
 import handler from '../../../api/get-research.js'
+import { evaluationJobsByRunId } from './evaluationJob.js'
 
 const response = () => ({ status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis(), setHeader: vi.fn() })
 const request = (query = {}) => ({ method: 'GET', headers: { authorization: 'Bearer signed-token' }, query: { runs: '1', ...query } })
@@ -26,6 +28,7 @@ beforeEach(() => {
   mocks.verify.mockResolvedValue({ uid: 'owner-uid' })
   mocks.lrange.mockResolvedValue([run()])
   mocks.redis.mockReturnValue({ lrange: mocks.lrange })
+  vi.mocked(evaluationJobsByRunId).mockResolvedValue(new Map())
 })
 afterEach(() => vi.unstubAllEnvs())
 
@@ -92,5 +95,18 @@ describe('private research run log', () => {
 
     expect(res.status).toHaveBeenCalledWith(200)
     expect(body(res).runs).toHaveLength(1)
+  })
+
+  it('attaches the evaluation handoff status to each nightly-research run', async () => {
+    const map = new Map([['run-1', { jobId: 'job-1', status: 'pending', frozenAt: '2026-09-10T07:02:00.000Z', error: null, retryState: null }]])
+    vi.mocked(evaluationJobsByRunId).mockResolvedValue(map)
+
+    const res = response(); await handler(request(), res)
+    expect(body(res).runs[0]).toMatchObject({ runId: 'run-1', evaluation: { jobId: 'job-1', status: 'pending' } })
+  })
+
+  it('reports no evaluation handoff for a run the packet freeze never reached', async () => {
+    const res = response(); await handler(request(), res) // beforeEach already stubs an empty map
+    expect(body(res).runs[0].evaluation).toBeNull()
   })
 })
