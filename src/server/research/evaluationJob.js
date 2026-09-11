@@ -114,8 +114,7 @@ export async function pendingEvaluationJobs(archive, now = Date.now(), { limit =
 
 export async function latestEvaluationJob(archive, now = Date.now()) {
   const jobs = await allEvaluationJobs(archive, now)
-  if (jobs.length === 0) return null
-  return jobs.reduce((latest, job) => Date.parse(job.statusAt) >= Date.parse(latest.statusAt) ? job : latest)
+  return jobs.at(-1) || null
 }
 
 export async function evaluationJobsByRunId(archive, now = Date.now()) {

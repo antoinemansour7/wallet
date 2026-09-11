@@ -140,4 +140,21 @@ describe('claiming pending work', () => {
     expect(byRunId.get('nightly-run-42')).toMatchObject({ status: 'pending', publicationId: 'pub-1' })
     expect(byRunId.get('missing-run')).toBeUndefined()
   })
+
+  it('returns the most-recently-frozen job, not the most-recently-updated one', async () => {
+    const archive = archiveFrom()
+    // Freeze job A at T0
+    const jobA = await freeze(archive, { publicationId: 'pub-a' })
+    vi.setSystemTime(new Date(Date.now() + 5000)) // Advance 5 seconds
+    // Freeze job B at T1 (more recent)
+    const jobB = await freeze(archive, { publicationId: 'pub-b' })
+    vi.setSystemTime(new Date(Date.now() + 5000)) // Advance another 5 seconds
+    // Update job A's status at T2 (but job B is still newer when frozen)
+    const [jobAFromList] = await pendingEvaluationJobs(archive, Date.now())
+    const started = await markJobStarted(archive, jobAFromList)
+    await markJobFailed(archive, jobA.id, started.attempt, { error: new Error('failed') })
+    // latestEvaluationJob should return B (frozen most recently), not A (updated most recently)
+    const latest = await latestEvaluationJob(archive, Date.now())
+    expect(latest).toMatchObject({ publicationId: 'pub-b', status: 'pending' })
+  })
 })
