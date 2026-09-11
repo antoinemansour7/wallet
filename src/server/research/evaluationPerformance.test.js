@@ -162,3 +162,47 @@ describe('cohort reporting and uncertainty', () => {
     expect(portfolioSummary([a, b], outcomes).drawdown).toBeNull()
   })
 })
+
+describe('surfacing pending/failed evaluation jobs', () => {
+  // freezeEvaluationJob/markJob* stamp records with real `new Date()`. Pin the
+  // system clock for this block so every query-by-time call below (evaluationReport,
+  // pendingEvaluationJobs) shares the same clock as those writes — otherwise
+  // whether a freshly frozen job even falls inside the query's time window
+  // depends on the real wall-clock offset from `at`, which is exactly the class
+  // of bug the pre-flight review caught in Task 2's original draft.
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date(at)) })
+  afterEach(() => { vi.useRealTimers() })
+
+  it('reports a frozen-but-not-yet-processed job instead of looking blank', async () => {
+    const archive = createArchive(evaluationTestStore())
+    const { freezeEvaluationJob } = await import('./evaluationJob.js')
+    await freezeEvaluationJob(archive, { runId: 'run-1', publicationId: 'pub-1', decisionAt: at, evaluationInputs: {} })
+
+    const report = await evaluationReport(archive, Date.now())
+    expect(report.currentJob).toMatchObject({ status: 'pending', publicationId: 'pub-1' })
+  })
+
+  it('reports a failed job with its retry state', async () => {
+    const archive = createArchive(evaluationTestStore())
+    const { freezeEvaluationJob, markJobStarted, markJobFailed, pendingEvaluationJobs } = await import('./evaluationJob.js')
+    const input = await freezeEvaluationJob(archive, { runId: 'run-1', publicationId: 'pub-1', decisionAt: at, evaluationInputs: {} })
+    const [job] = await pendingEvaluationJobs(archive, Date.now())
+    const started = await markJobStarted(archive, job)
+    await markJobFailed(archive, input.id, started.attempt, { error: new Error('anthropic unavailable') })
+
+    const report = await evaluationReport(archive, Date.now())
+    expect(report.currentJob).toMatchObject({ status: 'failed', error: 'anthropic unavailable', retryState: 'pending' })
+  })
+
+  it('clears currentJob once the job has completed, since latestRun already reflects it', async () => {
+    const archive = createArchive(evaluationTestStore())
+    const { freezeEvaluationJob, markJobStarted, markJobCompleted, pendingEvaluationJobs } = await import('./evaluationJob.js')
+    const input = await freezeEvaluationJob(archive, { runId: 'run-1', publicationId: 'pub-1', decisionAt: at, evaluationInputs: {} })
+    const [job] = await pendingEvaluationJobs(archive, Date.now())
+    const started = await markJobStarted(archive, job)
+    await markJobCompleted(archive, input.id, started.attempt, { resultRunId: 'evaluation-run-1' })
+
+    const report = await evaluationReport(archive, Date.now())
+    expect(report.currentJob).toBeNull()
+  })
+})

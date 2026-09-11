@@ -1,5 +1,7 @@
 import { Redis } from '@upstash/redis'
 import { verifyOwner } from './evaluationApi.js'
+import { createArchive } from './archive.js'
+import { evaluationJobsByRunId } from './evaluationJob.js'
 import { RESEARCH_RUNS_KEY } from './observability.js'
 
 const DEFAULT_LIMIT = 30
@@ -28,8 +30,14 @@ export default async function runsHandler(req, res) {
   }
 
   try {
-    const stored = await Redis.fromEnv().lrange(RESEARCH_RUNS_KEY, 0, DEFAULT_LIMIT - 1)
-    const runs = (stored || []).map(parseRun).filter(Boolean)
+    const redis = Redis.fromEnv()
+    const stored = await redis.lrange(RESEARCH_RUNS_KEY, 0, DEFAULT_LIMIT - 1)
+    const parsed = (stored || []).map(parseRun).filter(Boolean)
+
+    // Only nightly-research runs hand off to an evaluation job; attaching a
+    // null elsewhere keeps the shape predictable for the frontend either way.
+    const byRunId = await evaluationJobsByRunId(createArchive(redis))
+    const runs = parsed.map((run) => ({ ...run, evaluation: run.job === 'nightly-research' ? (byRunId.get(run.runId) || null) : null }))
 
     const ticker = String(req.query?.ticker || '').trim().toUpperCase()
     if (!ticker) return res.status(200).json({ runs })

@@ -48,6 +48,18 @@ function Arm({ arm }) {
 
 const Eyebrow = () => <span className="evaluation-eyebrow">Private · Read only</span>
 
+function CurrentJob({ job }) {
+  if (!job) return null
+  if (job.status === 'failed') {
+    return <p className="evaluation-alert" role="status">
+      Evaluation: failed · Reason: {job.error || 'Unknown'} · Retry state: {job.retryState}
+    </p>
+  }
+  return <p className="evaluation-alert" role="status">
+    Evaluation: pending · Frozen at: {new Date(job.frozenAt).toLocaleString()} · Next step: scheduled evaluation job
+  </p>
+}
+
 export default function ResearchEvaluation() {
   const { user } = useAuth()
   const [state, setState] = useState(null)
@@ -90,6 +102,7 @@ export default function ResearchEvaluation() {
         <div><dt>Variants tried</dt><dd>{data.variantsTried}</dd></div>
         <div><dt>Latest run</dt><dd>{data.latestRun ? new Date(data.latestRun.availableAt).toLocaleString() : 'No forward observations yet'}</dd></div>
       </dl>
+      <CurrentJob job={data.currentJob} />
       {data.latestRun?.failures?.some(Boolean) && <p className="evaluation-alert" role="status">Some arms could not complete their review: {data.latestRun.failures.filter(Boolean).join(' · ')}</p>}
     </header>
     <details><summary>Predeclared periods and methodology</summary>

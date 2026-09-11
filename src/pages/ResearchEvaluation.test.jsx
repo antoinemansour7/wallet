@@ -84,4 +84,33 @@ describe('private evaluation page', () => {
     )
     await waitFor(() => expect(screen.queryByText('Frozen existing engine')).not.toBeInTheDocument())
   })
+
+  it('shows a pending banner instead of looking blank when a job is frozen but not yet processed', async () => {
+    const data = report()
+    data.currentJob = { status: 'pending', frozenAt: '2026-09-10T07:02:00.000Z', error: null, retryState: null }
+    fetch.mockResolvedValue({ ok: true, json: async () => data })
+    renderEvaluation()
+    expect(await screen.findByText(/Evaluation: pending/)).toBeInTheDocument()
+    expect(screen.getByText(/Next step: scheduled evaluation job/)).toBeInTheDocument()
+  })
+
+  it('shows a failed banner with the reason and retry state', async () => {
+    const data = report()
+    data.currentJob = { status: 'failed', frozenAt: '2026-09-10T07:02:00.000Z', error: 'anthropic unavailable', retryState: 'retryable' }
+    fetch.mockResolvedValue({ ok: true, json: async () => data })
+    renderEvaluation()
+    expect(await screen.findByText(/Evaluation: failed/)).toBeInTheDocument()
+    expect(screen.getByText(/anthropic unavailable/)).toBeInTheDocument()
+    expect(screen.getByText(/Retry state: retryable/)).toBeInTheDocument()
+  })
+
+  it('shows no banner once the job has completed', async () => {
+    const data = report()
+    data.currentJob = null
+    fetch.mockResolvedValue({ ok: true, json: async () => data })
+    renderEvaluation()
+    await screen.findByText('Frozen existing engine')
+    expect(screen.queryByText(/Evaluation: pending/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Evaluation: failed/)).not.toBeInTheDocument()
+  })
 })

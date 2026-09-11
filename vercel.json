@@ -34,6 +34,10 @@
       "schedule": "0 7 * * *"
     },
     {
+      "path": "/api/research-evaluation",
+      "schedule": "0 11 * * *"
+    },
+    {
       "path": "/api/track-performance",
       "schedule": "0 9 * * *"
     }
@@ -45,6 +49,9 @@
     "api/research-foundation.js": {
       "maxDuration": 300
     },
+    "api/research-evaluation.js": {
+      "maxDuration": 300
+    },
     "api/track-performance.js": {
       "maxDuration": 300
     },
@@ -53,6 +60,10 @@
     }
   },
   "rewrites": [
+    {
+      "source": "/api/get-research-history",
+      "destination": "/api/get-research?history=1"
+    },
     {
       "source": "/((?!api/).*)",
       "destination": "/index.html"

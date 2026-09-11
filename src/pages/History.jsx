@@ -136,7 +136,7 @@ export default function History() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('/api/get-research-history')
+    fetch('/api/get-research?history=1')
       .then((r) => r.json())
       .then((d) => {
         const today = new Date().toISOString().slice(0, 10)

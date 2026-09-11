@@ -148,6 +148,12 @@ describe('STAGES', () => {
       'foundation_sync', 'foundation_followup', 'performance_tracking', 'performance_evaluation',
     ]))
   })
+
+  it('names the evaluation hand-off stages the cron split introduces', () => {
+    expect(STAGES.evaluation_input_freeze).toBe('evaluation_input_freeze')
+    expect(STAGES.evaluation_job).toBe('evaluation_job')
+    expect(STAGES.evaluation_snapshot).toBe('evaluation_snapshot')
+  })
 })
 
 describe('candidateTraces', () => {

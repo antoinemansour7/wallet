@@ -13,8 +13,8 @@ vi.mock('../server/runLog.js', () => ({
 }))
 
 // Helper to create mock req/res
-function mockReq(method = 'GET', body = null, headers = {}) {
-  return { method, body, headers }
+function mockReq(method = 'GET', body = null, headers = {}, query = {}) {
+  return { method, body, headers, query }
 }
 
 function mockRes() {
@@ -479,12 +479,12 @@ describe('api/extract-pdf', () => {
   })
 })
 
-// ─── get-research-history tests ────────────────────────────────────────────
+// ─── get-research history mode tests ───────────────────────────────────────
 // No coverage existed for this route before #56 wrapped it in withRunLog;
 // added alongside that change so the wrap is verified against real behaviour,
 // not just syntax-checked.
 
-describe('api/get-research-history', () => {
+describe('api/get-research?history=1', () => {
   beforeEach(() => {
     delete process.env.UPSTASH_REDIS_REST_URL
     delete process.env.UPSTASH_REDIS_REST_TOKEN
@@ -496,16 +496,16 @@ describe('api/get-research-history', () => {
   })
 
   it('rejects non-GET requests', async () => {
-    const mod = await import('../../api/get-research-history.js')
+    const mod = await import('../../api/get-research.js')
     const res = mockRes()
-    await mod.default(mockReq('POST'), res)
+    await mod.default(mockReq('POST', null, {}, { history: '1' }), res)
     expect(res.statusCode).toBe(405)
   })
 
   it('returns empty entries when Redis is not configured', async () => {
-    const mod = await import('../../api/get-research-history.js')
+    const mod = await import('../../api/get-research.js')
     const res = mockRes()
-    await mod.default(mockReq('GET'), res)
+    await mod.default(mockReq('GET', null, {}, { history: '1' }), res)
     expect(res.statusCode).toBe(200)
     expect(res.body.entries).toEqual([])
   })
@@ -525,10 +525,10 @@ describe('api/get-research-history', () => {
         }),
       },
     }))
-    const mod = await import('../../api/get-research-history.js')
+    const mod = await import('../../api/get-research.js')
 
     const res = mockRes()
-    await mod.default(mockReq('GET'), res)
+    await mod.default(mockReq('GET', null, {}, { history: '1' }), res)
 
     expect(res.statusCode).toBe(200)
     expect(res.body.entries).toHaveLength(1)

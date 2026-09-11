@@ -1,4 +1,5 @@
 import { digest } from './archive.js'
+import { latestEvaluationJob } from './evaluationJob.js'
 import { ARMS, COST_SCENARIOS, EVALUATION_ID, finalSealed } from './evaluationPolicy.js'
 
 export const SECTOR_BENCHMARKS = Object.freeze({ Technology: 'XLK', Healthcare: 'XLV', 'Health Care': 'XLV',
@@ -195,8 +196,9 @@ export function portfolioSummary(observations, outcomes) {
 }
 
 export async function evaluationReport(archive, now = Date.now()) {
-  const [definition, { runs, observations }, results] = await Promise.all([
+  const [definition, { runs, observations }, results, currentJob] = await Promise.all([
     archive.get('evaluation-definition', EVALUATION_ID), evaluationObservations(archive, now), archive.list('evaluation-outcomes', now),
+    latestEvaluationJob(archive, now),
   ])
   const sealed = finalSealed(definition, now)
   const hidden = new Set(observations.filter((o) => sealed && o.period === 'final-untouched').map((o) => o.id))
@@ -221,6 +223,10 @@ export async function evaluationReport(archive, now = Date.now()) {
     status: runs.length ? 'Collecting data' : 'Insufficient data', latestRun: runs.at(-1) ? {
       id: runs.at(-1).id, availableAt: runs.at(-1).availableAt, status: runs.at(-1).status, failures: runs.at(-1).failures,
     } : null, finalSealed: sealed, arms: groups,
+    // A job that already completed is already reflected in latestRun/arms
+    // above; only surface it here while it is still pending, in progress or
+    // failed, so /research/evaluation shows why nothing new has appeared yet.
+    currentJob: currentJob && currentJob.status !== 'completed' ? currentJob : null,
     // The API provides stock-level inspection, including retained rejections.
     observations: observations.map((o) => ({ ...o, outcomes: o.horizons.map((h) => hidden.has(o.id)
       ? { horizon: h, status: 'sealed', reason: 'Untouched evaluation' }
