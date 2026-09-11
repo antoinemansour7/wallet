@@ -34,6 +34,22 @@ function Stage({ stage }) {
   </tr>
 }
 
+function EvaluationHandoff({ run }) {
+  if (run.job !== 'nightly-research') return null
+  const evaluation = run.evaluation
+  return <div className="logs-handoff" aria-label="Evaluation handoff">
+    <span>Nightly research {run.status === 'failed' ? '❌' : '✅'} {run.status}</span>
+    {!evaluation
+      ? <span>Evaluation input — not frozen (inputs unavailable or time budget)</span>
+      : <>
+        <span>Evaluation input ✅ frozen · {when(evaluation.frozenAt)}</span>
+        <span>Evaluation job {evaluation.status === 'completed' ? '✅' : evaluation.status === 'failed' ? '❌' : '⏳'} {evaluation.status}
+          {evaluation.status === 'failed' && ` · ${evaluation.error} · retry: ${evaluation.retryState}`}
+        </span>
+      </>}
+  </div>
+}
+
 function Funnel({ admission }) {
   if (!admission?.funnel) return <p className="logs-legacy">Admission funnel unavailable for this legacy run.</p>
   const items = [
@@ -173,6 +189,7 @@ function Run({ run, ticker }) {
       <span>{when(run.startedAt)}</span>
       <span>{seconds(run.durationMs)}</span>
     </div>
+    <EvaluationHandoff run={run} />
     <Funnel admission={run.admission} />
     <StreamBreakdown streams={run.admission?.streams} />
     <div className="logs-table-wrap"><table>

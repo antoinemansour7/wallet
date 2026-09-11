@@ -163,4 +163,21 @@ describe('private research logs page', () => {
 
     expect(await screen.findByText(/No research runs recorded yet/)).toBeInTheDocument()
   })
+
+  it('shows the nightly → frozen input → evaluation job handoff', async () => {
+    const withEvaluation = { ...run(), evaluation: { jobId: 'job-1', status: 'pending', frozenAt: '2026-09-10T07:02:00.000Z', error: null, retryState: null } }
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ runs: [withEvaluation] }) })))
+    renderLogs()
+    expect(await screen.findByText(/Evaluation input/)).toBeInTheDocument()
+    expect(screen.getByText(/Evaluation job/)).toBeInTheDocument()
+    expect(screen.getByText(/pending/)).toBeInTheDocument()
+  })
+
+  it('says the input was never frozen when there is no evaluation handoff at all', async () => {
+    const withoutEvaluation = { ...run(), evaluation: null }
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ runs: [withoutEvaluation] }) })))
+    renderLogs()
+    await screen.findByText(withoutEvaluation.job)
+    expect(screen.getByText(/not frozen/)).toBeInTheDocument()
+  })
 })
