@@ -145,44 +145,165 @@ function remember({ stage: name, status, durationMs, metrics, error }) {
   run.stages.push({ stage: name, status, durationMs, ...(metrics && { metrics }), ...(error && { error }) })
 }
 
-// Why a ticker did or did not make the board. Every field here is already
-// computed during a run — admission publishes its own reject/notReviewed audit
-// — so this reshapes existing decisions rather than measuring anything new.
-// Later entries never overwrite earlier ones: the list is built outcome-first,
-// so a published pick is not downgraded by also appearing on the board.
-export function candidateTraces({ board = [], admission, accepted = [], published = [] } = {}) {
+const OUTCOME_PRIORITY = { discovered: 1, not_reviewed: 2, reviewed_rejected: 3, accepted: 4, published: 5 }
+const unique = (values) => [...new Set(values.filter((value) => value !== null && value !== undefined))]
+const DISCOVERY_SOURCES = new Set(['SEC', 'Exa / news', 'Screener / technical', 'News', 'X / attention', 'Attention'])
+
+function traceMetadata(candidate = {}) {
+  const rawEvidence = Array.isArray(candidate.evidence) ? candidate.evidence : []
+  const rawSources = Array.isArray(candidate.sources) ? candidate.sources : [...(candidate.sources || [])]
+  const evidence = rawEvidence.slice(0, 10).map((item) => ({
+    id: item.id,
+    strategy: item.strategy || item.strategyFamily,
+    horizon: item.horizon,
+    source: item.source?.url ? undefined : item.source,
+    type: item.type || item.source?.form || (item.source?.accession ? 'SEC filing' : undefined),
+  }))
+  return {
+    ticker: candidate.ticker ?? null,
+    securityId: candidate.securityId ?? null,
+    name: candidate.name ?? null,
+    ...(candidate.priority !== undefined && { priority: candidate.priority }),
+    ...(candidate.overallRank !== undefined && { overallRank: candidate.overallRank }),
+    ...(candidate.streamRanks && { streamRanks: candidate.streamRanks }),
+    ...(candidate.admission && { admission: candidate.admission }),
+    ...(candidate.budgetUsage && { budgetUsage: candidate.budgetUsage }),
+    ...(candidate.evidenceCount !== undefined && { evidenceCount: candidate.evidenceCount }),
+    ...(candidate.evidenceTruncated && { evidenceTruncated: true }),
+    ...(evidence.length && { evidence }),
+    strategies: unique([...(candidate.strategies || []), ...(candidate.streams || []), candidate.strategyFamily]),
+    horizons: unique([...(candidate.horizons || []), candidate.horizon]).sort((a, b) => a - b),
+    sources: unique(rawSources.filter((source) => DISCOVERY_SOURCES.has(source))),
+    duplicateAcrossStreams: candidate.duplicateAcrossStreams ?? (candidate.streams || []).length > 1,
+  }
+}
+
+// One coherent trace per security. Admission metadata is laid down first, then
+// review and publication facts upgrade that same row. Ticker fallback joins a
+// pick that omitted its stable ID, while two different stable IDs are never
+// merged merely because a ticker was reused.
+export function candidateTraces({ board = [], admission, primaryReview, accepted = [], published = [] } = {}) {
   const audit = admission?.audit || {}
-  const traces = new Map()
-  const add = (candidate, trace) => {
-    const id = candidate.securityId || candidate.ticker
-    if (!id || traces.has(id)) return
-    traces.set(id, { ticker: candidate.ticker ?? null, securityId: candidate.securityId ?? null, ...trace })
+  const traces = [], bySecurity = new Map(), byTicker = new Map()
+  const add = (candidate, outcome = {}) => {
+    const metadata = traceMetadata(candidate)
+    if (!metadata.securityId && !metadata.ticker) return
+    let index = metadata.securityId ? bySecurity.get(metadata.securityId) : undefined
+    const tickerIndex = metadata.ticker ? byTicker.get(metadata.ticker) : undefined
+    if (index === undefined && tickerIndex !== undefined) {
+      const existingId = traces[tickerIndex].securityId
+      if (!existingId || !metadata.securityId || existingId === metadata.securityId) index = tickerIndex
+    }
+    if (index === undefined) {
+      index = traces.length
+      traces.push(metadata)
+    } else {
+      const current = traces[index]
+      traces[index] = {
+        ...current,
+        ...Object.fromEntries(Object.entries(metadata).filter(([, value]) => value !== null && value !== undefined)),
+        strategies: unique([...(current.strategies || []), ...(metadata.strategies || [])]),
+        horizons: unique([...(current.horizons || []), ...(metadata.horizons || [])]).sort((a, b) => a - b),
+        sources: unique([...(current.sources || []), ...(metadata.sources || [])]),
+        evidence: metadata.evidence?.length ? metadata.evidence : current.evidence,
+      }
+    }
+    const current = traces[index]
+    if (outcome.outcome && (OUTCOME_PRIORITY[outcome.outcome] || 0) >= (OUTCOME_PRIORITY[current.outcome] || 0)) {
+      traces[index] = { ...current, ...outcome }
+    } else {
+      const descriptive = Object.fromEntries(Object.entries(outcome).filter(([key]) => !['outcome', 'reason', 'reviewed', 'sentToClaude', 'claudeStatus'].includes(key)))
+      traces[index] = { ...current, ...descriptive }
+    }
+    if (traces[index].securityId) bySecurity.set(traces[index].securityId, index)
+    if (traces[index].ticker) byTicker.set(traces[index].ticker, index)
   }
 
-  published.forEach((pick, index) => add(pick, {
-    outcome: 'published',
+  const selected = audit.selected?.length ? audit.selected : admission?.candidates || []
+  selected.forEach((candidate) => add(candidate, {
+    outcome: 'discovered', discovered: true, eligible: true, admitted: true,
+    reviewed: false, sentToClaude: false, claudeStatus: 'not_sent',
+    reason: 'Admitted to the review budget',
+  }))
+  ;(audit.rejected || []).forEach((entry) => add(entry, {
+    outcome: 'discovered', discovered: true, eligible: false, admitted: false,
+    reviewed: false, sentToClaude: false, claudeStatus: 'not_sent', reason: entry.reason,
+  }))
+  ;(audit.notReviewed || []).forEach((entry) => add(entry, {
+    outcome: 'not_reviewed', discovered: true, eligible: true, admitted: false,
+    reviewed: false, sentToClaude: false, claudeStatus: 'not_sent', reason: entry.reason,
+  }))
+  // This is the exact board serialized into the attention-review prompt.
+  board.forEach((entry) => add(entry, {
+    outcome: 'reviewed_rejected', discovered: true, eligible: true, admitted: true,
+    reviewed: true, sentToClaude: true, claudeStatus: 'reviewed_not_selected',
+    reason: 'Claude reviewed this candidate but did not select it',
+  }))
+
+  const primarySent = new Set(primaryReview?.reviewedSecurityIds || [])
+  ;(primaryReview?.decisions || []).forEach((decision) => {
+    const sentToClaude = primarySent.has(decision.securityId) || Boolean(decision.completedAt)
+    const acceptedByClaude = sentToClaude && decision.status === 'accepted'
+    add(decision, {
+      outcome: acceptedByClaude ? 'accepted' : sentToClaude ? 'reviewed_rejected' : 'discovered',
+      reviewed: sentToClaude,
+      sentToClaude,
+      claudeStatus: acceptedByClaude ? 'accepted' : sentToClaude ? 'reviewed_not_selected' : 'not_sent',
+      reason: decision.reason,
+      finalScore: decision.score,
+    })
+  })
+  Object.values(primaryReview?.picksByHorizon || {}).flat().forEach((pick) => add(pick, {
+    outcome: 'accepted',
     reviewed: true,
-    rank: index + 1,
+    sentToClaude: true,
+    claudeStatus: 'accepted',
+    reason: pick.reason,
     finalScore: pick.finalScore,
     catalystVerified: pick.catalystVerified,
   }))
   accepted.forEach((pick) => add(pick, {
-    outcome: 'accepted',
-    reviewed: true,
-    finalScore: pick.finalScore,
-    catalystVerified: pick.catalystVerified,
+    outcome: 'accepted', reviewed: true, sentToClaude: true, claudeStatus: 'accepted',
+    reason: pick.reason, finalScore: pick.finalScore, catalystVerified: pick.catalystVerified,
   }))
-  ;(audit.rejected || []).forEach((entry) => add(entry, { outcome: 'rejected', reviewed: false, reason: entry.reason }))
-  ;(audit.notReviewed || []).forEach((entry) => add(entry, { outcome: 'not_reviewed', reviewed: false, reason: entry.reason }))
-  board.forEach((entry) => add(entry, { outcome: 'board', reviewed: false }))
+  const horizonRanks = new Map()
+  published.forEach((pick) => {
+    const horizon = pick.horizon || 5
+    const rank = (horizonRanks.get(horizon) || 0) + 1
+    horizonRanks.set(horizon, rank)
+    add(pick, {
+      outcome: 'published', reviewed: true, sentToClaude: true, claudeStatus: 'accepted',
+      rank, reason: pick.reason, finalScore: pick.finalScore, catalystVerified: pick.catalystVerified,
+    })
+  })
 
-  return [...traces.values()]
+  return traces.sort((a, b) => (OUTCOME_PRIORITY[b.outcome] || 0) - (OUTCOME_PRIORITY[a.outcome] || 0)
+    || (a.overallRank ?? Number.MAX_SAFE_INTEGER) - (b.overallRank ?? Number.MAX_SAFE_INTEGER)
+    || String(a.ticker || a.securityId).localeCompare(String(b.ticker || b.securityId)))
 }
 
-/** Attach this run's candidate traces to the summary it will persist. */
-export function recordCandidates(traces) {
+export function admissionRunSummary(admission, traces = []) {
+  const audit = admission?.audit || {}
+  if (!audit.funnel && !audit.streams) return null
+  return {
+    funnel: {
+      ...audit.funnel,
+      sentToClaude: traces.filter((candidate) => candidate.sentToClaude).length,
+      claudeAccepted: traces.filter((candidate) => candidate.claudeStatus === 'accepted').length,
+      published: traces.filter((candidate) => candidate.outcome === 'published').length,
+    },
+    streams: audit.streams || [],
+    reallocations: audit.reallocations || [],
+  }
+}
+
+/** Attach this run's candidate traces and admission diagnostic to its summary. */
+export function recordCandidates(traces, admission) {
   const run = currentResearchRun()
-  if (run) run.candidates = traces
+  if (run) {
+    run.candidates = traces
+    run.admission = admissionRunSummary(admission, traces)
+  }
 }
 
 function runHistoryLimit(raw = process.env.RESEARCH_RUN_LOG_LIMIT) {
@@ -220,6 +341,7 @@ export async function recordResearchRun(redis, { job, runId = randomUUID() }, wo
       status: fatal ? 'failed' : run.stages.some((s) => s.status !== 'success') ? 'partial' : 'success',
       stages: run.stages,
       candidates: run.candidates || [],
+      admission: run.admission || null,
     })
   }
 }
