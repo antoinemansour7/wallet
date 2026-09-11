@@ -1,5 +1,5 @@
 import { Redis } from '@upstash/redis'
-import { compareAttentionPriorities, reviewPriorityProposal } from '../src/server/research/reviewPriority.js'
+import { compareAttentionPriorities, reviewPriorityModel } from '../src/server/research/reviewPriority.js'
 
 const countArg = process.argv.find((argument) => argument.startsWith('--runs='))
 const requestedRuns = Number(countArg?.split('=')[1] || 5)
@@ -29,8 +29,8 @@ for (const run of runs) {
   const records = await evidenceFor(attention)
   const candidates = attention.map((candidate) => {
     const evidence = (candidate.evidence || []).map((item) => records.get(item.id)).filter(Boolean)
-    return { ...candidate, streams: candidate.strategies, evidence,
-      priorityProposal: reviewPriorityProposal({ ...candidate, evidence }, { asOf: run.startedAt }) }
+    return { ...candidate, streams: candidate.strategies, evidence, legacyPriority: candidate.legacyPriority ?? candidate.priority,
+      priorityModel: reviewPriorityModel({ ...candidate, evidence }, { asOf: run.startedAt }) }
   })
   reports.push({ runId: run.runId, startedAt: run.startedAt,
     evidenceCoverage: { loaded: records.size, referenced: new Set(attention.flatMap((candidate) => (candidate.evidence || []).map((item) => item.id))).size,
@@ -44,8 +44,8 @@ else if (!reports.length) console.log('No persisted nightly run with priority di
 else for (const report of reports) {
   console.log(`\n${report.startedAt} · ${report.runId}`)
   console.log(`Evidence loaded      ${report.evidenceCoverage.loaded}/${report.evidenceCoverage.referenced}${report.evidenceCoverage.truncatedCandidates ? ` (${report.evidenceCoverage.truncatedCandidates} candidate traces were truncated at 10 items)` : ''}`)
-  console.log(`Scores >= 95         current ${report.saturation.currentAt95} · proposal ${report.saturation.proposedAt95}`)
-  console.log(`Attention cutoff     current ${report.currentCutoff?.ticker || '—'} ${report.currentCutoff?.score ?? '—'} · proposal ${report.proposedCutoff?.ticker || '—'} ${report.proposedCutoff?.score ?? '—'}`)
-  console.log(`Would enter          ${report.entering.map((item) => `${item.ticker} (#${item.currentRank} -> #${item.proposedRank}, ${item.proposedScore})`).join(', ') || 'none'}`)
-  console.log(`Would leave          ${report.leaving.map((item) => `${item.ticker} (#${item.currentRank} -> #${item.proposedRank}, ${item.proposedScore})`).join(', ') || 'none'}`)
+  console.log(`Scores >= 95         legacy ${report.saturation.legacyAt95} · production ${report.saturation.productionAt95}`)
+  console.log(`Attention cutoff     legacy ${report.legacyCutoff?.ticker || '—'} ${report.legacyCutoff?.score ?? '—'} · production ${report.productionCutoff?.ticker || '—'} ${report.productionCutoff?.score ?? '—'}`)
+  console.log(`Enters with v2       ${report.entering.map((item) => `${item.ticker} (#${item.legacyRank} -> #${item.productionRank}, ${item.productionScore})`).join(', ') || 'none'}`)
+  console.log(`Leaves with v2       ${report.leaving.map((item) => `${item.ticker} (#${item.legacyRank} -> #${item.productionRank}, ${item.productionScore})`).join(', ') || 'none'}`)
 }

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { attentionReviewPriority, compareAttentionPriorities, reviewPriorityProposal, REVIEW_PRIORITY_PROPOSAL_VERSION } from './reviewPriority.js'
+import { attentionReviewPriority, compareAttentionPriorities, reviewPriorityModel, REVIEW_PRIORITY_VERSION } from './reviewPriority.js'
 
 const asOf = '2026-09-11T08:00:00.000Z'
 
@@ -17,7 +17,7 @@ const candidate = (ticker, items, priority = Math.max(...items.map((item) => ite
   securityId: `figi:${ticker}`, ticker, name: `${ticker} Corp`, streams: ['attention'], priority, evidence: items,
 })
 
-describe('attention review priority proposal', () => {
+describe('attention review priority v2', () => {
   it('ranks independent, specific evidence above a single maximum-strength mention', () => {
     const loud = attentionReviewPriority([evidence('loud')], { asOf, ticker: 'ABC' })
     const specific = attentionReviewPriority([
@@ -56,8 +56,20 @@ describe('attention review priority proposal', () => {
     ]
     expect(attentionReviewPriority(items, { asOf, ticker: 'ABC' })).toEqual(attentionReviewPriority([...items].reverse(), { asOf, ticker: 'ABC' }))
     const fundamentals = evidence('sec', { strategyFamily: 'fundamentals', priority: 77, type: 'filing', labels: [], publisher: '' })
-    const proposal = reviewPriorityProposal({ ticker: 'ABC', evidence: [...items, fundamentals] }, { asOf })
-    expect(proposal).toMatchObject({ version: REVIEW_PRIORITY_PROPOSAL_VERSION, usedForAdmission: false, score: 77, streamScores: { fundamentals: 77 } })
+    const model = reviewPriorityModel({ ticker: 'ABC', evidence: [...items, fundamentals] }, { asOf })
+    expect(model).toMatchObject({ version: REVIEW_PRIORITY_VERSION, usedForAdmission: true, score: 77, streamScores: { fundamentals: 77 } })
+  })
+
+  it.each(['fundamentals', 'filing_changes', 'insider'])('does not change %s priority or require attention evidence', (strategyFamily) => {
+    const primary = evidence(strategyFamily, { strategyFamily, priority: 73.456, type: 'filing', labels: [], publisher: '' })
+    const model = reviewPriorityModel({ ticker: 'ABC', evidence: [primary] }, { asOf })
+
+    expect(model).toEqual({
+      version: REVIEW_PRIORITY_VERSION,
+      usedForAdmission: true,
+      score: 73.456,
+      streamScores: { [strategyFamily]: 73.456 },
+    })
   })
 
   it('reports saturation and cutoff changes without applying them', () => {
@@ -66,7 +78,7 @@ describe('attention review priority proposal', () => {
       candidate('DATED', [evidence('dated-news', { publisher: 'wire', type: 'news', labels: ['exa-discovery'], priority: 70, text: '$DATED earnings on September 18, 2026 with $4B guidance.' }), evidence('dated-social', { publisher: 'desk', priority: 65, text: '$DATED earnings on September 18, 2026 with $4B guidance.' })], 70),
     ]
     const comparison = compareAttentionPriorities(rows, { asOf, budget: 1 })
-    expect(comparison).toMatchObject({ usedForAdmission: false, saturation: { currentAt95: 1, proposedAt95: 0 }, currentCutoff: { ticker: 'LOUD', score: 100 }, proposedCutoff: { ticker: 'DATED' } })
+    expect(comparison).toMatchObject({ usedForAdmission: true, saturation: { legacyAt95: 1, productionAt95: 0 }, legacyCutoff: { ticker: 'LOUD', score: 100 }, productionCutoff: { ticker: 'DATED' } })
     expect(comparison.entering[0].ticker).toBe('DATED')
   })
 })

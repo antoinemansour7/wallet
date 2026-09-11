@@ -1,4 +1,4 @@
-export const REVIEW_PRIORITY_PROPOSAL_VERSION = 'attention-review-priority-v2-shadow.1'
+export const REVIEW_PRIORITY_VERSION = 'attention-review-priority-v2'
 
 const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value))
 const round = (value) => Number(value.toFixed(1))
@@ -83,10 +83,9 @@ function freshnessScore(evidence, asOf) {
 }
 
 /**
- * Deterministic proposal for ranking attention candidates before Claude.
- * This is intentionally a shadow score: admission continues to use the
- * existing evidence priority until an evaluation explicitly promotes a later
- * version into policy.
+ * Deterministic production score for ranking attention candidates before
+ * Claude. Every input exists at the admission cutoff and every component is
+ * returned for audit.
  */
 export function attentionReviewPriority(evidence, { asOf = Date.now(), ticker, name } = {}) {
   const items = evidence.filter((item) => item.strategyFamily === 'attention')
@@ -123,7 +122,7 @@ export function attentionReviewPriority(evidence, { asOf = Date.now(), ticker, n
   }
   const score = round(clamp(Object.values(components).reduce((sum, value) => sum + value, 0), 0, 100))
   return {
-    version: REVIEW_PRIORITY_PROPOSAL_VERSION,
+    version: REVIEW_PRIORITY_VERSION,
     score,
     components,
     features: {
@@ -143,7 +142,7 @@ export function attentionReviewPriority(evidence, { asOf = Date.now(), ticker, n
   }
 }
 
-export function reviewPriorityProposal(candidate, { asOf = Date.now(), evidence = candidate.evidence || [] } = {}) {
+export function reviewPriorityModel(candidate, { asOf = Date.now(), evidence = candidate.evidence || [] } = {}) {
   const streamScores = {}
   for (const item of evidence) streamScores[item.strategyFamily] = Math.max(streamScores[item.strategyFamily] || 0, Number(item.priority) || 0)
   const attention = evidence.some((item) => item.strategyFamily === 'attention')
@@ -151,9 +150,11 @@ export function reviewPriorityProposal(candidate, { asOf = Date.now(), evidence 
     : null
   if (attention) streamScores.attention = attention.score
   return {
-    version: REVIEW_PRIORITY_PROPOSAL_VERSION,
-    usedForAdmission: false,
-    score: round(Math.max(0, ...Object.values(streamScores))),
+    version: REVIEW_PRIORITY_VERSION,
+    usedForAdmission: true,
+    // Non-attention stream priorities retain their original precision and
+    // behavior. Only the attention entry above is replaced with v2.
+    score: Math.max(0, ...Object.values(streamScores)),
     streamScores,
     ...(attention && { attentionScore: attention.score, components: attention.components, features: attention.features }),
   }
@@ -161,26 +162,27 @@ export function reviewPriorityProposal(candidate, { asOf = Date.now(), evidence 
 
 export function compareAttentionPriorities(candidates, { asOf = Date.now(), budget = 12 } = {}) {
   const rows = candidates.filter((candidate) => (candidate.streams || candidate.strategies || []).includes('attention'))
-    .map((candidate) => ({ ...candidate, priorityProposal: candidate.priorityProposal || reviewPriorityProposal(candidate, { asOf }) }))
-  const current = [...rows].sort((a, b) => (b.priority || 0) - (a.priority || 0) || String(a.securityId).localeCompare(String(b.securityId)))
-  const proposed = [...rows].sort((a, b) => b.priorityProposal.streamScores.attention - a.priorityProposal.streamScores.attention || String(a.securityId).localeCompare(String(b.securityId)))
-  const currentRanks = new Map(current.map((candidate, index) => [candidate.securityId, index + 1]))
-  const proposedRanks = new Map(proposed.map((candidate, index) => [candidate.securityId, index + 1]))
-  const selectedNow = new Set(current.slice(0, budget).map((candidate) => candidate.securityId))
-  const selectedProposed = new Set(proposed.slice(0, budget).map((candidate) => candidate.securityId))
+    .map((candidate) => ({ ...candidate, legacyPriority: candidate.legacyPriority ?? candidate.priority,
+      priorityModel: candidate.priorityModel || reviewPriorityModel(candidate, { asOf }) }))
+  const legacy = [...rows].sort((a, b) => (b.legacyPriority || 0) - (a.legacyPriority || 0) || String(a.securityId).localeCompare(String(b.securityId)))
+  const production = [...rows].sort((a, b) => b.priorityModel.streamScores.attention - a.priorityModel.streamScores.attention || String(a.securityId).localeCompare(String(b.securityId)))
+  const legacyRanks = new Map(legacy.map((candidate, index) => [candidate.securityId, index + 1]))
+  const productionRanks = new Map(production.map((candidate, index) => [candidate.securityId, index + 1]))
+  const selectedLegacy = new Set(legacy.slice(0, budget).map((candidate) => candidate.securityId))
+  const selectedProduction = new Set(production.slice(0, budget).map((candidate) => candidate.securityId))
   return {
-    version: REVIEW_PRIORITY_PROPOSAL_VERSION,
-    usedForAdmission: false,
+    version: REVIEW_PRIORITY_VERSION,
+    usedForAdmission: true,
     candidates: rows.length,
     budget,
     saturation: {
-      currentAt95: rows.filter((candidate) => (candidate.priority || 0) >= 95).length,
-      proposedAt95: rows.filter((candidate) => candidate.priorityProposal.streamScores.attention >= 95).length,
+      legacyAt95: rows.filter((candidate) => (candidate.legacyPriority || 0) >= 95).length,
+      productionAt95: rows.filter((candidate) => candidate.priorityModel.streamScores.attention >= 95).length,
     },
-    currentCutoff: current[budget - 1] ? { ticker: current[budget - 1].ticker, score: current[budget - 1].priority } : null,
-    proposedCutoff: proposed[budget - 1] ? { ticker: proposed[budget - 1].ticker, score: proposed[budget - 1].priorityProposal.streamScores.attention } : null,
-    entering: proposed.filter((candidate) => selectedProposed.has(candidate.securityId) && !selectedNow.has(candidate.securityId)).map((candidate) => ({ ticker: candidate.ticker, currentRank: currentRanks.get(candidate.securityId), proposedRank: proposedRanks.get(candidate.securityId), proposedScore: candidate.priorityProposal.streamScores.attention })),
-    leaving: current.filter((candidate) => selectedNow.has(candidate.securityId) && !selectedProposed.has(candidate.securityId)).map((candidate) => ({ ticker: candidate.ticker, currentRank: currentRanks.get(candidate.securityId), proposedRank: proposedRanks.get(candidate.securityId), proposedScore: candidate.priorityProposal.streamScores.attention })),
-    ordering: proposed.map((candidate, index) => ({ ticker: candidate.ticker, currentScore: candidate.priority, proposedScore: candidate.priorityProposal.streamScores.attention, currentRank: currentRanks.get(candidate.securityId), proposedRank: index + 1 })),
+    legacyCutoff: legacy[budget - 1] ? { ticker: legacy[budget - 1].ticker, score: legacy[budget - 1].legacyPriority } : null,
+    productionCutoff: production[budget - 1] ? { ticker: production[budget - 1].ticker, score: production[budget - 1].priorityModel.streamScores.attention } : null,
+    entering: production.filter((candidate) => selectedProduction.has(candidate.securityId) && !selectedLegacy.has(candidate.securityId)).map((candidate) => ({ ticker: candidate.ticker, legacyRank: legacyRanks.get(candidate.securityId), productionRank: productionRanks.get(candidate.securityId), productionScore: candidate.priorityModel.streamScores.attention })),
+    leaving: legacy.filter((candidate) => selectedLegacy.has(candidate.securityId) && !selectedProduction.has(candidate.securityId)).map((candidate) => ({ ticker: candidate.ticker, legacyRank: legacyRanks.get(candidate.securityId), productionRank: productionRanks.get(candidate.securityId), productionScore: candidate.priorityModel.streamScores.attention })),
+    ordering: production.map((candidate, index) => ({ ticker: candidate.ticker, legacyScore: candidate.legacyPriority, productionScore: candidate.priorityModel.streamScores.attention, legacyRank: legacyRanks.get(candidate.securityId), productionRank: index + 1 })),
   }
 }

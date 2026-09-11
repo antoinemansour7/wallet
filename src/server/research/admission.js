@@ -1,5 +1,5 @@
 import { reviewBudgets, STRATEGIES } from './policy.js'
-import { reviewPriorityProposal, REVIEW_PRIORITY_PROPOSAL_VERSION } from './reviewPriority.js'
+import { reviewPriorityModel, REVIEW_PRIORITY_VERSION } from './reviewPriority.js'
 
 const unique = (values) => [...new Set(values.filter(Boolean))]
 const rankOrder = (a, b) => b.priority - a.priority || a.securityId.localeCompare(b.securityId)
@@ -41,7 +41,8 @@ function candidateDetails(candidate, extra = {}) {
     name: candidate.name ?? null,
     streams: candidate.streams || [],
     priority: Number.isFinite(candidate.priority) ? candidate.priority : null,
-    ...(candidate.priorityProposal && { priorityProposal: candidate.priorityProposal }),
+    ...(Number.isFinite(candidate.legacyPriority) && { legacyPriority: candidate.legacyPriority }),
+    ...(candidate.priorityModel && { priorityModel: candidate.priorityModel }),
     duplicateAcrossStreams: (candidate.streams || []).length > 1,
     ...evidenceDetails(candidate),
     ...extra,
@@ -69,9 +70,9 @@ export function admitCandidates(candidates, { budgets = reviewBudgets(), asOf = 
     const streams = Object.keys(STRATEGIES).filter((family) => candidate.evidence.some((e) => e.strategyFamily === family && e.decision.status === 'eligible' && known(e)))
     if (!streams.length) { rejected.push(candidateDetails(candidate, { reason: 'evidence_not_actionable_yet' })); continue }
     const eligibleEvidence = candidate.evidence.filter((e) => streams.includes(e.strategyFamily) && known(e))
-    const priority = Math.max(...eligibleEvidence.map((e) => e.priority))
-    eligible.push({ ...candidate, streams, priority,
-      priorityProposal: reviewPriorityProposal(candidate, { asOf: decisionTime, evidence: eligibleEvidence }) })
+    const legacyPriority = Math.max(...eligibleEvidence.map((e) => e.priority))
+    const priorityModel = reviewPriorityModel(candidate, { asOf: decisionTime, evidence: eligibleEvidence })
+    eligible.push({ ...candidate, streams, legacyPriority, priority: priorityModel.score, priorityModel })
   }
   eligible.sort(rankOrder)
   const selected = new Map(), used = Object.fromEntries(Object.keys(budgets).map((key) => [key, 0]))
@@ -108,22 +109,21 @@ export function admitCandidates(candidates, { budgets = reviewBudgets(), asOf = 
   const admitted = [...selected.values()]
   const waiting = eligible.filter((candidate) => !selected.has(candidate.securityId))
   const overallRanks = new Map(eligible.map((candidate, index) => [candidate.securityId, index + 1]))
-  const proposedRankOrder = (a, b) => b.priorityProposal.score - a.priorityProposal.score || a.securityId.localeCompare(b.securityId)
-  const proposedOverallRanks = new Map([...eligible].sort(proposedRankOrder).map((candidate, index) => [candidate.securityId, index + 1]))
+  const legacyRankOrder = (a, b) => b.legacyPriority - a.legacyPriority || a.securityId.localeCompare(b.securityId)
+  const legacyOverallRanks = new Map([...eligible].sort(legacyRankOrder).map((candidate, index) => [candidate.securityId, index + 1]))
   const streamRanks = Object.fromEntries(Object.keys(budgets).map((stream) => [stream,
     new Map(eligible.filter((candidate) => candidate.streams.includes(stream)).sort(rankOrder)
       .map((candidate, index) => [candidate.securityId, index + 1])),
   ]))
-  const proposedStreamRanks = Object.fromEntries(Object.keys(budgets).map((stream) => [stream,
-    new Map(eligible.filter((candidate) => candidate.streams.includes(stream)).sort((a, b) =>
-      b.priorityProposal.streamScores[stream] - a.priorityProposal.streamScores[stream] || a.securityId.localeCompare(b.securityId))
+  const legacyStreamRanks = Object.fromEntries(Object.keys(budgets).map((stream) => [stream,
+    new Map(eligible.filter((candidate) => candidate.streams.includes(stream)).sort(legacyRankOrder)
       .map((candidate, index) => [candidate.securityId, index + 1])),
   ]))
   const rankedDetails = (candidate, extra = {}) => candidateDetails(candidate, {
     overallRank: overallRanks.get(candidate.securityId),
     streamRanks: Object.fromEntries(candidate.streams.map((stream) => [stream, streamRanks[stream].get(candidate.securityId)])),
-    proposedOverallRank: proposedOverallRanks.get(candidate.securityId),
-    proposedStreamRanks: Object.fromEntries(candidate.streams.map((stream) => [stream, proposedStreamRanks[stream].get(candidate.securityId)])),
+    legacyOverallRank: legacyOverallRanks.get(candidate.securityId),
+    legacyStreamRanks: Object.fromEntries(candidate.streams.map((stream) => [stream, legacyStreamRanks[stream].get(candidate.securityId)])),
     ...extra,
   })
   const streams = Object.entries(budgets).map(([stream, configured]) => {
@@ -164,7 +164,7 @@ export function admitCandidates(candidates, { budgets = reviewBudgets(), asOf = 
     ...extra,
   })
   return { candidates: admitted, audit: {
-    priorityProposal: { version: REVIEW_PRIORITY_PROPOSAL_VERSION, usedForAdmission: false },
+    priorityModel: { version: REVIEW_PRIORITY_VERSION, usedForAdmission: true },
     budgets,
     reservedUsed: used,
     reallocations,

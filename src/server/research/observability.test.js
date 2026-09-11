@@ -174,13 +174,13 @@ describe('candidateTraces', () => {
     ]))
   })
 
-  it('keeps the versioned shadow priority explanation in the candidate trace', () => {
-    const priorityProposal = { version: 'attention-review-priority-v2-shadow.1', usedForAdmission: false, score: 72,
+  it('keeps the versioned production priority explanation and legacy comparison in the candidate trace', () => {
+    const priorityModel = { version: 'attention-review-priority-v2', usedForAdmission: true, score: 72,
       streamScores: { attention: 72 }, components: { evidenceQuality: 20, sourceIndependence: 16 } }
     const [trace] = candidateTraces({ admission: { audit: { selected: [{ securityId: 'figi:ABC', ticker: 'ABC', streams: ['attention'],
-      priority: 100, priorityProposal, proposedOverallRank: 4, proposedStreamRanks: { attention: 3 } }] } } })
+      priority: 72, legacyPriority: 100, priorityModel, legacyOverallRank: 4, legacyStreamRanks: { attention: 3 } }] } } })
 
-    expect(trace).toMatchObject({ ticker: 'ABC', priority: 100, priorityProposal, proposedOverallRank: 4, proposedStreamRanks: { attention: 3 } })
+    expect(trace).toMatchObject({ ticker: 'ABC', priority: 72, legacyPriority: 100, priorityModel, legacyOverallRank: 4, legacyStreamRanks: { attention: 3 } })
   })
 
   it('ranks a published pick and carries what the agents decided about it', () => {
