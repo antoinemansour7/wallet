@@ -147,7 +147,7 @@ describe('claiming pending work', () => {
     const jobA = await freeze(archive, { publicationId: 'pub-a' })
     vi.setSystemTime(new Date(Date.now() + 5000)) // Advance 5 seconds
     // Freeze job B at T1 (more recent)
-    const jobB = await freeze(archive, { publicationId: 'pub-b' })
+    await freeze(archive, { publicationId: 'pub-b' })
     vi.setSystemTime(new Date(Date.now() + 5000)) // Advance another 5 seconds
     // Update job A's status at T2 (but job B is still newer when frozen)
     const [jobAFromList] = await pendingEvaluationJobs(archive, Date.now())
