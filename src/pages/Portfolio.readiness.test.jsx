@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { uid: 'portfolio-user' } }) }))
+vi.mock('../firebase/config', () => ({ auth: {}, db: {}, googleProvider: {} }))
+vi.mock('../utils/parseSpreadsheet', () => ({ parseSpreadsheet: vi.fn() }))
 vi.mock('../utils/portfolioStorage', () => ({
   clearPortfolio: vi.fn(),
   loadLocalPortfolio: mocks.loadLocalPortfolio,
