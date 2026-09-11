@@ -34,6 +34,10 @@
       "schedule": "0 7 * * *"
     },
     {
+      "path": "/api/research-evaluation",
+      "schedule": "0 11 * * *"
+    },
+    {
       "path": "/api/track-performance",
       "schedule": "0 9 * * *"
     }
@@ -43,6 +47,9 @@
       "maxDuration": 300
     },
     "api/research-foundation.js": {
+      "maxDuration": 300
+    },
+    "api/research-evaluation.js": {
       "maxDuration": 300
     },
     "api/track-performance.js": {
