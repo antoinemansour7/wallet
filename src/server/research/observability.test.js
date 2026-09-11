@@ -175,7 +175,10 @@ describe('candidateTraces', () => {
   })
 
   it('ranks a published pick and carries what the agents decided about it', () => {
-    const rocket = { ticker: 'RKLB', securityId: 'figi:RKLB', finalScore: 84, catalystVerified: true }
+    const rocket = { ticker: 'RKLB', securityId: 'figi:RKLB', finalScore: 84, catalystVerified: true,
+      catalystDetail: 'Earnings after market close', catalystDate: '2026-09-12', catalystTimeline: 'in 3 days',
+      catalystPricedIn: false, catalystConfidence: 9, catalystInWindow: true,
+      catalystSources: ['https://example.com/earnings'], }
 
     const [trace] = candidateTraces({ admission, accepted: [rocket], published: [rocket] })
 
@@ -186,6 +189,13 @@ describe('candidateTraces', () => {
       rank: 1,
       finalScore: 84,
       catalystVerified: true,
+      catalystDetail: 'Earnings after market close',
+      catalystDate: '2026-09-12',
+      catalystTimeline: 'in 3 days',
+      catalystPricedIn: false,
+      catalystConfidence: 9,
+      catalystInWindow: true,
+      catalystSources: ['https://example.com/earnings'],
     })
   })
 

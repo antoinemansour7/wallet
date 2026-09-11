@@ -150,6 +150,11 @@ const OUTCOME_PRIORITY = { discovered: 1, not_reviewed: 2, reviewed_rejected: 3,
 const unique = (values) => [...new Set(values.filter((value) => value !== null && value !== undefined))]
 const DISCOVERY_SOURCES = new Set(['SEC', 'Exa / news', 'Screener / technical', 'News', 'X / attention', 'Attention'])
 
+const catalystMetadata = (pick = {}) => Object.fromEntries([
+  'catalystVerified', 'catalystDetail', 'catalystDate', 'catalystTimeline',
+  'catalystPricedIn', 'catalystConfidence', 'catalystInWindow', 'catalystSources',
+].filter((key) => pick[key] !== undefined).map((key) => [key, pick[key]]))
+
 function traceMetadata(candidate = {}) {
   const rawEvidence = Array.isArray(candidate.evidence) ? candidate.evidence : []
   const rawSources = Array.isArray(candidate.sources) ? candidate.sources : [...(candidate.sources || [])]
@@ -265,7 +270,7 @@ export function candidateTraces({ board = [], admission, primaryReview, accepted
   }))
   accepted.forEach((pick) => add(pick, {
     outcome: 'accepted', reviewed: true, sentToClaude: true, claudeStatus: 'accepted',
-    reason: pick.reason, finalScore: pick.finalScore, catalystVerified: pick.catalystVerified,
+    reason: pick.reason, finalScore: pick.finalScore, ...catalystMetadata(pick),
   }))
   const horizonRanks = new Map()
   published.forEach((pick) => {
@@ -274,7 +279,7 @@ export function candidateTraces({ board = [], admission, primaryReview, accepted
     horizonRanks.set(horizon, rank)
     add(pick, {
       outcome: 'published', reviewed: true, sentToClaude: true, claudeStatus: 'accepted',
-      rank, reason: pick.reason, finalScore: pick.finalScore, catalystVerified: pick.catalystVerified,
+      rank, reason: pick.reason, finalScore: pick.finalScore, ...catalystMetadata(pick),
     })
   })
 

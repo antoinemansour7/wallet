@@ -52,6 +52,14 @@ function money(value) {
   return value.toLocaleString('en-US', CURRENCY)
 }
 
+function catalystDateLabel(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return null
+  const date = new Date(`${value}T12:00:00Z`)
+  return Number.isFinite(date.getTime())
+    ? date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+    : null
+}
+
 function ScoreMeter({ score, max = 10, tone = 'conviction', label }) {
   const value = num(score)
   return <div className={`research-score research-score-${tone}`}>
@@ -86,7 +94,8 @@ export default function PickCard({ pick, rank, defaultOpen = false, featured = f
   const {
     ticker, conviction, reason, setupType, sources = [], themes = [],
     signalCount, technicals, bearCase, riskScore, quoteVerified,
-    catalystVerified, catalystDetail, catalystTimeline, catalystPricedIn,
+    catalystVerified, catalystDetail, catalystDate, catalystTimeline, catalystPricedIn,
+    catalystConfidence, catalystSources = [],
     price, stopLoss, target, technicalAgreement, disagreementNote,
     coverageAcceleration, coverageToday, coveragePriorAverage,
   } = pick
@@ -124,7 +133,10 @@ export default function PickCard({ pick, rank, defaultOpen = false, featured = f
   const hasPlan = entry > 0 && stop > 0 && tgt > 0
 
   const hasTechnicals = technicals && ['trend', 'rsi', 'pctFrom52wHigh', 'relativeVolume'].some((key) => technicals[key] != null)
-  const hasCatalyst = catalystVerified != null || catalystDetail || catalystTimeline || catalystPricedIn
+  const catalystDateText = catalystDateLabel(catalystDate)
+  const safeCatalystSources = catalystSources.filter((source) => /^https?:\/\//i.test(String(source)))
+  const hasCatalyst = catalystVerified != null || catalystDetail || catalystDateText || catalystTimeline
+    || catalystPricedIn || Number.isFinite(catalystConfidence) || safeCatalystSources.length > 0
   const independentSources = num(pick.sourceCount) ?? sources.length
   const primary = pick.horizon === 20 || pick.horizon === 60
 
@@ -160,9 +172,12 @@ export default function PickCard({ pick, rank, defaultOpen = false, featured = f
             {primary && <Section label="The research horizon"><p>{pick.horizon} trading sessions · {SETUP_LABELS[pick.strategyFamily] || 'Primary disclosure'}</p><p>Priority reflects the strength of this research case within its horizon, not a probability of profit.</p></Section>}
             {hasCatalyst && <Section label="The catalyst">
               <p className="research-verification"><span aria-hidden="true">{catalystVerified ? '✓' : '○'}</span>{catalystVerified === true ? 'We confirmed this event' : catalystVerified === false ? "We couldn't confirm this event" : 'Verification not available'}</p>
+              {catalystDateText && <p className="research-catalyst-time">Event date · <time dateTime={catalystDate}>{catalystDateText}</time></p>}
               {catalystTimeline && <p className="research-catalyst-time">{catalystTimeline}</p>}
               {catalystDetail && <p>{catalystDetail}</p>}
               {catalystPricedIn && <p className="research-inline-note">Market likely expects it · May already be priced in</p>}
+              {Number.isFinite(catalystConfidence) && <p className="research-inline-note">Evidence strength · {catalystConfidence} / 10</p>}
+              {safeCatalystSources.length > 0 && <ul className="research-source-tags" aria-label={`Catalyst sources for ${ticker}`}>{safeCatalystSources.map((source) => <li key={source}><a href={source} target="_blank" rel="noopener noreferrer">{sourceLabel(source)}</a></li>)}</ul>}
             </Section>}
             {hasTechnicals && <Section label="What the chart shows">
               <dl className="research-technical-list">

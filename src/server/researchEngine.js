@@ -236,7 +236,7 @@ function baseBoardSortScore(item) {
     + (Math.min(item.screenerMentions || 0, 2) * 1.35)
 }
 
-function buildSignalBoard(signals, articles) {
+export function buildSignalBoard(signals, articles) {
   const board = new Map()
 
   for (const signal of prepareResearchSignals(signals)) {

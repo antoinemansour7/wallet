@@ -11,7 +11,9 @@ function getRedis() {
   return null
 }
 
-async function realHandler(req, res) {
+// Exported so the deterministic pipeline smoke test can exercise the exact
+// public read path after the nightly handler writes its projection.
+export async function realHandler(req, res, { redis = getRedis() } = {}) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' })
   }
@@ -28,7 +30,6 @@ async function realHandler(req, res) {
 
   res.setHeader('Cache-Control', 'public, s-maxage=900, stale-while-revalidate=3600')
 
-  const redis = getRedis()
   if (!redis) {
     return res.status(200).json(EMPTY_RESPONSE)
   }

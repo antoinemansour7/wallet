@@ -1,6 +1,6 @@
 import TaxView, { TaxOverviewPointer } from './portfolio/tax/TaxView'
 import useTaxWorkspace from './portfolio/tax/useTaxWorkspace'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { parseSpreadsheet } from '../utils/parseSpreadsheet'
 import { enrichRowsWithLivePrices } from '../utils/livePrices'
 import { clearPortfolio, loadLocalPortfolio, loadSavedPortfolioWithTimeout, savePortfolio } from '../utils/portfolioStorage'
@@ -12,6 +12,12 @@ import { buildAccountPortfolio, cashEntryAmount, flattenAccountRows, getAccountE
 import { PLAID_ACCOUNT_KEY, PLAID_ITEM_KEY, applyMerge, applyMergeByAccount, previewMerge, sourceIdFor } from '../utils/accountMerge'
 import { importAccountSummary, planAccountRemoval, prepareImportRows } from '../utils/accountManagement'
 import { computeStats } from '../utils/portfolioStats'
+import {
+  hasCompleteQuoteRefresh,
+  INITIAL_VALUATION_STATE,
+  isPortfolioValuationReady,
+  valuationReadinessReducer,
+} from '../utils/portfolioValuation'
 import { AUTO_PRICE_REFRESH_MS } from './portfolio/constants'
 import TabNav from './portfolio/TabNav'
 import StatRail from './portfolio/StatRail'
@@ -39,10 +45,13 @@ export default function Portfolio() {
   const [liveStatus, setLiveStatus]       = useState('idle')
   const [liveMessage, setLiveMessage]     = useState('')
   const [lastUpdatedAt, setLastUpdatedAt] = useState(null)
+  const [valuationState, updateValuationState] = useReducer(valuationReadinessReducer, INITIAL_VALUATION_STATE)
+  const [hydrationRevision, setHydrationRevision] = useState(0)
   const inputRef = useRef(null)
   const structureVersion = useRef(0)
   const mutationBusy = useRef(false)
   const draftConnection = useRef(null)
+  const refreshedHydration = useRef(0)
 
   const { user } = useAuth()
   const uid = user?.uid
@@ -62,6 +71,7 @@ export default function Portfolio() {
       : null
   ), [hasData, rows, totalCashValue, totalRealizedPnl])
   const visibleView = hasData || activeView === 'tax' ? activeView : 'add'
+  const valuationReady = isPortfolioValuationReady(valuationState)
   const taxWorkspace = useTaxWorkspace(uid, visibleView === 'tax', accountEntries)
 
   const applyPortfolioRows = useCallback((nextRows, {
@@ -80,9 +90,12 @@ export default function Portfolio() {
 
   useEffect(() => {
     if (!uid) return
+    let cancelled = false
+    updateValuationState({ type: 'hydration-started' })
     const local = loadLocalPortfolio(uid)
     const applySaved = (saved) => {
-      if (!saved || structureVersion.current > 0) return
+      if (!saved || cancelled || structureVersion.current > 0) return
+      updateValuationState({ type: 'portfolio-applied' })
       setRows(saved.rows ?? [])
       setAccounts(saved.accounts ?? {})
       setFileName(saved.fileName || '')
@@ -99,11 +112,17 @@ export default function Portfolio() {
 
     loadSavedPortfolioWithTimeout(uid, remoteTimeoutMs)
       .then((saved) => {
-        if (!saved) return
+        if (!saved || cancelled) return
         const remoteUpdatedAt = saved.updatedAt ? new Date(saved.updatedAt).getTime() : 0
         if (!local || remoteUpdatedAt >= localUpdatedAt) applySaved(saved)
       })
       .catch(() => {})
+      .finally(() => {
+        if (cancelled) return
+        updateValuationState({ type: 'hydration-finished' })
+        setHydrationRevision((revision) => revision + 1)
+      })
+    return () => { cancelled = true }
   }, [uid])
 
   useEffect(() => {
@@ -123,19 +142,21 @@ export default function Portfolio() {
 
   // Record daily snapshot + intraday point for the performance chart
   useEffect(() => {
-    if (!uid || !stats) return
+    if (!uid || !stats || !valuationReady) return
     saveDailySnapshot(uid, stats).catch(() => {})
     recordIntradayPoint(stats)
-  }, [uid, stats])
+  }, [uid, stats, valuationReady])
 
   const refreshRowsWithLivePrices = useCallback(async (sourceRows, options = {}) => {
     const version = structureVersion.current
     const current = () => version === structureVersion.current
     if (mutationBusy.current) return sourceRows
+    updateValuationState({ type: 'quote-refresh-started' })
     if (!sourceRows.length) {
       applyPortfolioRows(sourceRows, options)
       setLiveStatus('idle')
       setLiveMessage('')
+      updateValuationState({ type: 'quote-refresh-finished', complete: true })
       return sourceRows
     }
     // Phase 1 — instant paint from the Redis quote cache (no blocking live
@@ -157,6 +178,10 @@ export default function Portfolio() {
       const nextRows = result.rows
       if (!current()) return sourceRows
       applyPortfolioRows(nextRows, options)
+      updateValuationState({
+        type: 'quote-refresh-finished',
+        complete: hasCompleteQuoteRefresh(sourceRows, result),
+      })
       if (result.updatedRows > 0) setLastUpdatedAt(new Date())
       // Only warn about something a person can act on: a holding with no price.
       // This used to escalate on `errors.length` too, so a recoverable provider
@@ -183,6 +208,7 @@ export default function Portfolio() {
     } catch (err) {
       if (!current()) return sourceRows
       applyPortfolioRows(sourceRows, options)
+      updateValuationState({ type: 'quote-refresh-finished', complete: false })
       setLiveStatus('error'); setLiveMessage(`Price refresh failed: ${err.message}`)
       return sourceRows
     }
@@ -190,6 +216,16 @@ export default function Portfolio() {
 
   const lastRefreshRef = useRef(0)
   useEffect(() => { if (liveStatus === 'success' || liveStatus === 'partial') lastRefreshRef.current = Date.now() }, [liveStatus])
+
+  // Local data is only a first paint. Wait for the remote lookup to resolve or
+  // time out, then refresh that final portfolio immediately. Cached quotes may
+  // paint while this runs, but only the complete live pass marks the value as
+  // safe for chart endpoints and history writes.
+  useEffect(() => {
+    if (!valuationState.portfolioSettled || !hasData || refreshedHydration.current === hydrationRevision) return
+    refreshedHydration.current = hydrationRevision
+    void refreshRowsWithLivePrices(rows, { previousAccounts: accounts })
+  }, [accounts, hasData, hydrationRevision, refreshRowsWithLivePrices, rows, valuationState.portfolioSettled])
 
   useEffect(() => {
     if (!rows.length) return undefined
@@ -354,6 +390,7 @@ export default function Portfolio() {
         : applyMerge({ accounts, accountNumber: preview.accountNumber, sourceId: pending.sourceId, rows: pending.rows, cash: pending.cashEntries.length ? pending.cashEntries.reduce((sum, entry) => sum + cashEntryAmount(entry), 0) : null, currency: pending.cashEntries[0]?.currency || '' })
       const nextRows = flattenAccountRows(nextAccounts)
       await savePortfolio(uid, { fileName: pending.name, rows: nextRows, accounts: nextAccounts, lastPriceRefreshAt: lastUpdatedAt })
+      updateValuationState({ type: 'portfolio-applied' })
       setAccounts(nextAccounts)
       setRows(nextRows)
       setFileName(pending.name)
@@ -480,7 +517,7 @@ export default function Portfolio() {
           {visibleView === 'overview' && stats && (
             <>
               <LiveBanner liveStatus={liveStatus} liveMessage={liveMessage} lastUpdatedAt={lastUpdatedAt} />
-              <PerformanceChart hero stats={stats} rows={rows} />
+              <PerformanceChart hero stats={stats} rows={rows} valuationReady={valuationReady} />
               <StatRail rows={rows} stats={stats} accounts={accountEntries} onCashOverride={handleCashOverride} />
               <CompositionPanel rows={rows} accounts={accountEntries} />
               <TaxOverviewPointer accounts={accountEntries} settings={taxWorkspace.settings} onOpen={() => setActiveView('tax')} />
