@@ -169,15 +169,12 @@ function RangeSelector({ range, onChange, className = '' }) {
   )
 }
 
-// The last point of the chart is the number the rest of the page is showing,
-// on every range. Previously the daily path appended it only when the series
-// had no point for today (so effectively never, since the reconstruction runs
-// to the current close) while the 1D path always appended it — so switching
-// between 1D and any other range moved the headline value by however much the
-// two disagreed. Anchoring both to the live total removes the discrepancy at
-// the source instead of hiding it.
-function withLiveEndpoint(points, liveValue, makePoint) {
-  if (!Number.isFinite(liveValue) || liveValue <= 0) return points
+// The last point can follow the current total only after portfolio hydration,
+// quote coverage, and the matching reconstruction have settled. Until then the
+// server's last valid bar stays intact; no distance threshold is used, so a
+// sharp real move is still shown as soon as the valuation is trustworthy.
+export function withLiveEndpoint(points, liveValue, makePoint, ready = true) {
+  if (!ready || !Number.isFinite(liveValue) || liveValue <= 0) return points
   const next = [...points]
   const last = next[next.length - 1]
   if (last && makePoint.isSameSlot(last)) next[next.length - 1] = { ...last, marketValue: liveValue }
@@ -185,10 +182,10 @@ function withLiveEndpoint(points, liveValue, makePoint) {
   return next
 }
 
-export default function PerformanceChart({ stats, rows = [], hero = false }) {
+export default function PerformanceChart({ stats, rows = [], hero = false, valuationReady = false }) {
   const { user } = useAuth()
   const [snapshots, setSnapshots] = useState([])
-  const [series, setSeries] = useState([])
+  const [seriesResult, setSeriesResult] = useState({ key: null, points: [] })
   // Today first — the question you open the page to answer.
   const [range, setRange] = useState('1D')
   const [loading, setLoading] = useState(true)
@@ -218,27 +215,38 @@ export default function PerformanceChart({ stats, rows = [], hero = false }) {
       }))
       .filter((p) => p.symbol && p.quantity > 0)
   ), [rows])
+  const cashValue = stats?.totalCashValue ?? 0
+  const portfolioSeriesKey = JSON.stringify({ positions, cashValue })
+  const series = useMemo(() => (
+    seriesResult.key === portfolioSeriesKey ? seriesResult.points : []
+  ), [portfolioSeriesKey, seriesResult])
 
   useEffect(() => {
     if (positions.length === 0) {
+      setSeriesResult({ key: portfolioSeriesKey, points: [] })
       setLoading(false)
       return
     }
     let cancelled = false
+    setLoading(true)
     fetch('/api/live-prices', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ positions, cashValue: stats?.totalCashValue ?? 0, days: 365 }),
+      body: JSON.stringify({ positions, cashValue, days: 365 }),
     })
       .then((res) => (res.ok ? res.json() : { series: [] }))
       .then((data) => {
-        if (!cancelled) setSeries(Array.isArray(data.series) ? data.series : [])
+        if (!cancelled) setSeriesResult({
+          key: portfolioSeriesKey,
+          points: Array.isArray(data.series) ? data.series : [],
+        })
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!cancelled) setSeriesResult({ key: portfolioSeriesKey, points: [] })
+      })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(positions)])
+  }, [cashValue, portfolioSeriesKey, positions])
 
   // Prefer the reconstructed series; fall back to recorded snapshots
   const fullData = useMemo(() => {
@@ -247,14 +255,17 @@ export default function PerformanceChart({ stats, rows = [], hero = false }) {
     return withLiveEndpoint([...base], stats?.totalMarketValue, {
       isSameSlot: (point) => point.date === today,
       create: (value) => ({ date: today, marketValue: value }),
-    })
-  }, [series, snapshots, stats])
+    }, valuationReady && seriesResult.key === portfolioSeriesKey)
+  }, [portfolioSeriesKey, series, seriesResult.key, snapshots, stats?.totalMarketValue, valuationReady])
 
   // 1D reconstructs today's line from each holding's 5-min bars server-side,
   // so it's complete from market open even if the browser was never opened.
   // Device-recorded localStorage points are a fallback (pre-open / weekends).
   const isIntraday = range === '1D'
-  const [intradaySeries, setIntradaySeries] = useState([])
+  const [intradayResult, setIntradayResult] = useState({ key: null, points: [] })
+  const intradaySeries = useMemo(() => (
+    intradayResult.key === portfolioSeriesKey ? intradayResult.points : []
+  ), [intradayResult, portfolioSeriesKey])
 
   useEffect(() => {
     if (!isIntraday || positions.length === 0) return
@@ -262,14 +273,20 @@ export default function PerformanceChart({ stats, rows = [], hero = false }) {
     fetch('/api/live-prices', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ positions, cashValue: stats?.totalCashValue ?? 0, intraday: true }),
+      body: JSON.stringify({ positions, cashValue, intraday: true }),
     })
       .then((res) => (res.ok ? res.json() : { series: [] }))
-      .then((data) => { if (!cancelled) setIntradaySeries(Array.isArray(data.series) ? data.series : []) })
-      .catch(() => {})
+      .then((data) => {
+        if (!cancelled) setIntradayResult({
+          key: portfolioSeriesKey,
+          points: Array.isArray(data.series) ? data.series : [],
+        })
+      })
+      .catch(() => {
+        if (!cancelled) setIntradayResult({ key: portfolioSeriesKey, points: [] })
+      })
     return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isIntraday, JSON.stringify(positions)])
+  }, [cashValue, isIntraday, portfolioSeriesKey, positions])
 
   const intradayPoints = useMemo(() => {
     if (!isIntraday) return []
@@ -279,8 +296,8 @@ export default function PerformanceChart({ stats, rows = [], hero = false }) {
       // point every poll, which drew a cluster of dots at the right edge.
       isSameSlot: (point) => Date.now() - point.ts < 5 * 60 * 1000,
       create: (value) => ({ ts: Date.now(), marketValue: value }),
-    })
-  }, [isIntraday, intradaySeries, stats])
+    }, valuationReady && intradayResult.key === portfolioSeriesKey)
+  }, [intradayResult.key, intradaySeries, isIntraday, portfolioSeriesKey, stats?.totalMarketValue, valuationReady])
 
   const selectedRange = RANGES.find((r) => r.key === range)
   const chartPoints = isIntraday ? intradayPoints : filterByRange(fullData, selectedRange?.days ?? Infinity)
