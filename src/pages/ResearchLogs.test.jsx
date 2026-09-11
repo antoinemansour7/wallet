@@ -38,9 +38,14 @@ const run = (extra = {}) => ({
     }],
   },
   candidates: [
-    { ticker: 'RKLB', securityId: 'figi:RKLB', name: 'Rocket Lab USA', outcome: 'published', sentToClaude: true, claudeStatus: 'accepted', rank: 2, finalScore: 84, catalystVerified: true },
+    { ticker: 'RKLB', securityId: 'figi:RKLB', name: 'Rocket Lab USA', outcome: 'published', sentToClaude: true, claudeStatus: 'accepted', rank: 2, finalScore: 84, catalystVerified: true,
+      sources: ['X / attention'], strategies: ['attention'], priority: 68, legacyPriority: 100,
+      priorityModel: { version: 'attention-review-priority-v2', usedForAdmission: true, score: 68, streamScores: { attention: 68 },
+        components: { evidenceQuality: 20, sourceIndependence: 16, repetitionPenalty: -8 } } },
     { ticker: 'LATE', securityId: 'figi:LATE', name: 'Late Holdings', outcome: 'not_reviewed', sentToClaude: false, admitted: false,
       sources: ['SEC'], strategies: ['fundamentals'], horizons: [5, 20], priority: 77, overallRank: 18,
+      legacyPriority: 77, priorityModel: { version: 'attention-review-priority-v2', usedForAdmission: true, score: 77, streamScores: { fundamentals: 77 } },
+      legacyOverallRank: 12, legacyStreamRanks: { fundamentals: 9 },
       streamRanks: { fundamentals: 11 }, budgetUsage: { fundamentals: { configured: 10, reservedUsed: 10, selected: 10, reallocatedIn: 0, reallocatedOut: 0 } },
       evidenceCount: 1, evidence: [{ id: 'ev-late', strategy: 'fundamentals', horizon: 20, source: 'SEC', type: '10-Q' }],
       reason: 'review_budget_exhausted' },
@@ -108,7 +113,7 @@ describe('private research logs page', () => {
     const card = candidateCard('LATE')
     expect(within(card).getByText('Late Holdings')).toBeVisible()
     expect(within(card).getByText('Eligible, not reviewed')).toBeVisible()
-    expect(within(card).getByText('77')).toBeVisible()
+    expect(within(card).getByText('Priority').nextElementSibling).toHaveTextContent('77')
     expect(within(card).getByText('Overall #18')).toBeVisible()
     expect(within(card).getByText('Fundamentals #11')).toBeVisible()
     expect(within(card).getByText('SEC')).toBeVisible()
@@ -121,6 +126,10 @@ describe('private research logs page', () => {
     expect(within(card).getByText('review_budget_exhausted')).toBeVisible()
     expect(within(card).getByText('figi:LATE', { selector: 'code' })).toBeVisible()
     expect(within(card).getByText(/10\/10 reserved/)).toBeVisible()
+    expect(within(card).getByText(/Used for admission · attention-review-priority-v2/)).toBeVisible()
+    expect(within(card).getByText('Legacy priority').nextElementSibling).toHaveTextContent('77')
+    expect(within(card).getByText('Overall #12')).toBeVisible()
+    expect(within(card).getByText('Fundamentals #9')).toBeVisible()
     fireEvent.click(within(card).getByText('1 evidence item'))
     expect(within(card).getByText(/10-Q/, { selector: 'li' })).toBeVisible()
     expect(within(card).getByText('ev-late')).toBeVisible()
@@ -137,6 +146,10 @@ describe('private research logs page', () => {
     expect(within(card).getByText('Verified')).toBeVisible()
     expect(within(card).getByText('#2')).toBeVisible()
     expect(within(card).getByText('Published', { selector: 'dt' }).nextElementSibling).toHaveTextContent('Yes')
+    fireEvent.click(within(card).getByText('Technical details'))
+    expect(within(card).getByText(/Used for admission · attention-review-priority-v2/)).toBeVisible()
+    expect(within(card).getByText(/Evidence quality \+20/)).toBeVisible()
+    expect(within(card).getByText('Legacy priority').nextElementSibling).toHaveTextContent('100')
   })
 
   it('keeps the exact funnel, stream usage and cutoff diagnostics with candidates', async () => {

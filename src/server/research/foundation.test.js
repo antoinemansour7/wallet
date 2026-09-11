@@ -223,6 +223,39 @@ describe('stream admission', () => {
     expect(fundamentals).toMatchObject({ configured: 10, reservedUsed: 10, selected: 10, waiting: 1, reallocatedIn: 0, reallocatedOut: 0 })
     expect(fundamentals.lowestAdmitted).toMatchObject({ ticker: 'F9', priority: 81, streamRanks: { fundamentals: 10 } })
     expect(fundamentals.belowCutoff[0]).toMatchObject({ ticker: 'F10', priority: 80, priorityGap: 1 })
+    expect(excluded).toMatchObject({ legacyPriority: 80, priorityModel: { usedForAdmission: true, score: 80, streamScores: { fundamentals: 80 } } })
+    expect(excluded).toMatchObject({ legacyOverallRank: expect.any(Number), legacyStreamRanks: { fundamentals: expect.any(Number) } })
+    expect(result.candidates.map((item) => item.ticker)).toContain('A0')
+  })
+  it('uses v2 to change attention admission while leaving the 12/10/5/3 allocation intact', () => {
+    const loud = candidate('LOUD', ['attention'], 100)
+    const rich = candidate('RICH', ['attention'], 50)
+    rich.evidence = Array.from({ length: 4 }, (_, index) => ({ ...rich.evidence[0], id: `RICH:${index}`,
+      source: { ...rich.evidence[0].source, documentId: `rich-doc-${index}`, url: `https://x.com/source${index}/status/${index}`,
+        excerpt: '$RICH earnings are scheduled for September 18, 2026 with $2.4B guidance.' },
+      measurements: { attention: { publisher: `source${index}` } },
+    }))
+    const board = [loud, rich,
+      ...Array.from({ length: 11 }, (_, index) => candidate(`A${index}`, ['attention'], 90 - index)),
+      ...Array.from({ length: 10 }, (_, index) => candidate(`F${index}`, ['fundamentals'], 70 - index)),
+      ...Array.from({ length: 5 }, (_, index) => candidate(`D${index}`, ['filing_changes'], 60 - index)),
+      ...Array.from({ length: 3 }, (_, index) => candidate(`I${index}`, ['insider'], 50 - index)),
+    ]
+
+    const result = admitCandidates(board, { asOf: reviewedAt })
+    const selected = new Set(result.candidates.map((item) => item.ticker))
+    const richAudit = result.audit.selected.find((item) => item.ticker === 'RICH')
+    const displacedAudit = result.audit.notReviewed.find((item) => item.ticker === 'A10')
+
+    expect(selected.has('LOUD')).toBe(true)
+    expect(selected.has('RICH')).toBe(true)
+    expect(selected.has('A10')).toBe(false)
+    expect(richAudit.legacyStreamRanks.attention).toBe(13)
+    expect(richAudit.streamRanks.attention).toBe(1)
+    expect(richAudit.priority).toBeGreaterThan(displacedAudit.priority)
+    expect(richAudit.legacyPriority).toBeLessThan(displacedAudit.legacyPriority)
+    expect(result.audit.reservedUsed).toEqual({ attention: 12, fundamentals: 10, filing_changes: 5, insider: 3 })
+    expect(result.audit.priorityModel).toEqual({ version: 'attention-review-priority-v2', usedForAdmission: true })
   })
 })
 
