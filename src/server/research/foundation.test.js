@@ -223,6 +223,34 @@ describe('stream admission', () => {
     expect(fundamentals).toMatchObject({ configured: 10, reservedUsed: 10, selected: 10, waiting: 1, reallocatedIn: 0, reallocatedOut: 0 })
     expect(fundamentals.lowestAdmitted).toMatchObject({ ticker: 'F9', priority: 81, streamRanks: { fundamentals: 10 } })
     expect(fundamentals.belowCutoff[0]).toMatchObject({ ticker: 'F10', priority: 80, priorityGap: 1 })
+    expect(excluded.priorityProposal).toMatchObject({ usedForAdmission: false, score: 80, streamScores: { fundamentals: 80 } })
+    expect(excluded).toMatchObject({ proposedOverallRank: expect.any(Number), proposedStreamRanks: { fundamentals: expect.any(Number) } })
+    expect(result.candidates.map((item) => item.ticker)).toContain('A0')
+  })
+  it('records a stronger shadow ordering without changing current admission', () => {
+    const loud = candidate('LOUD', ['attention'], 100)
+    const rich = candidate('RICH', ['attention'], 50)
+    rich.evidence = Array.from({ length: 4 }, (_, index) => ({ ...rich.evidence[0], id: `RICH:${index}`,
+      source: { ...rich.evidence[0].source, documentId: `rich-doc-${index}`, url: `https://x.com/source${index}/status/${index}`,
+        excerpt: '$RICH earnings are scheduled for September 18, 2026 with $2.4B guidance.' },
+      measurements: { attention: { publisher: `source${index}` } },
+    }))
+    const board = [loud, rich,
+      ...Array.from({ length: 11 }, (_, index) => candidate(`A${index}`, ['attention'], 90 - index)),
+      ...Array.from({ length: 10 }, (_, index) => candidate(`F${index}`, ['fundamentals'], 70 - index)),
+      ...Array.from({ length: 5 }, (_, index) => candidate(`D${index}`, ['filing_changes'], 60 - index)),
+      ...Array.from({ length: 3 }, (_, index) => candidate(`I${index}`, ['insider'], 50 - index)),
+    ]
+
+    const result = admitCandidates(board, { asOf: reviewedAt })
+    const selected = new Set(result.candidates.map((item) => item.ticker))
+    const loudAudit = result.audit.selected.find((item) => item.ticker === 'LOUD')
+    const richAudit = result.audit.notReviewed.find((item) => item.ticker === 'RICH')
+
+    expect(selected.has('LOUD')).toBe(true)
+    expect(selected.has('RICH')).toBe(false)
+    expect(richAudit.proposedStreamRanks.attention).toBeLessThan(loudAudit.proposedStreamRanks.attention)
+    expect(result.audit.priorityProposal).toEqual({ version: 'attention-review-priority-v2-shadow.1', usedForAdmission: false })
   })
 })
 

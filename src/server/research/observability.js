@@ -170,8 +170,11 @@ function traceMetadata(candidate = {}) {
     securityId: candidate.securityId ?? null,
     name: candidate.name ?? null,
     ...(candidate.priority !== undefined && { priority: candidate.priority }),
+    ...(candidate.priorityProposal && { priorityProposal: candidate.priorityProposal }),
     ...(candidate.overallRank !== undefined && { overallRank: candidate.overallRank }),
+    ...(candidate.proposedOverallRank !== undefined && { proposedOverallRank: candidate.proposedOverallRank }),
     ...(candidate.streamRanks && { streamRanks: candidate.streamRanks }),
+    ...(candidate.proposedStreamRanks && { proposedStreamRanks: candidate.proposedStreamRanks }),
     ...(candidate.admission && { admission: candidate.admission }),
     ...(candidate.budgetUsage && { budgetUsage: candidate.budgetUsage }),
     ...(candidate.evidenceCount !== undefined && { evidenceCount: candidate.evidenceCount }),
@@ -292,6 +295,7 @@ export function admissionRunSummary(admission, traces = []) {
   const audit = admission?.audit || {}
   if (!audit.funnel && !audit.streams) return null
   return {
+    ...(audit.priorityProposal && { priorityProposal: audit.priorityProposal }),
     funnel: {
       ...audit.funnel,
       sentToClaude: traces.filter((candidate) => candidate.sentToClaude).length,

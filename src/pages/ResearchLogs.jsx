@@ -124,6 +124,30 @@ function Budget({ candidate }) {
   </span>)}</>
 }
 
+const PRIORITY_COMPONENTS = {
+  evidenceQuality: 'Evidence quality',
+  sourceIndependence: 'Independent sources',
+  catalystSpecificity: 'Specific catalyst',
+  technicalConfirmation: 'Technical confirmation',
+  freshness: 'Freshness',
+  crossChannelConfirmation: 'Multiple evidence channels',
+  signalStrength: 'Original signal strength',
+  repetitionPenalty: 'Repetition penalty',
+  contextOnlyPenalty: 'Context-only penalty',
+  routineInsiderPenalty: 'Routine insider-event penalty',
+  hypePenalty: 'Unsourced hype penalty',
+  negativeEvidencePenalty: 'Negative-evidence penalty',
+}
+
+function PriorityProposal({ candidate }) {
+  const proposal = candidate.priorityProposal
+  if (!proposal) return '—'
+  const components = Object.entries(proposal.components || {}).filter(([, value]) => value !== 0)
+  return <>{number(proposal.score)} <span className="logs-subline">Shadow proposal · not used for admission · {proposal.version}</span>
+    {components.length > 0 && <span className="logs-subline">{components.map(([key, value]) => `${PRIORITY_COMPONENTS[key] || friendlyName(key)} ${value > 0 ? '+' : ''}${number(value)}`).join(' · ')}</span>}
+  </>
+}
+
 function Evidence({ candidate }) {
   if (!candidate.evidence?.length) return Number.isFinite(candidate.evidenceCount) ? `${candidate.evidenceCount} evidence items (details unavailable)` : '—'
   return <details><summary>{candidate.evidenceCount ?? candidate.evidence.length} evidence item{(candidate.evidenceCount ?? candidate.evidence.length) === 1 ? '' : 's'}</summary>
@@ -162,6 +186,8 @@ function Candidate({ candidate }) {
       <dl className="logs-candidate-facts">
         <div><dt>Security ID</dt><dd><code>{candidate.securityId || '—'}</code></dd></div>
         <div><dt>Reason</dt><dd>{candidate.reason || '—'}</dd></div>
+        <div><dt>Proposed review priority</dt><dd><PriorityProposal candidate={candidate} /></dd></div>
+        {candidate.proposedOverallRank && <div><dt>Proposed admission rank</dt><dd>Overall #{candidate.proposedOverallRank}<span className="logs-subline">{Object.entries(candidate.proposedStreamRanks || {}).map(([stream, rank]) => `${title(stream)} #${rank}`).join(' · ')}</span></dd></div>}
         <div><dt>Budget</dt><dd><Budget candidate={candidate} /></dd></div>
         <div><dt>Evidence IDs</dt><dd>{candidate.evidence?.map((item) => <code className="logs-subline" key={item.id}>{item.id}</code>) || '—'}</dd></div>
       </dl>

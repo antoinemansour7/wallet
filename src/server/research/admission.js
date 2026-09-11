@@ -1,4 +1,5 @@
 import { reviewBudgets, STRATEGIES } from './policy.js'
+import { reviewPriorityProposal, REVIEW_PRIORITY_PROPOSAL_VERSION } from './reviewPriority.js'
 
 const unique = (values) => [...new Set(values.filter(Boolean))]
 const rankOrder = (a, b) => b.priority - a.priority || a.securityId.localeCompare(b.securityId)
@@ -40,6 +41,7 @@ function candidateDetails(candidate, extra = {}) {
     name: candidate.name ?? null,
     streams: candidate.streams || [],
     priority: Number.isFinite(candidate.priority) ? candidate.priority : null,
+    ...(candidate.priorityProposal && { priorityProposal: candidate.priorityProposal }),
     duplicateAcrossStreams: (candidate.streams || []).length > 1,
     ...evidenceDetails(candidate),
     ...extra,
@@ -66,7 +68,10 @@ export function admitCandidates(candidates, { budgets = reviewBudgets(), asOf = 
     if (adverse) { rejected.push(candidateDetails(candidate, { reason: adverse.decision.reason, evidenceId: adverse.id })); continue }
     const streams = Object.keys(STRATEGIES).filter((family) => candidate.evidence.some((e) => e.strategyFamily === family && e.decision.status === 'eligible' && known(e)))
     if (!streams.length) { rejected.push(candidateDetails(candidate, { reason: 'evidence_not_actionable_yet' })); continue }
-    eligible.push({ ...candidate, streams, priority: Math.max(...candidate.evidence.filter((e) => streams.includes(e.strategyFamily) && known(e)).map((e) => e.priority)) })
+    const eligibleEvidence = candidate.evidence.filter((e) => streams.includes(e.strategyFamily) && known(e))
+    const priority = Math.max(...eligibleEvidence.map((e) => e.priority))
+    eligible.push({ ...candidate, streams, priority,
+      priorityProposal: reviewPriorityProposal(candidate, { asOf: decisionTime, evidence: eligibleEvidence }) })
   }
   eligible.sort(rankOrder)
   const selected = new Map(), used = Object.fromEntries(Object.keys(budgets).map((key) => [key, 0]))
@@ -103,13 +108,22 @@ export function admitCandidates(candidates, { budgets = reviewBudgets(), asOf = 
   const admitted = [...selected.values()]
   const waiting = eligible.filter((candidate) => !selected.has(candidate.securityId))
   const overallRanks = new Map(eligible.map((candidate, index) => [candidate.securityId, index + 1]))
+  const proposedRankOrder = (a, b) => b.priorityProposal.score - a.priorityProposal.score || a.securityId.localeCompare(b.securityId)
+  const proposedOverallRanks = new Map([...eligible].sort(proposedRankOrder).map((candidate, index) => [candidate.securityId, index + 1]))
   const streamRanks = Object.fromEntries(Object.keys(budgets).map((stream) => [stream,
     new Map(eligible.filter((candidate) => candidate.streams.includes(stream)).sort(rankOrder)
+      .map((candidate, index) => [candidate.securityId, index + 1])),
+  ]))
+  const proposedStreamRanks = Object.fromEntries(Object.keys(budgets).map((stream) => [stream,
+    new Map(eligible.filter((candidate) => candidate.streams.includes(stream)).sort((a, b) =>
+      b.priorityProposal.streamScores[stream] - a.priorityProposal.streamScores[stream] || a.securityId.localeCompare(b.securityId))
       .map((candidate, index) => [candidate.securityId, index + 1])),
   ]))
   const rankedDetails = (candidate, extra = {}) => candidateDetails(candidate, {
     overallRank: overallRanks.get(candidate.securityId),
     streamRanks: Object.fromEntries(candidate.streams.map((stream) => [stream, streamRanks[stream].get(candidate.securityId)])),
+    proposedOverallRank: proposedOverallRanks.get(candidate.securityId),
+    proposedStreamRanks: Object.fromEntries(candidate.streams.map((stream) => [stream, proposedStreamRanks[stream].get(candidate.securityId)])),
     ...extra,
   })
   const streams = Object.entries(budgets).map(([stream, configured]) => {
@@ -150,6 +164,7 @@ export function admitCandidates(candidates, { budgets = reviewBudgets(), asOf = 
     ...extra,
   })
   return { candidates: admitted, audit: {
+    priorityProposal: { version: REVIEW_PRIORITY_PROPOSAL_VERSION, usedForAdmission: false },
     budgets,
     reservedUsed: used,
     reallocations,

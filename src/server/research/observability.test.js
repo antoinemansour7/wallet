@@ -174,6 +174,15 @@ describe('candidateTraces', () => {
     ]))
   })
 
+  it('keeps the versioned shadow priority explanation in the candidate trace', () => {
+    const priorityProposal = { version: 'attention-review-priority-v2-shadow.1', usedForAdmission: false, score: 72,
+      streamScores: { attention: 72 }, components: { evidenceQuality: 20, sourceIndependence: 16 } }
+    const [trace] = candidateTraces({ admission: { audit: { selected: [{ securityId: 'figi:ABC', ticker: 'ABC', streams: ['attention'],
+      priority: 100, priorityProposal, proposedOverallRank: 4, proposedStreamRanks: { attention: 3 } }] } } })
+
+    expect(trace).toMatchObject({ ticker: 'ABC', priority: 100, priorityProposal, proposedOverallRank: 4, proposedStreamRanks: { attention: 3 } })
+  })
+
   it('ranks a published pick and carries what the agents decided about it', () => {
     const rocket = { ticker: 'RKLB', securityId: 'figi:RKLB', finalScore: 84, catalystVerified: true,
       catalystDetail: 'Earnings after market close', catalystDate: '2026-09-12', catalystTimeline: 'in 3 days',

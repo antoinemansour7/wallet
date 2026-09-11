@@ -41,6 +41,8 @@ const run = (extra = {}) => ({
     { ticker: 'RKLB', securityId: 'figi:RKLB', name: 'Rocket Lab USA', outcome: 'published', sentToClaude: true, claudeStatus: 'accepted', rank: 2, finalScore: 84, catalystVerified: true },
     { ticker: 'LATE', securityId: 'figi:LATE', name: 'Late Holdings', outcome: 'not_reviewed', sentToClaude: false, admitted: false,
       sources: ['SEC'], strategies: ['fundamentals'], horizons: [5, 20], priority: 77, overallRank: 18,
+      priorityProposal: { version: 'attention-review-priority-v2-shadow.1', usedForAdmission: false, score: 68, streamScores: { fundamentals: 68 },
+        components: { evidenceQuality: 20, sourceIndependence: 16, repetitionPenalty: -8 } }, proposedOverallRank: 12, proposedStreamRanks: { fundamentals: 9 },
       streamRanks: { fundamentals: 11 }, budgetUsage: { fundamentals: { configured: 10, reservedUsed: 10, selected: 10, reallocatedIn: 0, reallocatedOut: 0 } },
       evidenceCount: 1, evidence: [{ id: 'ev-late', strategy: 'fundamentals', horizon: 20, source: 'SEC', type: '10-Q' }],
       reason: 'review_budget_exhausted' },
@@ -121,6 +123,10 @@ describe('private research logs page', () => {
     expect(within(card).getByText('review_budget_exhausted')).toBeVisible()
     expect(within(card).getByText('figi:LATE', { selector: 'code' })).toBeVisible()
     expect(within(card).getByText(/10\/10 reserved/)).toBeVisible()
+    expect(within(card).getByText(/Shadow proposal · not used for admission/)).toBeVisible()
+    expect(within(card).getByText(/Evidence quality \+20/)).toBeVisible()
+    expect(within(card).getByText('Overall #12')).toBeVisible()
+    expect(within(card).getByText('Fundamentals #9')).toBeVisible()
     fireEvent.click(within(card).getByText('1 evidence item'))
     expect(within(card).getByText(/10-Q/, { selector: 'li' })).toBeVisible()
     expect(within(card).getByText('ev-late')).toBeVisible()
