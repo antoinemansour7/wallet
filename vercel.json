@@ -61,6 +61,10 @@
   },
   "rewrites": [
     {
+      "source": "/api/get-research-history",
+      "destination": "/api/get-research?history=1"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }

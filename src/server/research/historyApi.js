@@ -1,6 +1,6 @@
-import { HISTORY_LIMIT } from '../src/server/research/policy.js'
 import { Redis } from '@upstash/redis'
-import { withRunLog } from '../src/server/runLog.js'
+import { withRunLog } from '../runLog.js'
+import { HISTORY_LIMIT } from './policy.js'
 
 const HISTORY_INDEX_KEY = 'research:history-index'
 

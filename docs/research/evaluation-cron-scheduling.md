@@ -8,6 +8,10 @@
   precision — a job scheduled for `0 11 * * *` may fire anywhere within the
   11:00–11:59 UTC window, not necessarily at :00.
 - Vercel Functions on Hobby have a **300-second maximum duration**.
+- Standalone Vercel Functions on Hobby are limited to **12 functions per
+  deployment**. This project remains at 12 by mounting research history on the
+  existing `/api/get-research` function; `/api/get-research-history` is kept as
+  a compatibility rewrite and does not create another function.
 - None of the above requires a Vercel Pro upgrade; this project stays on
   Hobby.
 
