@@ -1,4 +1,5 @@
 import { AccountTaxSection } from './tax/TaxView'
+import { ACCOUNT_TYPES, accountTypeLabel, taxAccountType } from './tax/taxModel'
 import { useEffect, useRef, useState } from 'react'
 import Modal from '../../components/Modal'
 import CompanyLogo from '../../components/CompanyLogo'
@@ -9,7 +10,7 @@ import { accountCurrency, accountTitle, currencyTotals } from './accountPresenta
 import AccountIcon from './AccountIcons'
 import './Accounts.css'
 
-export default function AccountDetailModal({ open, account, accounts = [], onClose, onRemoveSource, onRemoveAccount, busy, error, taxSettings, taxData, onOpenTax }) {
+export default function AccountDetailModal({ open, account, accounts = [], onClose, onRemoveSource, onRemoveAccount, busy, error, taxSettings = {}, onUpdateTaxSettings, taxSettingsDisabled, taxSettingsError, taxData, onOpenTax }) {
   const [confirmation, setConfirmation] = useState(null)
   const [showAll, setShowAll] = useState(false)
   const lastAccount = useRef(null)
@@ -21,6 +22,8 @@ export default function AccountDetailModal({ open, account, accounts = [], onClo
   if (!displayed) return null
 
   const positions = displayed.positions || []
+  const selectedType = taxAccountType(displayed, taxSettings) || 'UNKNOWN'
+  const title = taxSettings.accountTypes?.[displayed.accountNumber] ? accountTypeLabel(selectedType) : accountTitle(displayed)
   const feeds = accountSources(displayed)
   const sorted = [...positions].sort((a, b) => Number(b['MARKET VALUE'] || 0) - Number(a['MARKET VALUE'] || 0))
   const allAccounts = Object.fromEntries((accounts.length ? accounts : [displayed]).map((item) => [item.accountNumber, item]))
@@ -49,7 +52,9 @@ export default function AccountDetailModal({ open, account, accounts = [], onClo
         {keeps.length > 0 && <p className="ac-inline-note">Your other accounts at this brokerage will stay connected.{keeps.some((operation) => operation.action === 'keep-connection') ? ' This older import can be removed from WallAI, but its existing brokerage access will stay active.' : ''}</p>}
         <p className="ac-remove-footer-note" style={{ marginTop: 18 }}>This only changes your WallAI portfolio. It doesn’t close your brokerage account, sell investments, or move money. You can add the account again later.</p>
       </div> : <>
-        <div className="ac-detail-hero"><span className="ac-tile ac-tile-green"><AccountIcon name={positions.length ? 'bank' : 'wallet'} size={23} /></span><h2 id="account-detail-title" ref={headingRef} tabIndex={-1}>{accountTitle(displayed)}</h2><p>Account {displayed.accountNumber}</p><div className="ac-detail-balance">{balanceText(balances)}</div><dl className="ac-detail-stats"><div><dt>Investments</dt><dd>{balanceText(currencyTotals([{ ...displayed, cash: 0 }]))}</dd></div><div><dt>Cash balance</dt><dd>{fmtCurrency(displayed.cash || 0)} <small>{accountCurrency(displayed)}</small></dd></div></dl></div>
+        <div className="ac-detail-hero"><span className="ac-tile ac-tile-green"><AccountIcon name={positions.length ? 'bank' : 'wallet'} size={23} /></span><h2 id="account-detail-title" ref={headingRef} tabIndex={-1}>{title}</h2><p>Account {displayed.accountNumber}</p><div className="ac-detail-balance">{balanceText(balances)}</div><dl className="ac-detail-stats"><div><dt>Investments</dt><dd>{balanceText(currencyTotals([{ ...displayed, cash: 0 }]))}</dd></div><div><dt>Cash balance</dt><dd>{fmtCurrency(displayed.cash || 0)} <small>{accountCurrency(displayed)}</small></dd></div></dl></div>
+        <label className="ac-account-type"><span>Account type</span><select value={selectedType} disabled={busy || taxSettingsDisabled || !onUpdateTaxSettings} onChange={(event) => onUpdateTaxSettings({ accountTypes: { ...taxSettings.accountTypes, [displayed.accountNumber]: event.target.value } })}>{ACCOUNT_TYPES.map((type) => <option key={type} value={type}>{accountTypeLabel(type)}</option>)}</select></label>
+        {taxSettingsError && <div role="alert" className="ac-inline-error">{taxSettingsError}</div>}
         <div className="ac-section-label"><span>Connections & statements</span><span>{feeds.length}</span></div>
         {feeds.length ? <div className="ac-choice-list">{feeds.map((feed) => <div className="ac-feed" key={feed.id}><span className={`ac-tile ${feed.id.startsWith('plaid:') ? 'ac-tile-green' : ''}`}><AccountIcon name={feed.id.startsWith('plaid:') ? 'link' : 'file'} size={17} /></span><div><strong>{sourceLabel(feed.id)}</strong><small>{feed.id.startsWith('plaid:') ? 'Via Plaid' : 'Imported statement'} · {feed.positions} holding{feed.positions === 1 ? '' : 's'}</small></div><button type="button" className="ac-icon-button" aria-label={`Remove ${sourceLabel(feed.id)}`} disabled={busy} onClick={() => setConfirmation({ sourceId: feed.id })}><AccountIcon name="trash" size={16} /></button></div>)}</div> : <p className="ac-inline-note">This account contains a recorded cash balance, with no imported holdings.</p>}
         {positions.length > 0 && <><div className="ac-section-label"><span>Holdings</span><span>{positions.length}</span></div>{(showAll ? sorted : sorted.slice(0, 5)).map((position, index) => <div className="ac-holding" key={`${position.SYMBOL}-${index}`}><CompanyLogo symbol={position.SYMBOL} description={position.DESCRIPTION} size={30} /><div className="ac-holding-main"><strong>{position.SYMBOL}</strong><small>{position.DESCRIPTION}</small></div><span>{fmtCurrency(position['MARKET VALUE'])}</span></div>)}{sorted.length > 5 && <button type="button" className="ac-text-link" aria-expanded={showAll} onClick={() => setShowAll(!showAll)}>{showAll ? 'Show less' : `Show all ${sorted.length} holdings`}</button>}</>}
