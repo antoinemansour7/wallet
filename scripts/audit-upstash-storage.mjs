@@ -12,10 +12,9 @@ const headers = {
 function familyFor(key) {
   if (/^research:archive:v1:blob:[a-f0-9]{64}$/.test(key)) return 'research:archive:v1:blob:<sha>'
   if (/^research:archive:v1:blob:[a-f0-9]{64}:\d+$/.test(key)) return 'research:archive:v1:blob:<sha>:chunk'
-  return key
-    .replace(/[a-f0-9]{64}/g, '<hash>')
-    .replace(/\d{4}-\d{2}-\d{2}/g, '<date>')
-    .replace(/:[^:]+$/, ':<id>')
+  const parts = key.split(':')
+  // Only emit a short namespace, never user-controlled cache-key payloads.
+  return `${parts.slice(0, 2).join(':')}${parts.length > 2 ? ':<id>' : ''}`
 }
 
 async function memoryUsage(keys) {
