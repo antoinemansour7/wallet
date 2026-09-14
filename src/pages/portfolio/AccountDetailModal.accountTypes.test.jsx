@@ -8,6 +8,7 @@ import { loadTaxSettings, saveTaxSettings } from './tax/taxStorage'
 
 vi.mock('./tax/taxStorage', () => ({ loadTaxSettings: vi.fn(), saveTaxSettings: vi.fn() }))
 vi.mock('../../utils/transactionStore', () => ({ loadTransactions: vi.fn(async () => []), loadHistoryStarts: vi.fn(async () => ({})) }))
+vi.mock('../../utils/plaidClient', () => ({ callPlaid: vi.fn() }))
 vi.mock('../../utils/securityReference', async (original) => ({
   ...await original(),
   fetchSecurityReference: vi.fn(async () => ({ MSFT: { exchange: 'NMS', yieldPct: 2, isFund: false } })),
