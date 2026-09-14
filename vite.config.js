@@ -124,15 +124,15 @@ function livePricesPlugin() {
                 return res.end(JSON.stringify(await getPortfolioComparison({ positions: parsed.positions, cashValue: Number(parsed.cashValue) || 0, currency: parsed.currency, benchmark: parsed.benchmark })))
               }
               const mod = await import('./src/server/portfolioSeries.js')
-              const series = parsed.intraday
-                ? await mod.getIntradaySeries({ positions: parsed.positions, cashValue: Number(parsed.cashValue) || 0 })
+              const result = parsed.intraday
+                ? await mod.getIntradaySeries({ positions: parsed.positions, cashValue: Number(parsed.cashValue) || 0, includeSession: true })
                 : await mod.getPortfolioSeries({
                     positions: parsed.positions,
                     cashValue: Number(parsed.cashValue) || 0,
                     days: Math.min(Number(parsed.days) || 365, 365),
                   })
               res.setHeader('Content-Type', 'application/json')
-              return res.end(JSON.stringify({ series }))
+              return res.end(JSON.stringify(parsed.intraday ? result : { series: result }))
             }
 
             const result = await fetchYahooQuotes(parsed.symbols)

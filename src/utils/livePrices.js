@@ -83,6 +83,9 @@ export const CDR_KEY = '__isCdr'
  */
 export const PRICED_AT_KEY = '__pricedAt'
 
+// Provider trade time (milliseconds), distinct from the local refresh time.
+export const MARKET_TIME_KEY = '__marketTime'
+
 const asTime = (value) => {
   const ms = Date.parse(String(value ?? ''))
   return Number.isFinite(ms) ? ms : null
@@ -306,6 +309,8 @@ export function applyLivePrices(rows, quotes, usdCadRate = null) {
     return {
       ...row,
       [PRICED_AT_KEY]: new Date().toISOString(),
+      [MARKET_TIME_KEY]: Number.isFinite(quote.marketTime) && quote.marketTime > 0
+        ? quote.marketTime * 1000 : null,
       // Never backfilled from the quote. ACCOUNT CURRENCY is what the holding
       // is *denominated* in; quote.currency is what the security *trades* in.
       // Writing the second into the first made a US stock in a Canadian account
