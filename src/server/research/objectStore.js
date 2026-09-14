@@ -15,7 +15,9 @@ export function createObjectStore({
   if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket)) throw new Error('Invalid R2 bucket name')
   const signer = new AwsClient({ accessKeyId, secretAccessKey, service: 's3', region: 'auto' })
   async function request(key, options = {}) {
-    if (!/^research\/documents\/v1\/[a-f0-9]{64}\.gz$/.test(key)) throw new Error('Invalid archive object key')
+    const document = /^research\/documents\/v1\/[a-f0-9]{64}\.gz$/.test(key)
+    const record = /^research\/records\/v1\/(facts|evidence)\/[a-f0-9]{64}\.json\.gz$/.test(key)
+    if (!document && !record) throw new Error('Invalid archive object key')
     const signed = await signer.sign(`${base.origin}/${bucket}/${key}`, { ...options, signal: AbortSignal.timeout(20000), redirect: 'error' })
     return fetchImpl(signed)
   }

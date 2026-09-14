@@ -4,6 +4,8 @@ import { createObjectStore } from './objectStore.js'
 
 export const digest = (value) => createHash('sha256').update(typeof value === 'string' || Buffer.isBuffer(value) ? value : JSON.stringify(value)).digest('hex')
 const PREFIX = 'research:archive:v1'
+const RECORD_STORAGE = 'r2-json-gzip-v1'
+const EXTERNAL_RECORD_KINDS = new Set(['facts', 'evidence'])
 
 // Append-only application storage: content-addressed blobs and SET NX records,
 // with no TTL. Original bytes, revisions and indexes survive all test horizons.
@@ -12,10 +14,25 @@ const PREFIX = 'research:archive:v1'
 export function createArchive(redis, { objectStore } = {}) {
   if (!redis) throw new Error('Disclosure archive requires persistent storage')
   const blobs = () => (objectStore ||= createObjectStore())
+  const isRecordPointer = (value) => value?.storage === RECORD_STORAGE && typeof value.key === 'string' && typeof value.sha256 === 'string'
+  async function readStoredRecord(value) {
+    if (!isRecordPointer(value)) return value
+    const original = gunzipSync(await blobs().get(value.key))
+    if (digest(original) !== value.sha256) throw new Error('Archived record checksum mismatch')
+    return JSON.parse(original.toString('utf8'))
+  }
+  async function externalizeRecord(kind, record) {
+    const original = Buffer.from(JSON.stringify(record))
+    const sha256 = digest(original)
+    const key = `research/records/v1/${kind}/${sha256}.json.gz`
+    await blobs().putIfAbsent(key, gzipSync(original))
+    return { storage: RECORD_STORAGE, key, sha256, byteLength: original.length }
+  }
   async function put(kind, id, record, index = kind, availableAt = Date.now()) {
     const key = `${PREFIX}:${kind}:${id}`
-    const result = await redis.set(key, record, { nx: true })
-    const stored = result ? record : await redis.get(key)
+    const redisValue = EXTERNAL_RECORD_KINDS.has(kind) ? await externalizeRecord(kind, record) : record
+    const result = await redis.set(key, redisValue, { nx: true })
+    const stored = result ? record : await readStoredRecord(await redis.get(key))
     if (!stored) throw new Error('Archive write did not persist')
     await redis.zadd(`${PREFIX}:index:${index}`, { score: new Date(stored.availableAt ?? availableAt).getTime(), member: key })
     return stored
@@ -26,7 +43,10 @@ export function createArchive(redis, { objectStore } = {}) {
     for (let cursor = offset; cursor - offset < count;) {
       const size = Math.min(500, count - (cursor - offset))
       const keys = await redis.zrange(`${PREFIX}:index:${index}`, minimum, new Date(asOf).getTime(), { byScore: true, offset: cursor, count: size })
-      for (let i = 0; i < keys.length; i += 50) values.push(...await Promise.all(keys.slice(i, i + 50).map((key) => redis.get(key))))
+      for (let i = 0; i < keys.length; i += 50) {
+        const stored = await Promise.all(keys.slice(i, i + 50).map((key) => redis.get(key)))
+        values.push(...await Promise.all(stored.map(readStoredRecord)))
+      }
       if (keys.length < size) break
       cursor += keys.length
     }
@@ -87,9 +107,24 @@ export function createArchive(redis, { objectStore } = {}) {
     }
     return { id, sha256: document.sha256, migrated: previous.storage !== 'r2', deletedChunks: deleteRedisChunks ? chunks : 0 }
   }
+  async function migrateRecord(kind, id) {
+    if (!EXTERNAL_RECORD_KINDS.has(kind)) throw new Error('Only facts and evidence records can be migrated')
+    const redisKey = `${PREFIX}:${kind}:${id}`
+    const previous = await redis.get(redisKey)
+    if (!previous) throw new Error('Missing archived record')
+    if (isRecordPointer(previous)) return { kind, id, migrated: false, byteLength: previous.byteLength }
+    const pointer = await externalizeRecord(kind, previous)
+    // A complete R2 readback and digest check must succeed before Redis is
+    // replaced. Retrying after any failure is safe because objects are immutable.
+    const verified = await readStoredRecord(pointer)
+    if (digest(Buffer.from(JSON.stringify(verified))) !== pointer.sha256) throw new Error('Migrated record checksum mismatch')
+    await redis.set(redisKey, pointer)
+    return { kind, id, migrated: true, byteLength: pointer.byteLength }
+  }
   async function latest(index, asOf = Date.now()) {
     const keys = await redis.zrange(`${PREFIX}:index:${index}`, new Date(asOf).getTime(), '-inf', { byScore: true, rev: true, offset: 0, count: 1 })
-    return keys.length ? redis.get(keys[0]) : null
+    return keys.length ? readStoredRecord(await redis.get(keys[0])) : null
   }
-  return { put, list, latest, putDocument, readDocument, migrateDocumentBlob, get: (kind, id) => redis.get(`${PREFIX}:${kind}:${id}`) }
+  return { put, list, latest, putDocument, readDocument, migrateDocumentBlob, migrateRecord,
+    get: async (kind, id) => readStoredRecord(await redis.get(`${PREFIX}:${kind}:${id}`)) }
 }

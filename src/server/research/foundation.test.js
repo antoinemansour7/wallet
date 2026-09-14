@@ -463,6 +463,23 @@ describe('private object archive and migration', () => {
     expect(await archive.get('document', id)).toEqual(document)
     expect((await archive.readDocument(id)).bytes.equals(bytes)).toBe(true)
   })
+  it('stores large fact and evidence records in R2 and safely migrates legacy Redis records', async () => {
+    const redis = memoryRedis(), objectStore = memoryObjectStore(), archive = createArchive(redis, { objectStore })
+    const fact = { issuerId: 'cik:0000000001', availableAt: seenAt, facts: [{ concept: 'Revenue', detail: 'x'.repeat(10000) }] }
+    expect(await archive.put('facts', 'new-fact', fact, 'facts:cik:0000000001', seenAt)).toEqual(fact)
+    expect(redis.values.get('research:archive:v1:facts:new-fact')).toMatchObject({ storage: 'r2-json-gzip-v1', byteLength: expect.any(Number) })
+    expect(await archive.get('facts', 'new-fact')).toEqual(fact)
+    expect(await archive.list('facts:cik:0000000001')).toEqual([fact])
+
+    const evidence = { id: 'legacy-evidence', availableAt: seenAt, observedFacts: [{ detail: 'y'.repeat(10000) }] }
+    await redis.set('research:archive:v1:evidence:legacy-evidence', evidence)
+    await redis.zadd('research:archive:v1:index:evidence', { score: Date.parse(seenAt), member: 'research:archive:v1:evidence:legacy-evidence' })
+    expect(await archive.migrateRecord('evidence', 'legacy-evidence')).toMatchObject({ migrated: true, byteLength: expect.any(Number) })
+    expect(redis.values.get('research:archive:v1:evidence:legacy-evidence')).toMatchObject({ storage: 'r2-json-gzip-v1' })
+    expect(await archive.get('evidence', 'legacy-evidence')).toEqual(evidence)
+    expect(await archive.latest('evidence')).toEqual(evidence)
+    expect(await archive.migrateRecord('evidence', 'legacy-evidence')).toMatchObject({ migrated: false })
+  })
   it('signs private R2 requests, uses conditional writes, and reports missing objects', async () => {
     const fetchImpl = vi.fn().mockResolvedValueOnce(new Response(null, { status: 412 })).mockResolvedValueOnce(new Response(Buffer.from('compressed bytes'))).mockResolvedValueOnce(new Response(null, { status: 404 }))
     const objectStore = createObjectStore({ endpoint: 'https://account.r2.cloudflarestorage.com', bucket: 'research-fixture', accessKeyId: 'fixture-id', secretAccessKey: 'fixture-secret', fetchImpl })
