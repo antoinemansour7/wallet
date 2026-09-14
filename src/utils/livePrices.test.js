@@ -314,3 +314,12 @@ it('does not use an explicitly stale FX quote for conversion', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ quotes: [{ symbol: 'USDCAD=X', price: 1.4, cacheStatus: 'stale' }] }) }))
   expect((await fetchLivePrices(['MSFT'])).usdCadRate).toBeNull()
 })
+
+it('preserves provider market time separately from refresh time and clears missing timestamps', () => {
+  const quote = { symbol: 'AAPL', price: 110, marketTime: 1789156740 }
+  const first = applyLivePrices([ROWS[0]], [quote]).rows[0]
+  expect(first.__marketTime).toBe(1789156740000)
+  expect(Date.parse(first[PRICED_AT_KEY])).not.toBe(first.__marketTime)
+  const refreshed = applyLivePrices([first], [{ symbol: 'AAPL', price: 111 }]).rows[0]
+  expect(refreshed.__marketTime).toBeNull()
+})

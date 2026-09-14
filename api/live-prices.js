@@ -67,11 +67,12 @@ async function realHandler(req, res) {
         return res.status(200).json(await getPortfolioComparison({ positions: body.positions, cashValue: Number(body.cashValue) || 0, currency: body.currency, benchmark: body.benchmark }))
       }
       if (body.intraday) {
-        const series = await getIntradaySeries({
+        const result = await getIntradaySeries({
           positions: body.positions,
           cashValue: Number(body.cashValue) || 0,
+          includeSession: true,
         })
-        return res.status(200).json({ series })
+        return res.status(200).json(result)
       }
       const series = await getPortfolioSeries({
         positions: body.positions,

@@ -74,7 +74,7 @@ export async function fetchDailyCloses(symbol, days = 365) {
 
 async function fetchIntradayCloses(symbol) {
   // 5-minute bars for the current session — enough resolution for a 1D line
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=5m&range=1d`
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=5m&range=1d&includePrePost=false`
 
   const res = await fetch(url, {
     headers: { 'User-Agent': 'Mozilla/5.0' },
@@ -93,7 +93,18 @@ async function fetchIntradayCloses(symbol) {
     if (Number.isFinite(closes[i])) closesByTs[timestamps[i]] = closes[i]
   }
 
-  return { currency: result.meta?.currency || '', closesByTs }
+  const regular = result.meta?.currentTradingPeriod?.regular
+  // Metadata may already describe the next session on weekends/pre-open.
+  // Only attach bounds when they actually contain the returned bars.
+  const session = Number.isFinite(regular?.start) && Number.isFinite(regular?.end)
+    && Object.keys(closesByTs).some((ts) => Number(ts) >= regular.start && Number(ts) <= regular.end)
+    ? { start: regular.start * 1000, end: regular.end * 1000 } : null
+  if (session) {
+    for (const ts of Object.keys(closesByTs)) {
+      if (Number(ts) * 1000 < session.start || Number(ts) * 1000 > session.end) delete closesByTs[ts]
+    }
+  }
+  return { currency: result.meta?.currency || '', closesByTs, session }
 }
 
 /**
@@ -227,7 +238,7 @@ export async function getPortfolioSeries({ positions = [], cashValue = 0, days =
     .reduce((sum, p) => sum + (Number(p.marketValue) || 0), 0)
   const baseValue = cashValue + untrackedValue
 
-  const cacheKey = `portfolio-series:${days}:${valid.map((p) => `${p.symbol}x${p.quantity}`).sort().join(',')}:${Math.round(baseValue)}`
+  const cacheKey = `portfolio-series:v2:${days}:${JSON.stringify(valid)}:${baseValue}`
   const redis = getRedis()
   if (redis) {
     try {
@@ -287,11 +298,11 @@ export async function getPortfolioSeries({ positions = [], cashValue = 0, days =
  * bars — so the 1D chart is complete from market open without the browser
  * needing to have been open. Short cache TTL since it moves during the day.
  */
-export async function getIntradaySeries({ positions = [], cashValue = 0 } = {}) {
+export async function getIntradaySeries({ positions = [], cashValue = 0, includeSession = false } = {}) {
   const eligible = positions
     .filter((p) => p.symbol && Number.isFinite(Number(p.quantity)) && Number(p.quantity) > 0)
   const valid = eligible.slice(0, MAX_POSITIONS)
-  if (valid.length === 0) return []
+  if (valid.length === 0) return includeSession ? { series: [], session: null } : []
 
   // Anything past the cap used to vanish from the total outright. Carry the
   // overflow at its known market value so a 31st holding changes the shape of
@@ -301,12 +312,12 @@ export async function getIntradaySeries({ positions = [], cashValue = 0 } = {}) 
     .reduce((sum, p) => sum + (Number(p.marketValue) || 0), 0)
   const baseValue = cashValue + untrackedValue
 
-  const cacheKey = `portfolio-intraday:${valid.map((p) => `${p.symbol}x${p.quantity}`).sort().join(',')}:${Math.round(baseValue)}`
+  const cacheKey = `portfolio-intraday:v2:${JSON.stringify(valid)}:${baseValue}`
   const redis = getRedis()
   if (redis) {
     try {
       const cached = await redis.get(cacheKey)
-      if (Array.isArray(cached) && cached.length > 0) return cached
+      if (Array.isArray(cached?.series) && cached.series.length > 0) return includeSession ? cached : cached.series
     } catch { /* cache miss */ }
   }
 
@@ -328,6 +339,7 @@ export async function getIntradaySeries({ positions = [], cashValue = 0 } = {}) 
         currency: candles?.currency || '',
         accountCurrency: pos.accountCurrency || '',
         closesByTs: candles?.closesByTs || {},
+        session: candles?.session || null,
         staticValue: Number(pos.marketValue) || 0,
       })
     }
@@ -349,9 +361,15 @@ export async function getIntradaySeries({ positions = [], cashValue = 0 } = {}) 
 
   const series = buildIntradaySeries(results, fxByTs, baseValue)
 
+  const sessions = results.filter((r) => hasCloses(r)).map((r) => r.session)
+  const session = sessions.length && sessions.every(Boolean)
+    ? { start: Math.max(...sessions.map((s) => s.start)), end: Math.min(...sessions.map((s) => s.end)) }
+    : null
+  const result = { series, session }
+
   if (redis && series.length > 0) {
-    try { await redis.set(cacheKey, series, { ex: 180 }) } catch { /* non-critical */ }
+    try { await redis.set(cacheKey, result, { ex: 180 }) } catch { /* non-critical */ }
   }
 
-  return series
+  return includeSession ? result : series
 }
