@@ -5,12 +5,14 @@ import { saleCounterfactuals, summarizeCounterfactuals } from '../../../utils/sa
 import { roomStatus, checkContribution } from '../../../utils/contributionRoom'
 import { toMinorUnits } from '../../../utils/money'
 
-export const ACCOUNT_TYPES = ['TFSA', 'RRSP', 'RRSP_SPOUSAL', 'RRIF', 'LIRA', 'LIF', 'LRIF', 'FHSA', 'RESP', 'RDSP', 'NON_REGISTERED']
-export const accountTypeLabel = (type) => type === 'NON_REGISTERED' ? 'Non-registered' : type || 'Not set'
+export const ACCOUNT_TYPES = ['TFSA', 'FHSA', 'RRSP', 'RRSP_SPOUSAL', 'RRIF', 'LIRA', 'LIF', 'LRIF', 'RESP', 'RDSP', 'NON_REGISTERED', 'UNKNOWN']
+export const accountTypeLabel = (type) => ({ NON_REGISTERED: 'Non-registered', RRSP_SPOUSAL: 'Spousal RRSP', UNKNOWN: 'Unknown' })[type] || type || 'Not set'
 export const taxAccountType = (account, settings = {}) => {
   const imported = String(accountTypeOf(account) || '').trim().toUpperCase().replace(/[ -]/g, '_')
-  const fallback = settings.accountTypes?.[account.accountNumber]
-  return ACCOUNT_TYPES.includes(imported) ? imported : ACCOUNT_TYPES.includes(fallback) ? fallback : null
+  const manual = settings.accountTypes?.[account.accountNumber]
+  const type = ACCOUNT_TYPES.includes(manual) ? manual : ACCOUNT_TYPES.includes(imported) ? imported : null
+  // Unknown is an explicit override of an imported guess, but supplies no tax classification.
+  return type === 'UNKNOWN' ? null : type
 }
 export const localTaxDate = () => { const date = new Date(); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}` }
 export const money = (minor, currency = 'CAD') => minor == null ? '—' : new Intl.NumberFormat('en-CA', { style: 'currency', currency, currencyDisplay: 'narrowSymbol' }).format(minor / 100)
@@ -41,9 +43,10 @@ export function taxOverview(accounts, settings = {}, currency = 'CAD', data = {}
 export function contributionInputs(type, record, accounts, transactions, settings = {}) {
   // Room belongs to the registration, across accounts. Adapt the IDs once so
   // the shared engine can count those ledger deposits as one registration.
-  const accountIds = new Set(accounts.filter((a) => taxAccountType(a, settings) === type).flatMap((a) => [a.accountNumber, ...(a.positions || []).map((r) => r.__plaidAccountId).filter(Boolean)]))
+  const accountTypes = new Map(accounts.flatMap((account) => [account.accountNumber, ...(account.positions || []).map((row) => row.__plaidAccountId).filter(Boolean)]
+    .map((id) => [id, taxAccountType(account, settings)])))
   const accountId = `registration:${type}`
-  const relevant = transactions.filter((t) => t.tradeDate <= localTaxDate() && (accountIds.has(t.accountId) || t.accountType === type))
+  const relevant = transactions.filter((t) => t.tradeDate <= localTaxDate() && (accountTypes.has(t.accountId) ? accountTypes.get(t.accountId) === type : t.accountType === type))
   let missingFx = false
   const unreviewedTransfers = relevant.filter((t) => t.source === 'plaid' && t.action === 'TRANSFER' && t.tradeDate >= (record?.asOf || '') && t.cashDirection !== 'out' && !['deposit', 'contribution'].includes(t.providerSubtype))
   const converted = relevant.map((t) => {

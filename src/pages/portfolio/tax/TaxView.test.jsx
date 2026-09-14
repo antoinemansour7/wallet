@@ -31,6 +31,7 @@ describe('Tax navigation and hierarchy', () => {
     expect(screen.queryByRole('tab')).not.toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: /account type/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(within(screen.getByRole('region', { name: 'Tax tools' })).getAllByRole('button')).toHaveLength(3)
   })

@@ -10,10 +10,30 @@ export const trades = [
 ]
 afterEach(() => vi.useRealTimers())
 describe('shared tax adapters', () => {
-  it('uses imported registration over manual settings, including Plaid’s Non-Registered spelling', () => {
-    expect(taxAccountType(account('A', 'TFSA', [holding()]), { accountTypes: { A: 'RRSP' } })).toBe('TFSA')
+  it('uses manual registration over imported settings, including Plaid’s Non-Registered spelling', () => {
+    expect(taxAccountType(account('A', 'TFSA', [holding()]), { accountTypes: { A: 'RRSP' } })).toBe('RRSP')
     expect(taxAccountType(account('A', 'Non-Registered', [holding()]))).toBe('NON_REGISTERED')
     expect(taxAccountType(account('A', '', [holding()]), { accountTypes: { A: 'RRSP' } })).toBe('RRSP')
+    expect(taxAccountType(account('A', 'TFSA', [holding()]))).toBe('TFSA')
+    expect(taxAccountType(account('A', 'TFSA', [holding()]), { accountTypes: { A: 'invalid' } })).toBe('TFSA')
+    expect(taxAccountType(account('A', 'unrecognized', [holding()]))).toBeNull()
+  })
+  it('treats an explicit Unknown override exactly like an unset type for withholding', () => {
+    const accounts = [account('A', 'TFSA', [holding()])]
+    expect(taxAccountType(accounts[0], { accountTypes: { A: 'UNKNOWN' } })).toBeNull()
+    expect(taxOverview(accounts, { accountTypes: { A: 'UNKNOWN' } }, 'USD', { reference }))
+      .toEqual(taxOverview([account('A', '', [holding()])], {}, 'USD', { reference }))
+  })
+  it('reclassifies contributions by account even when the ledger retains an imported type', () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-06T12:00:00Z'))
+    const accounts = [account('A', 'TFSA', [{ ...holding(), __plaidAccountId: 'plaid-id' }])]
+    const transactions = ['A', 'plaid-id'].map((accountId) => ({ accountId, accountType: 'TFSA', action: 'CONTRIBUTION', amountMinor: 100000, currency: 'CAD', tradeDate: '2026-03-01' }))
+    const record = { limitMinor: 1000000, asOf: '2026-01-01' }
+    const settings = { accountTypes: { A: 'RRSP' } }
+    expect(contributionView('TFSA', record, accounts, transactions, {}).result.depositedMinor).toBe(200000)
+    expect(contributionView('TFSA', record, accounts, transactions, settings).result.depositedMinor).toBe(0)
+    expect(contributionView('RRSP', record, accounts, transactions, settings).result.depositedMinor).toBe(200000)
+    expect(contributionView('TFSA', record, accounts, transactions, { accountTypes: { A: 'UNKNOWN' } }).result.depositedMinor).toBe(0)
   })
   it('uses resolved listing rather than CAD valuation to classify a US holding', () => {
     const accounts = [account('A', 'TFSA', [holding()]), account('B', 'RRSP', [holding()]), account('C', 'NON_REGISTERED', [holding()]), account('D', 'TFSA', [holding('MSFT', 'CAD', 20000)])]

@@ -539,6 +539,7 @@ export default function Portfolio() {
           {visibleView === 'tax' && <TaxView accounts={accountEntries} workspace={taxWorkspace} onAddAccount={openAdd} />}
           {visibleView === 'add' && (
             <AccountsView
+              taxSettings={taxWorkspace.settings}
               accounts={accountEntries}
               onAdd={openAdd}
               onFile={addFromFile}
@@ -581,6 +582,9 @@ export default function Portfolio() {
 
       <AccountDetailModal
         taxSettings={taxWorkspace.settings}
+        onUpdateTaxSettings={taxWorkspace.update}
+        taxSettingsDisabled={taxWorkspace.loading || taxWorkspace.saving || taxWorkspace.loadFailed}
+        taxSettingsError={taxWorkspace.error}
         taxData={taxWorkspace.data}
         onOpenTax={() => { setOpenAccount(null); setActiveView('tax') }}
         open={Boolean(openAccount)}

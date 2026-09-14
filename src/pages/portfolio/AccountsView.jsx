@@ -3,10 +3,11 @@ import CompanyLogo from '../../components/CompanyLogo'
 import { fmtCurrency } from '../../utils/portfolioStats'
 import { accountSources, sourceLabel } from '../../utils/accountMerge'
 import { accountTitle, brokerageConnections, currencyTotals } from './accountPresentation'
+import { accountTypeLabel, taxAccountType } from './tax/taxModel'
 import AccountIcon from './AccountIcons'
 import './Accounts.css'
 
-export default function AccountsView({ accounts = [], onAdd, onOpenAccount, onFile, notice, onDismissNotice }) {
+export default function AccountsView({ accounts = [], taxSettings = {}, onAdd, onOpenAccount, onFile, notice, onDismissNotice }) {
   const [filter, setFilter] = useState('all')
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef(null)
@@ -44,7 +45,7 @@ export default function AccountsView({ accounts = [], onAdd, onOpenAccount, onFi
                 const top = [...positions].sort((a, b) => Number(b['MARKET VALUE'] || 0) - Number(a['MARKET VALUE'] || 0)).slice(0, 4)
                 return <button className="account-card" key={account.accountNumber} onClick={() => onOpenAccount?.(account)} aria-label={`Manage account ${account.accountNumber}`}>
                   <div className="account-card-top"><span className={`ac-tile ${linked ? 'ac-tile-green' : ''}`}><AccountIcon name={linked ? 'bank' : positions.length ? 'file' : 'wallet'} /></span><span className={`ac-badge ${linked ? 'ac-badge-connected' : ''}`}>{linked ? <><span /> Via Plaid</> : positions.length ? 'Statement' : 'Cash'}</span><AccountIcon name="chevron" size={15} /></div>
-                  <h2>{accountTitle(account)}</h2><p className="account-identifier">Account {account.accountNumber}</p>
+                  <h2>{taxSettings.accountTypes?.[account.accountNumber] ? accountTypeLabel(taxAccountType(account, taxSettings) || 'UNKNOWN') : accountTitle(account)}</h2><p className="account-identifier">Account {account.accountNumber}</p>
                   <div className="account-card-balances">{currencyTotals([account]).map(({ currency, value }) => <p key={currency} className="account-card-value">{fmtCurrency(value)} <span>{currency}</span></p>)}</div>
                   <p className="account-card-sources">{feeds.map((feed) => sourceLabel(feed.id)).join(' · ') || 'Cash balance'}</p>
                   <div className="account-card-footer"><div className="account-logos">{top.map((position, index) => <CompanyLogo key={`${position.SYMBOL}-${index}`} symbol={position.SYMBOL} description={position.DESCRIPTION} size={23} />)}</div><span>{positions.length} holding{positions.length === 1 ? '' : 's'}</span><span className="account-cash-label">{fmtCurrency(account.cash || 0)} cash</span></div>
