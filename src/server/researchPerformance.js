@@ -1,7 +1,7 @@
 import { HORIZON_POLICY_VERSION, strategyPolicy, declaredHorizons, assertDeclaredHorizon } from './research/policy.js'
 // Versioned, forward-observed evaluation. These are hypothetical fills, not
 // executed trades; changing this policy must start a new comparison cohort.
-export const RESEARCH_MODEL_VERSION = 'evidence-v3-foundation'
+export const RESEARCH_MODEL_VERSION = 'evidence-v4-gpt-5.4-mini'
 export const LEGACY_EVALUATION_VERSION = 'next-open-5-session-v1'
 export const EVALUATION_VERSION = 'next-open-strategy-session-v2'
 export const ROUND_TRIP_COST_BPS = 20

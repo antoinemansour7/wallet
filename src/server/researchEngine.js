@@ -81,6 +81,7 @@ import { fetchMarketQuotes } from './marketQuotes.js'
 import { extractTickersFromText } from './xSignals.js'
 import { formatRegimeForPrompt } from './marketRegime.js'
 import { evidenceAdjustment, RESEARCH_MODEL_VERSION } from './researchPerformance.js'
+import { generateStructuredArray, usesOpenAIResearch } from './research/openaiModel.js'
 
 const CLAUDE_MODEL = 'claude-sonnet-5'
 
@@ -1134,8 +1135,9 @@ export function postProcessCandidates(parsed, signalBoard, technicals = new Map(
 }
 
 export async function extractTickers(signals, articles, options = {}) {
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
+  const useOpenAI = usesOpenAIResearch()
+  const apiKey = useOpenAI ? process.env.OPENAI_API_KEY : process.env.ANTHROPIC_API_KEY
+  if (!apiKey) throw new Error(`${useOpenAI ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY'} is not set`)
 
   const evaluationSignals = signals
   signals = prepareResearchSignals(signals)
@@ -1193,7 +1195,6 @@ export async function extractTickers(signals, articles, options = {}) {
   // loop on top candidates that never make the final cut)
   options.onBoard?.(candidateSignalBoard)
 
-  const client = new Anthropic({ apiKey })
   const liveTechnicals = new Map([...technicals].filter(([ticker]) => signalBoard.some((c) => c.ticker === ticker)))
   const userContent = buildTickerUserMessage(signals, articles, candidateSignalBoard, sectorTrends, liveTechnicals, options.regime)
 
@@ -1202,11 +1203,31 @@ export async function extractTickers(signals, articles, options = {}) {
     ? `${TICKER_SYSTEM_PROMPT}\n\n${performanceBlock}`
     : TICKER_SYSTEM_PROMPT
 
-  const messages = [{ role: 'user', content: userContent }]
-
   let parsed
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const response = await client.messages.create({
+  if (useOpenAI) {
+    parsed = await generateStructuredArray({
+      name: 'short_horizon_stock_ranking',
+      description: 'Up to five evidence-ranked stocks for the next three to five trading sessions.',
+      instructions: systemPrompt,
+      input: userContent,
+      maxOutputTokens: 8000,
+      itemSchema: {
+        type: 'object',
+        properties: {
+          ticker: { type: 'string' },
+          conviction: { type: 'number', minimum: 1, maximum: 10 },
+          reason: { type: 'string' },
+        },
+        required: ['ticker', 'conviction', 'reason'],
+        additionalProperties: false,
+      },
+      requestOptions: options.requestOptions,
+    })
+  } else {
+    const client = new Anthropic({ apiKey })
+    const messages = [{ role: 'user', content: userContent }]
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const response = await client.messages.create({
       model: CLAUDE_MODEL,
       // Thinking tokens are drawn from this same budget, so the answer can be
       // truncated even when the text itself is short — which is what happened
@@ -1227,40 +1248,40 @@ export async function extractTickers(signals, articles, options = {}) {
       system: systemPrompt,
       messages,
     }, options.requestOptions)
-    const message = typeof response === 'string' ? JSON.parse(response) : response
+      const message = typeof response === 'string' ? JSON.parse(response) : response
 
     // Find the text block (skip thinking blocks)
-    const textBlock = (message.content || []).find((b) => b.type === 'text')
-    const raw = (textBlock?.text ?? '').trim()
+      const textBlock = (message.content || []).find((b) => b.type === 'text')
+      const raw = (textBlock?.text ?? '').trim()
       .replace(/^```json\s*/i, '')
       .replace(/^```\s*/i, '')
       .replace(/\s*```$/, '')
 
-    console.log(
-      `[researchEngine] Claude attempt ${attempt + 1} raw (${raw.length} chars, `
-      + `stop=${message.stop_reason}):`, raw.slice(0, 200),
-    )
+      console.log(
+        `[researchEngine] Claude attempt ${attempt + 1} raw (${raw.length} chars, `
+        + `stop=${message.stop_reason}):`, raw.slice(0, 200),
+      )
     // Truncation and malformed output need different fixes, and reporting the
     // first as the second sent us looking at the prompt instead of the budget.
-    if (message.stop_reason === 'max_tokens') {
-      console.warn(`[researchEngine] attempt ${attempt + 1} hit max_tokens — output truncated, not malformed`)
-    }
-    if (!raw) console.log('[researchEngine] content blocks:', JSON.stringify((message.content || []).map(b => ({ type: b.type, len: b.text?.length }))))
-
-    if (!raw) {
-      if (attempt < 2) {
-        messages.push({ role: 'assistant', content: '[]' })
-        messages.push({ role: 'user', content: 'The response was empty. Return ONLY a valid JSON array of ticker picks. No explanation, just the JSON.' })
-        continue
+      if (message.stop_reason === 'max_tokens') {
+        console.warn(`[researchEngine] attempt ${attempt + 1} hit max_tokens — output truncated, not malformed`)
       }
-      throw new Error(`Claude returned empty response (stop_reason: ${message.stop_reason})`)
-    }
+      if (!raw) console.log('[researchEngine] content blocks:', JSON.stringify((message.content || []).map(b => ({ type: b.type, len: b.text?.length }))))
 
-    try {
-      parsed = JSON.parse(raw)
-      if (Array.isArray(parsed)) break
-      throw new Error('Claude did not return a JSON array')
-    } catch (err) {
+      if (!raw) {
+        if (attempt < 2) {
+          messages.push({ role: 'assistant', content: '[]' })
+          messages.push({ role: 'user', content: 'The response was empty. Return ONLY a valid JSON array of ticker picks. No explanation, just the JSON.' })
+          continue
+        }
+        throw new Error(`Claude returned empty response (stop_reason: ${message.stop_reason})`)
+      }
+
+      try {
+        parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) break
+        throw new Error('Claude did not return a JSON array')
+      } catch (err) {
       // This was swallowed, so a first attempt that fails to parse looked
       // identical to one that was never made — and it costs a full extra call
       // on every run. Log where it broke and the text around that offset.
@@ -1272,12 +1293,13 @@ export async function extractTickers(signals, articles, options = {}) {
         `[researchEngine] attempt ${attempt + 1} parse failed: ${err.message}`
         + ` | near: ${JSON.stringify(near)}`,
       )
-      if (attempt < 2) {
-        messages.push({ role: 'assistant', content: raw })
-        messages.push({ role: 'user', content: 'That was not valid JSON. Return ONLY a valid JSON array, no explanation.' })
-        continue
+        if (attempt < 2) {
+          messages.push({ role: 'assistant', content: raw })
+          messages.push({ role: 'user', content: 'That was not valid JSON. Return ONLY a valid JSON array, no explanation.' })
+          continue
+        }
+        throw err
       }
-      throw err
     }
   }
 

@@ -198,7 +198,10 @@ describe('frozen baseline parity', () => {
     const old = frozen.rankHighUpsideBoard(board, quotes), current = live.rankHighUpsideBoard(board, quotes)
     expect(old).toEqual(current)
     const parsed = [{ ticker: 'ABC', conviction: 8, reason: 'Current signal' }]
-    expect(frozen.postProcessCandidates(parsed, old)).toEqual(live.postProcessCandidates(parsed, current))
+    const [frozenPick] = frozen.postProcessCandidates(parsed, old)
+    const [livePick] = live.postProcessCandidates(parsed, current)
+    expect({ ...frozenPick, modelVersion: undefined }).toEqual({ ...livePick, modelVersion: undefined })
+    expect(frozenPick.modelVersion).not.toBe(livePick.modelVersion)
     const picks = [{ ticker: 'ABC', compositeScore: 40, riskScore: 3, catalystVerified: true, catalystInWindow: true, catalystConfidence: 6 }]
     expect(frozen.finalizePicks(picks)).toEqual(live.finalizePicks(picks))
   })

@@ -19,6 +19,7 @@ import { getMarketRegime, regimeSizeMultiplier } from '../src/server/marketRegim
 import { freezeEvaluationJob } from '../src/server/research/evaluationJob.js'
 import { STAGES, candidateTraces, currentResearchRun, recordCandidates, recordResearchRun, researchLog, skipStage, stage } from '../src/server/research/observability.js'
 import { createCronBudget, withinCronBudget } from '../src/server/research/runtimeBudget.js'
+import { checkOpenAIResearchModel } from '../src/server/research/openaiModel.js'
 
 const RESEARCH_KEY = 'research:latest'
 const RESEARCH_TTL = 48 * 60 * 60 // 48 hours
@@ -93,6 +94,10 @@ async function runPremarketCheck(res) {
   })
 }
 
+async function runOpenAIHealth(res) {
+  return res.status(200).json(await checkOpenAIResearchModel())
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
@@ -118,6 +123,7 @@ export default async function handler(req, res) {
 }
 
 async function runLocked(req, res, startedAt, recordRun, redis, budget) {
+  if (req.query?.mode === 'openai-health') return runOpenAIHealth(res)
   if (req.query?.mode === 'premarket') {
     try {
       const result = await stage(STAGES.premarket_check, () => runPremarketCheck(res))

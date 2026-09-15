@@ -1,0 +1,65 @@
+// @vitest-environment node
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const mocks = vi.hoisted(() => ({ create: vi.fn() }))
+
+vi.mock('openai', () => ({
+  default: class OpenAI {
+    constructor() { this.responses = { create: mocks.create } }
+  },
+}))
+
+import { generateStructuredArray, usesOpenAIResearch } from './openaiModel.js'
+
+describe('OpenAI research model', () => {
+  const originalKey = process.env.OPENAI_API_KEY
+
+  beforeEach(() => {
+    process.env.OPENAI_API_KEY = 'test-key'
+    mocks.create.mockReset()
+  })
+
+  afterEach(() => {
+    if (originalKey === undefined) delete process.env.OPENAI_API_KEY
+    else process.env.OPENAI_API_KEY = originalKey
+  })
+
+  it('defaults production to OpenAI while tests retain the legacy mocked path', () => {
+    expect(usesOpenAIResearch({ NODE_ENV: 'production' })).toBe(true)
+    expect(usesOpenAIResearch({ NODE_ENV: 'test' })).toBe(false)
+    expect(usesOpenAIResearch({ NODE_ENV: 'test', RESEARCH_MODEL_PROVIDER: 'openai' })).toBe(true)
+  })
+
+  it('uses strict Responses API structured output and returns its items', async () => {
+    mocks.create.mockResolvedValue({
+      status: 'completed',
+      model: 'gpt-5.4-mini-2026-03-17',
+      output_text: '{"items":[{"ticker":"ABC"}]}',
+      usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+    })
+    const items = await generateStructuredArray({
+      name: 'test_ranking',
+      instructions: 'Rank candidates.',
+      input: 'ABC',
+      itemSchema: {
+        type: 'object',
+        properties: { ticker: { type: 'string' } },
+        required: ['ticker'],
+        additionalProperties: false,
+      },
+    })
+
+    expect(items).toEqual([{ ticker: 'ABC' }])
+    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
+      store: false,
+      text: { verbosity: 'low', format: expect.objectContaining({ type: 'json_schema', strict: true }) },
+    }), undefined)
+  })
+
+  it('fails closed on incomplete output', async () => {
+    mocks.create.mockResolvedValue({ status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' } })
+    await expect(generateStructuredArray({
+      name: 'test_ranking', instructions: 'Rank.', input: 'ABC', itemSchema: { type: 'string' },
+    })).rejects.toThrow('max_output_tokens')
+  })
+})
