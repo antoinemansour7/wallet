@@ -1210,7 +1210,7 @@ export async function extractTickers(signals, articles, options = {}) {
       description: 'Up to five evidence-ranked stocks for the next three to five trading sessions.',
       instructions: systemPrompt,
       input: userContent,
-      maxOutputTokens: 8000,
+      maxOutputTokens: 4000,
       itemSchema: {
         type: 'object',
         properties: {

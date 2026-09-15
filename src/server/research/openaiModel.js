@@ -28,7 +28,9 @@ export async function generateStructuredArray({
   itemSchema,
   instructions,
   input,
-  maxOutputTokens = 8000,
+  // The account's TPM gate includes the reserved output budget. Four thousand
+  // is ample for these compact schemas and keeps a request safely below Tier 1.
+  maxOutputTokens = 4000,
   reasoningEffort = process.env.RESEARCH_EFFORT || 'medium',
   requestOptions,
 }) {
