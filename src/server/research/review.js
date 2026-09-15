@@ -57,6 +57,8 @@ export async function primaryReviewer({ horizon, candidates }) {
       description: 'Primary-disclosure decisions for each supplied security and strategy.',
       instructions,
       input: JSON.stringify({ horizon, candidates: primaryModelCandidates(candidates) }),
+      maxOutputTokens: 6000,
+      reasoningEffort: 'low',
       itemSchema: {
         type: 'object',
         properties: {

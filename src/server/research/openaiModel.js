@@ -60,7 +60,15 @@ export async function generateStructuredArray({
     store: false,
   }, requestOptions)
   if (response.status === 'incomplete') {
-    throw new Error(`OpenAI response incomplete: ${response.incomplete_details?.reason || 'unknown reason'}`)
+    const reason = response.incomplete_details?.reason || 'unknown reason'
+    console.warn('[research-model] incomplete', {
+      provider: 'openai',
+      model: response.model || OPENAI_RESEARCH_MODEL,
+      operation: name,
+      reason,
+      ...usageMetrics(response.usage),
+    })
+    throw new Error(`OpenAI response incomplete: ${reason}`)
   }
   const parsed = JSON.parse(response.output_text)
   if (!Array.isArray(parsed.items)) throw new Error('OpenAI structured response did not contain an items array')
