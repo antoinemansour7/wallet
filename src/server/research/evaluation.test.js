@@ -151,6 +151,25 @@ describe('forward discovery ablation matrix', () => {
     expect(report.arms.filter((a) => a.id !== 'delivered').every((a) => a.cohort === 'shadow')).toBe(true)
   })
 
+  it('does not backdate deferred shadow decisions to the earlier publication', async () => {
+    const archive = createArchive(evaluationTestStore())
+    const reviewedAt = '2026-09-09T16:00:00.000Z'
+    const s = { ...snapshot(), availableAt: reviewedAt }
+    const p = { ...identity('LIVE'), candidateId: 'causal-candidate', generatedAt: at, horizon: 20,
+      horizons: [5, 20], strategyFamily: 'fundamentals', price: 100, evidenceIds: ['e'],
+      modelVersion: 'live-v1', earliestActionAt: '2026-09-09T12:01:00.000Z' }
+    const publication = { generatedAt: at, picksByHorizon: { 5: [], 20: [p], 60: [] }, publicationId: 'causal-publication' }
+
+    const run = await freezeEvaluation(archive, s, publication)
+    const shadow = run.observations.filter((o) => o.cohort === 'shadow')
+    const delivered = run.observations.find((o) => o.cohort === 'delivered')
+
+    expect(run.availableAt).toBe(reviewedAt)
+    expect(shadow.every((o) => o.decisionAt === reviewedAt && o.earliestActionAt === '2026-09-09T16:01:00.000Z')).toBe(true)
+    expect(delivered).toMatchObject({ decisionAt: at, availableAt: at, earliestActionAt: '2026-09-09T12:01:00.000Z',
+      quote: { capturedAt: at } })
+  })
+
   it('predeclares disjoint periods and embargoes instead of moving a sample after seeing results', () => {
     const d = experimentDefinition(at)
     expect(periodAt(d, at)).toBe('development')

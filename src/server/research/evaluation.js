@@ -210,7 +210,14 @@ function portfolioRejection(c, active) {
 }
 
 export async function freezeEvaluation(archive, snapshot, publication) {
-  const decisionAt = publication.generatedAt
+  // Shadow arms do not exist when the user-facing publication is written.
+  // Their model reviews finish later in the dedicated evaluation cron, so
+  // backdating them to publication.generatedAt would allow an impossible fill
+  // before the decision existed. Delivered picks keep their original
+  // publication timestamp below; only the deferred shadow decisions use the
+  // later causal cutoff.
+  const publicationAt = publication.generatedAt
+  const decisionAt = new Date(Math.max(Date.parse(publicationAt), Date.parse(snapshot.availableAt))).toISOString()
   const runId = digest([EVALUATION_ID, snapshot.id, decisionAt])
   const previous = await archive.list('evaluation-runs', decisionAt)
   const outcomes = await archive.list('evaluation-outcomes', decisionAt)
@@ -221,14 +228,14 @@ export async function freezeEvaluation(archive, snapshot, publication) {
   const observations = selectArms(snapshot, { runId, decisionAt, active })
   const delivered = [...new Map(Object.values(publication.picksByHorizon).flat().map((p) => [p.candidateId, p])).values()]
     // Carried decisions keep their original cohort entry and never become new samples.
-    .filter((p) => p.generatedAt === decisionAt).map((p) => ({
+    .filter((p) => p.generatedAt === publicationAt).map((p) => ({
       id: digest([EVALUATION_ID, 'delivered', p.candidateId]), runId, inputId: snapshot.id, candidateId: p.candidateId,
       experimentId: EVALUATION_ID, arm: 'delivered', armVersion: p.modelVersion, variantsTried: 6,
       securityId: p.securityId, issuerId: p.issuerId, ticker: p.ticker, strategyFamily: p.strategyFamily,
-      decisionAt, availableAt: decisionAt, earliestActionAt: p.earliestActionAt, horizons: p.horizons || [p.horizon],
+      decisionAt: publicationAt, availableAt: publicationAt, earliestActionAt: p.earliestActionAt, horizons: p.horizons || [p.horizon],
       evidenceIds: p.evidenceIds, price: p.price, currency: p.currency || null, sector: p.sector || null,
-      quote: { price: p.price, capturedAt: decisionAt }, score: p.finalScore ?? null, rank: null,
-      status: 'accepted', rejectionReason: null, cohort: 'delivered', period: periodAt(snapshot.definition, decisionAt),
+      quote: { price: p.price, capturedAt: publicationAt }, score: p.finalScore ?? null, rank: null,
+      status: 'accepted', rejectionReason: null, cohort: 'delivered', period: periodAt(snapshot.definition, publicationAt),
       costBps: 20, stressCostBps: [20, 50, 100], portfolio: null,
     }))
   const record = { id: runId, availableAt: decisionAt, definitionId: EVALUATION_ID, inputId: snapshot.id,
