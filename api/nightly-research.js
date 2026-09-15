@@ -106,6 +106,13 @@ export default async function handler(req, res) {
   if (!isAuthorized(req)) {
     return res.status(401).json({ error: 'Unauthorized' })
   }
+  // Provider diagnostics must not acquire the publication lock or write a
+  // research-run record; otherwise a harmless health check can block a real
+  // scheduled publication for the full lock TTL.
+  if (req.query?.mode === 'openai-health') {
+    try { return await runOpenAIHealth(res) }
+    catch (error) { return res.status(503).json({ error: error.message }) }
+  }
 
   const startedAt = Date.now()
   const budget = createCronBudget({ startedAt })
@@ -123,7 +130,6 @@ export default async function handler(req, res) {
 }
 
 async function runLocked(req, res, startedAt, recordRun, redis, budget) {
-  if (req.query?.mode === 'openai-health') return runOpenAIHealth(res)
   if (req.query?.mode === 'premarket') {
     try {
       const result = await stage(STAGES.premarket_check, () => runPremarketCheck(res))
