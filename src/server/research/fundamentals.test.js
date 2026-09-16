@@ -88,6 +88,59 @@ describe('computeFundamentalFeatures', () => {
     expect(margin.currentMargin).toBeCloseTo(0.15, 6)
   })
 
+  it('keeps profit-to-cash conversion when both periods have meaningful positive operating income', () => {
+    const result = computeFundamentalFeatures({
+      quarterly: [
+        fact('Revenues', 1000, CURRENT), fact('OperatingIncomeLoss', 100, CURRENT),
+        fact('NetCashProvidedByUsedInOperatingActivities', 90, CURRENT),
+        fact('Revenues', 1000, YEAR_AGO), fact('OperatingIncomeLoss', 80, YEAR_AGO),
+        fact('NetCashProvidedByUsedInOperatingActivities', 40, YEAR_AGO),
+      ],
+    })
+    const conversion = result.features.find((feature) => feature.name === 'cashConversionChange')
+
+    expect(conversion).toMatchObject({
+      metric: 'operating_cash_flow_to_operating_income', direction: 'improved', units: 'percentage_points',
+    })
+    expect(conversion.currentMargin).toBeCloseTo(0.9, 6)
+    expect(conversion.priorMargin).toBeCloseTo(0.5, 6)
+  })
+
+  it('labels worsening cash burn as a decline when both periods have operating losses', () => {
+    const result = computeFundamentalFeatures({
+      quarterly: [
+        fact('Revenues', 100, CURRENT), fact('OperatingIncomeLoss', -10, CURRENT),
+        fact('NetCashProvidedByUsedInOperatingActivities', -8, CURRENT),
+        fact('Revenues', 100, YEAR_AGO), fact('OperatingIncomeLoss', -20, YEAR_AGO),
+        fact('NetCashProvidedByUsedInOperatingActivities', -5, YEAR_AGO),
+      ],
+    })
+    const cashFlow = result.features.find((feature) => feature.name === 'operatingCashFlowMarginChange')
+
+    expect(result.features.find((feature) => feature.name === 'cashConversionChange')).toBeUndefined()
+    expect(cashFlow).toMatchObject({ metric: 'operating_cash_flow_margin', direction: 'declined', value: -0.03 })
+    expect(describeChange(cashFlow)).toContain(`Operating cash-flow margin declined by 3.0 percentage points versus the previous comparable period ending ${YEAR_AGO}, for the quarter ending ${CURRENT}`)
+  })
+
+  it.each([
+    ['zero', 0],
+    ['near-zero', 5],
+  ])('uses operating cash-flow margin with %s operating income', (_, currentIncome) => {
+    const result = computeFundamentalFeatures({
+      quarterly: [
+        fact('Revenues', 1000, CURRENT), fact('OperatingIncomeLoss', currentIncome, CURRENT),
+        fact('NetCashProvidedByUsedInOperatingActivities', 50, CURRENT),
+        fact('Revenues', 1000, YEAR_AGO), fact('OperatingIncomeLoss', 5, YEAR_AGO),
+        fact('NetCashProvidedByUsedInOperatingActivities', 40, YEAR_AGO),
+      ],
+    })
+
+    expect(result.features.find((feature) => feature.name === 'cashConversionChange')).toBeUndefined()
+    expect(result.features.find((feature) => feature.name === 'operatingCashFlowMarginChange')).toMatchObject({
+      metric: 'operating_cash_flow_margin', direction: 'improved', value: 0.01,
+    })
+  })
+
   it('treats fewer diluted shares as an improvement, and never differences a share count', () => {
     const result = computeFundamentalFeatures({
       quarterly: [
@@ -299,7 +352,7 @@ describe('improvementPriority', () => {
 
   it('stays within the 0..100 range createEvidence accepts', () => {
     const everything = ['revenueGrowth', 'revenueGrowthAcceleration', 'operatingMarginChange',
-      'cashConversionChange', 'dilutedShareGrowth', 'netDebtChange'].map((name) => ({ name, direction: 'improved' }))
+      'cashConversionChange', 'operatingCashFlowMarginChange', 'dilutedShareGrowth', 'netDebtChange'].map((name) => ({ name, direction: 'improved' }))
     expect(improvementPriority({ features: everything })).toBeLessThanOrEqual(100)
     expect(improvementPriority({ features: everything, contamination: new Array(20).fill({ kind: 'tax' }) })).toBeGreaterThanOrEqual(0)
   })

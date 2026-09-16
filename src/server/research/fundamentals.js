@@ -44,6 +44,10 @@ const CONTAMINANT = {
 }
 
 const day = 86400000
+// Profit-to-cash conversion becomes unstable around break-even. Require both
+// periods to earn at least a one-percent operating margin before dividing by
+// operating income; otherwise compare operating cash flow against revenue.
+const MIN_CASH_CONVERSION_OPERATING_MARGIN = 0.01
 const bare = (concept) => String(concept || '').split(':')[1] || ''
 const isUsGaap = (fact) => String(fact?.concept || '').startsWith('us-gaap:')
 const finite = (value) => Number.isFinite(value)
@@ -132,6 +136,30 @@ function marginFeature(name, numeratorNames, denominatorNames, current, prior) {
     current: [cite(currentNumerator), cite(currentDenominator)],
     prior: [cite(priorNumerator), cite(priorDenominator)],
   }
+}
+
+/**
+ * Use profit-to-cash conversion only when operating profit is a meaningful,
+ * positive denominator in both periods. Losses and near-break-even periods use
+ * operating cash-flow margin, so worsening cash burn always moves downward.
+ */
+function operatingCashFlowFeature(current, prior) {
+  const currentRevenue = selectFact(current, CONCEPT.revenue)
+  const priorRevenue = selectFact(prior, CONCEPT.revenue)
+  const currentIncome = selectFact(current, CONCEPT.operatingIncome)
+  const priorIncome = selectFact(prior, CONCEPT.operatingIncome)
+  const revenuesArePositive = currentRevenue?.value > 0 && priorRevenue?.value > 0
+  const profitsAreMeaningful = revenuesArePositive
+    && currentIncome?.value / currentRevenue.value >= MIN_CASH_CONVERSION_OPERATING_MARGIN
+    && priorIncome?.value / priorRevenue.value >= MIN_CASH_CONVERSION_OPERATING_MARGIN
+
+  if (profitsAreMeaningful) {
+    const conversion = marginFeature('cashConversionChange', CONCEPT.operatingCashFlow, CONCEPT.operatingIncome, current, prior)
+    return conversion ? { ...conversion, metric: 'operating_cash_flow_to_operating_income' } : null
+  }
+  if (!revenuesArePositive) return null
+  const cashFlowMargin = marginFeature('operatingCashFlowMarginChange', CONCEPT.operatingCashFlow, CONCEPT.revenue, current, prior)
+  return cashFlowMargin ? { ...cashFlowMargin, metric: 'operating_cash_flow_margin' } : null
 }
 
 /**
@@ -269,10 +297,10 @@ export function computeFundamentalFeatures({ quarterly = [], instant = [] } = {}
   const operatingMargin = prior && marginFeature('operatingMarginChange', CONCEPT.operatingIncome, CONCEPT.revenue, current.facts, prior.facts)
   if (operatingMargin) features.push(operatingMargin)
 
-  // Cash conversion: how much of reported operating income arrived as cash.
-  // Divergence here is the classic tell that an improvement is accounting.
-  const cashConversion = prior && marginFeature('cashConversionChange', CONCEPT.operatingCashFlow, CONCEPT.operatingIncome, current.facts, prior.facts)
-  if (cashConversion) features.push(cashConversion)
+  // Profit-to-cash conversion is valid only with meaningful positive profit.
+  // Loss-making and near-break-even periods use cash flow divided by revenue.
+  const operatingCashFlow = prior && operatingCashFlowFeature(current.facts, prior.facts)
+  if (operatingCashFlow) features.push(operatingCashFlow)
 
   // Dilution. Shares are not additive, so only quarters the filer reported
   // directly can appear here; a year-to-date share count is never differenced.
@@ -333,7 +361,8 @@ export function describeChange(feature, { expectation = null } = {}) {
     revenueGrowth: 'Revenue',
     revenueGrowthAcceleration: 'Revenue growth',
     operatingMarginChange: 'Operating margin',
-    cashConversionChange: 'Cash conversion',
+    cashConversionChange: 'Operating cash flow to operating income',
+    operatingCashFlowMarginChange: 'Operating cash-flow margin',
     dilutedShareGrowth: 'Diluted share count',
     netDebtChange: 'Net debt',
   }[feature.name] || feature.name
@@ -343,8 +372,8 @@ export function describeChange(feature, { expectation = null } = {}) {
     return `${measure} ${verb} the ${expectation.source} expectation of ${expectation.value} for the period ending ${feature.current?.periodEnd || ''}.`.trim()
   }
 
-  const amount = feature.units === 'percentage_points' ? points(feature.value)
-    : feature.units === 'ratio_change' ? `${points(feature.value)} of growth`
+  const amount = feature.units === 'percentage_points' ? points(Math.abs(feature.value))
+    : feature.units === 'ratio_change' ? `${points(Math.abs(feature.value))} of growth`
       : pct(Math.abs(feature.value))
   const verb = feature.direction === 'improved' ? 'improved by' : feature.direction === 'declined' ? 'declined by' : 'was unchanged at'
   const periodEnd = Array.isArray(feature.current) ? feature.current[0]?.periodEnd : feature.current?.periodEnd
@@ -368,6 +397,7 @@ export function improvementPriority({ features = [], contamination = [] } = {}) 
     revenueGrowthAcceleration: 20,
     operatingMarginChange: 18,
     cashConversionChange: 16,
+    operatingCashFlowMarginChange: 16,
     dilutedShareGrowth: 8,
     netDebtChange: 10,
   }
