@@ -5,6 +5,7 @@ import { comparableInstantFacts, computeFundamentalFeatures, improvementPriority
 import { enabledDiscoveryStrategies } from './policy.js'
 
 const FORMS = new Set(['10-Q', '10-Q/A', '10-K', '10-K/A', '8-K', '8-K/A', '4', '4/A'])
+export const FUNDAMENTALS_SCREEN_VERSION = 'measured-improvement-v1'
 const day = 86400000
 // Only additive monetary flows can be differenced. EPS, ratios and weighted
 // average shares cannot be reconstructed by subtracting cumulative values.
@@ -39,7 +40,8 @@ export function createSecClient({ deadline = Infinity, fetchImpl = fetch, userAg
 export function filingRows(submissions) {
   const rows = submissions.filings?.recent || submissions
   return (rows.accessionNumber || []).map((accession, i) => ({ accession, form: rows.form?.[i],
-    publicAt: rows.acceptanceDateTime?.[i], filingDate: rows.filingDate?.[i], reportDate: rows.reportDate?.[i], primaryDocument: rows.primaryDocument?.[i] }))
+    publicAt: rows.acceptanceDateTime?.[i], filingDate: rows.filingDate?.[i], reportDate: rows.reportDate?.[i], primaryDocument: rows.primaryDocument?.[i],
+    items: String(rows.items?.[i] || '').split(',').map((item) => item.trim()).filter(Boolean) }))
     .filter((row) => FORMS.has(row.form) && /^\d{10}-\d{2}-\d{6}$/.test(row.accession) && Number.isFinite(Date.parse(row.publicAt)))
 }
 
@@ -88,6 +90,17 @@ export function comparableQuarterlyFacts(facts, asOf) {
 }
 
 const plain = (bytes) => bytes.toString('utf8').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+
+function fundamentalsScreen(filing, quarters, fundamentals, improvement) {
+  const financialResults = !filing.form.startsWith('8-K') || filing.items.includes('2.02') || quarters.length > 0
+  if (!financialResults) return { eligible: false, reason: 'not_financial_results' }
+  const comparable = fundamentals.features.length > 0 || quarters.some((fact) => fact.priorComparable)
+  if (!comparable) return { eligible: false, reason: 'no_comparable_period' }
+  const measuredImprovement = Boolean(improvement)
+    && fundamentals.features.some((feature) => feature.direction === 'improved' && feature.current && feature.prior)
+  if (!measuredImprovement) return { eligible: false, reason: 'no_improving_feature' }
+  return { eligible: true, reason: 'measured_improvement' }
+}
 
 export async function ingestIssuer(archive, master, cik, { client = createSecClient(), since = new Date(Date.now() - 7 * day).toISOString(), limit = 20, afterAccession = null, deadline = Infinity, now = () => new Date().toISOString() } = {}) {
   const issuer = issuerId(cik)
@@ -169,9 +182,11 @@ export async function ingestIssuer(archive, master, cik, { client = createSecCli
       ? computeFundamentalFeatures({ quarterly: allQuarters, instant: comparableInstantFacts(historicFacts, filing.publicAt) })
       : { features: [], contamination: [], periodEnd: null, priorPeriodEnd: null }
     const improvement = summarizeImprovement(fundamentals)
+    const screen = fundamentalsScreen(filing, quarters, fundamentals, improvement)
     const excerpt = plain(bytes).slice(0, 1500) || `SEC ${filing.form} disclosure ${filing.accession}`
     const enabled = new Set(enabledDiscoveryStrategies())
-    const proposedFamilies = filing.form.startsWith('4') ? ['insider'] : filing.form.startsWith('8-K') ? ['fundamentals'] : ['filing_changes', ...(quarters.length ? ['fundamentals'] : [])]
+    const proposedFamilies = filing.form.startsWith('4') ? ['insider']
+      : filing.form.startsWith('8-K') ? ['fundamentals'] : ['filing_changes', 'fundamentals']
     // Raw filings and exhibits are archived above regardless. Evidence enters
     // production only for strategies whose validated admission policy is on.
     const families = proposedFamilies.filter((family) => enabled.has(family))
@@ -180,16 +195,23 @@ export async function ingestIssuer(archive, master, cik, { client = createSecCli
         source: { documentId: document.id, accession: filing.accession, url: primaryUrl, excerpt, factSnapshotId: factsDocument.id, completeSubmissionId: complete.id, exhibitIds: result.documents.filter((d) => d.accession === filing.accession && /^EX-99/.test(d.form)).map((d) => d.id) },
         publicAt: document.publicAt, firstSeenAt: document.firstSeenAt, extractionCompletedAt,
         observedFacts: family === 'fundamentals' ? quarters.slice(0, 60) : [],
-        interpretation: family === 'fundamentals' && improvement
+        interpretation: family === 'fundamentals' && screen.eligible
           // Derived from the observed facts, so it lives in interpretation and
           // never in observedFacts. Every feature cites the filings behind it.
           ? { thesis: improvement, adverse: false, needsReview: true,
+            screen: { version: FUNDAMENTALS_SCREEN_VERSION, ...screen },
             features: fundamentals.features, contamination: fundamentals.contamination,
             periodEnd: fundamentals.periodEnd, priorPeriodEnd: fundamentals.priorPeriodEnd }
-          : { thesis: 'New primary disclosure available for detailed review; investment implications have not been determined.', adverse: false, needsReview: true },
+          : family === 'fundamentals'
+            ? { thesis: `Fundamentals screen did not qualify: ${screen.reason}.`, adverse: false, needsReview: false,
+              screen: { version: FUNDAMENTALS_SCREEN_VERSION, ...screen },
+              features: fundamentals.features, contamination: fundamentals.contamination,
+              periodEnd: fundamentals.periodEnd, priorPeriodEnd: fundamentals.priorPeriodEnd }
+            : { thesis: 'New primary disclosure available for detailed review; investment implications have not been determined.', adverse: false, needsReview: true },
         measurements: { attention: null },
-        priority: family === 'fundamentals' && improvement ? improvementPriority(fundamentals)
-          : family === 'fundamentals' && quarters.some((f) => f.priorComparable) ? 40 : 30 })
+        decision: family === 'fundamentals' ? { status: screen.eligible ? 'eligible' : 'rejected', reason: screen.reason } : undefined,
+        priority: family === 'fundamentals' && screen.eligible ? improvementPriority(fundamentals)
+          : family === 'fundamentals' ? 0 : 30 })
       result.evidence.push(await archiveEvidence(archive, evidence))
     }
     result.lastCompletedAccession = filing.accession

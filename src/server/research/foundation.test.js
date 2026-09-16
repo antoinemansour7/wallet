@@ -271,7 +271,7 @@ describe('stream admission', () => {
 
     expect(result.candidates).toHaveLength(30)
     expect(result.candidates.every((item) => item.streams.every((stream) => ['attention', 'fundamentals'].includes(stream)))).toBe(true)
-    expect(result.audit.admissionPolicy).toEqual({ version: 'strategy-admission-v1', enabledStrategies: ['attention', 'fundamentals'] })
+    expect(result.audit.admissionPolicy).toEqual({ version: 'strategy-admission-v2', enabledStrategies: ['attention', 'fundamentals'] })
     expect(result.audit.reservedUsed).toEqual({ attention: 12, fundamentals: 10, filing_changes: 0, insider: 0 })
     expect(result.audit.reallocations.filter((item) => ['filing_changes', 'insider'].includes(item.from))).toHaveLength(8)
     expect(result.audit.rejected.filter((item) => item.reason === 'strategy_not_enabled').map((item) => item.ticker).sort())
@@ -289,6 +289,19 @@ describe('stream admission', () => {
     expect(result.candidates[0].evidence.map((item) => item.strategyFamily)).toEqual(['fundamentals'])
     expect(result.candidates[0].priority).toBe(70)
   })
+
+  it('does not let a non-adverse screened-out record veto another eligible stream', () => {
+    const attention = candidate('MIXED-SCREEN', ['attention'], 70)
+    const screenedOut = candidate('MIXED-SCREEN', ['fundamentals'], 0)
+    screenedOut.evidence[0] = { ...screenedOut.evidence[0],
+      decision: { status: 'rejected', reason: 'no_improving_feature' }, interpretation: { adverse: false, needsReview: false } }
+
+    const result = admitCandidates([attention, screenedOut], { asOf: reviewedAt, enabledStrategies: allStrategies })
+
+    expect(result.candidates).toHaveLength(1)
+    expect(result.candidates[0].streams).toEqual(['attention'])
+    expect(result.candidates[0].evidence.map((item) => item.strategyFamily)).toEqual(['attention'])
+  })
 })
 
 describe('zero-mention end-to-end acceptance', () => {
@@ -296,7 +309,10 @@ describe('zero-mention end-to-end acceptance', () => {
     const archive = createArchive(memoryRedis(), { objectStore: memoryObjectStore() }), master = masterFor(security())
     const accession = '0000000001-26-000001'
     const submissions = { filings: { recent: { accessionNumber: [accession], form: ['10-Q'], acceptanceDateTime: [publicAt], filingDate: ['2026-02-01'], reportDate: ['2025-12-31'], primaryDocument: ['quarter.htm'] } } }
-    const facts = { facts: { 'us-gaap': { Revenues: { units: { USD: [{ accn: accession, val: 120, start: '2025-10-01', end: '2025-12-31', fy: 2025, fp: 'Q4' }] } } } } }
+    const facts = { facts: { 'us-gaap': { Revenues: { units: { USD: [
+      { accn: accession, val: 120, start: '2025-10-01', end: '2025-12-31', fy: 2025, fp: 'Q4' },
+      { accn: accession, val: 100, start: '2024-10-01', end: '2024-12-31', fy: 2025, fp: 'Q4' },
+    ] } } } } }
     const client = { request: vi.fn(async (url) => url.includes('/submissions/') ? submissions : url.includes('/companyfacts/') ? facts : Buffer.from('<DOCUMENT><TYPE>10-Q\n<TEXT>Revenue increased to 120 from 100.</TEXT></DOCUMENT>')) }
     expect(parseDailyIndex(`1|QUIET Corporation|10-Q|2026-02-01|edgar/data/1/${accession}.txt`, master, reviewedAt)).toHaveLength(1)
     const ingested = await ingestIssuer(archive, master, '1', { client, since: early, now: () => seenAt })
@@ -357,7 +373,7 @@ describe('zero-mention end-to-end acceptance', () => {
 
 describe('primary review prompt budget', () => {
   it('starts a new forward cohort for the materially different evidence packet', () => {
-    expect(RESEARCH_MODEL_VERSION).toBe('evidence-v7-gpt-5.4-mini')
+    expect(RESEARCH_MODEL_VERSION).toBe('evidence-v8-gpt-5.4-mini')
   })
 
   it('keeps core comparable facts while bounding documents and excerpts', () => {
@@ -804,7 +820,7 @@ describe('fundamentals discovery emits measured improvement', () => {
     expect(evidence.interpretation.thesis).not.toMatch(/\b(beat|surprise|consensus)\b/i)
   })
 
-  it('ranks a measured improvement above a filing with nothing to compare', async () => {
+  it('rejects a filing with no comparable period instead of spending review capacity', async () => {
     const measured = await ingest({ facts: { 'us-gaap': {
       Revenues: usd([quarter(120, 2025), quarter(100, 2024)]),
       OperatingIncomeLoss: usd([quarter(24, 2025), quarter(10, 2024)]),
@@ -812,9 +828,47 @@ describe('fundamentals discovery emits measured improvement', () => {
     const bare = await ingest({ facts: { 'us-gaap': { Revenues: usd([quarter(120, 2025)]) } } })
 
     expect(measured.priority).toBeGreaterThan(bare.priority)
-    // The bare filing keeps the neutral placeholder rather than inventing one.
-    expect(bare.interpretation.thesis).toMatch(/have not been determined/)
-    expect(bare.interpretation.features).toBeUndefined()
+    expect(measured.decision).toEqual({ status: 'eligible', reason: 'measured_improvement' })
+    expect(bare).toMatchObject({ priority: 0, decision: { status: 'rejected', reason: 'no_comparable_period' } })
+    expect(bare.interpretation).toMatchObject({ adverse: false, needsReview: false,
+      screen: { version: 'measured-improvement-v1', eligible: false, reason: 'no_comparable_period' }, features: [] })
+  })
+
+  it('archives a comparable filing with no improving feature but does not admit it', async () => {
+    const archive = createArchive(memoryRedis(), { objectStore: memoryObjectStore() })
+    const result = await ingestIssuer(archive, masterFor(security()), '1', {
+      client: clientFor({ facts: { 'us-gaap': { Revenues: usd([quarter(80, 2025), quarter(100, 2024)]) } } }),
+      since: early, now: () => seenAt,
+    })
+    const evidence = result.evidence.find((item) => item.strategyFamily === 'fundamentals')
+    const admission = await prepareDiscovery([], [], { archive, master: masterFor(security()) }, { asOf: reviewedAt })
+
+    expect(await archive.readDocument(evidence.source.documentId)).not.toBeNull()
+    expect(evidence).toMatchObject({ priority: 0, decision: { status: 'rejected', reason: 'no_improving_feature' },
+      interpretation: { adverse: false, needsReview: false, screen: { eligible: false, reason: 'no_improving_feature' } } })
+    expect(evidence.interpretation.features).toContainEqual(expect.objectContaining({ name: 'revenueGrowth', direction: 'declined' }))
+    expect(admission.candidates).toEqual([])
+    expect(admission.audit.rejected).toContainEqual(expect.objectContaining({ ticker: 'QUIET', reason: 'no_improving_feature' }))
+  })
+
+  it('archives a non-earnings 8-K without entering the fundamentals budget', async () => {
+    const archive = createArchive(memoryRedis(), { objectStore: memoryObjectStore() }), master = masterFor(security())
+    const eventAccession = '0000000001-26-000008'
+    const eventSubmissions = { filings: { recent: { accessionNumber: [eventAccession], form: ['8-K'], items: ['1.01'],
+      acceptanceDateTime: [publicAt], filingDate: ['2026-02-01'], reportDate: ['2026-02-01'], primaryDocument: ['event.htm'] } } }
+    const client = { request: vi.fn(async (url) => url.includes('/submissions/') ? eventSubmissions
+      : url.includes('/companyfacts/') ? { facts: {} }
+        : Buffer.from('<DOCUMENT><TYPE>8-K\n<TEXT>Entry into a material agreement.</TEXT></DOCUMENT>')) }
+
+    const result = await ingestIssuer(archive, master, '1', { client, since: early, now: () => seenAt })
+    const evidence = result.evidence.find((item) => item.strategyFamily === 'fundamentals')
+    const admission = await prepareDiscovery([], [], { archive, master }, { asOf: reviewedAt })
+
+    expect(result.documents.some((document) => document.form === '8-K')).toBe(true)
+    expect(evidence).toMatchObject({ priority: 0, decision: { status: 'rejected', reason: 'not_financial_results' },
+      interpretation: { adverse: false, needsReview: false, screen: { eligible: false, reason: 'not_financial_results' } } })
+    expect(admission.candidates).toEqual([])
+    expect(admission.audit.rejected).toContainEqual(expect.objectContaining({ ticker: 'QUIET', reason: 'not_financial_results' }))
   })
 
   it('separates an acquisition instead of scoring it as operating growth', async () => {
