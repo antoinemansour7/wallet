@@ -63,7 +63,11 @@ export async function archiveEvidence(archive, evidence) {
   const source = await archive.get('document', evidence.source.documentId)
   if (!source || source.issuerId !== evidence.issuerId) throw new Error('Evidence source is not archived for this issuer')
   if (source.publicAt !== evidence.publicAt || source.firstSeenAt !== evidence.firstSeenAt) throw new Error('Evidence timestamps must match its immutable source')
-  return archive.put('evidence', evidence.id, evidence, 'evidence', evidence.availableAt)
+  const lane = evidence.strategyFamily === 'attention' ? 'evidence:attention' : 'evidence:primary'
+  // The broad evidence index is ordered by observation time for replay. The
+  // discovery lane is ordered by the disclosure's public time so a 14-day
+  // query does not download old filings that happened to be re-observed today.
+  return archive.put('evidence', evidence.id, evidence, ['evidence', { name: lane, score: evidence.publicAt }], evidence.availableAt)
 }
 
 export async function replayDocuments(archive, decisionTime, { mode = 'live', simulatedDelayMs, executionLatencyMs = 60000 } = {}) {

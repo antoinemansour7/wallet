@@ -18,8 +18,19 @@ export function createObjectStore({
     const document = /^research\/documents\/v1\/[a-f0-9]{64}\.gz$/.test(key)
     const record = /^research\/records\/v1\/(facts|evidence|admission|evaluation-job-input|evaluation-input|evaluation-run)\/[a-f0-9]{64}\.json\.gz$/.test(key)
     if (!document && !record) throw new Error('Invalid archive object key')
-    const signed = await signer.sign(`${base.origin}/${bucket}/${key}`, { ...options, signal: AbortSignal.timeout(20000), redirect: 'error' })
-    return fetchImpl(signed)
+    let lastError
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const signed = await signer.sign(`${base.origin}/${bucket}/${key}`, { ...options, signal: AbortSignal.timeout(20000), redirect: 'error' })
+        const response = await fetchImpl(signed)
+        if (response.status !== 429 && response.status < 500) return response
+        lastError = new Error(`Archive object request failed (${response.status})`)
+      } catch (error) {
+        lastError = error
+      }
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1) ** 2))
+    }
+    throw lastError
   }
   return {
     async putIfAbsent(key, bytes) {

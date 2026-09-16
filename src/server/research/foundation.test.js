@@ -526,6 +526,16 @@ describe('private object archive and migration', () => {
     expect(request.redirect).toBe('error')
     await expect(objectStore.get(key)).rejects.toThrow('404')
   })
+  it('retries transient object-store transport failures', async () => {
+    const bytes = Buffer.from('compressed bytes')
+    const fetchImpl = vi.fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce(new Response(bytes))
+    const objectStore = createObjectStore({ endpoint: 'https://account.r2.cloudflarestorage.com', bucket: 'research-fixture', accessKeyId: 'fixture-id', secretAccessKey: 'fixture-secret', fetchImpl })
+    const key = `research/records/v1/evidence/${'b'.repeat(64)}.json.gz`
+    expect((await objectStore.get(key)).equals(bytes)).toBe(true)
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
 })
 
 

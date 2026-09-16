@@ -49,7 +49,11 @@ export function createArchive(redis, { objectStore } = {}) {
     const result = await redis.set(key, redisValue, { nx: true })
     const stored = result ? record : await readStoredRecord(await redis.get(key))
     if (!stored) throw new Error('Archive write did not persist')
-    await redis.zadd(`${PREFIX}:index:${index}`, { score: new Date(stored.availableAt ?? availableAt).getTime(), member: key })
+    for (const entry of Array.isArray(index) ? index : [index]) {
+      const indexName = typeof entry === 'string' ? entry : entry.name
+      const indexTime = typeof entry === 'string' ? stored.availableAt ?? availableAt : entry.score
+      await redis.zadd(`${PREFIX}:index:${indexName}`, { score: new Date(indexTime).getTime(), member: key })
+    }
     return stored
   }
   async function list(index, asOf = Date.now(), { offset = 0, count = Infinity, since = '-inf' } = {}) {

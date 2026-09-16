@@ -32,8 +32,14 @@ export async function collectFoundationCandidates(signals, attentionBoard, { arc
   const attention = await archiveAttentionSignals(signals, master, archive, asOf)
   // Attention is reviewed in this run but cannot be acted on until latency has
   // elapsed. The review budget is independent of the eventual executable time.
-  const primary = supplied || await archive.list('evidence', asOf, { since: Date.parse(asOf) - 14 * 86400000 })
-  const recent = primary.filter((e) => e.strategyFamily !== 'attention' && Date.parse(e.publicAt) >= Date.parse(asOf) - 14 * 86400000)
+  // Attention evidence is created afresh above. Reading the shared evidence
+  // index here used to download thousands of archived X records from R2 only
+  // to discard them on the next line. The lane-specific index keeps this read
+  // bounded to recent primary disclosures.
+  const primary = supplied || await archive.list('evidence:primary', asOf, { since: Date.parse(asOf) - 14 * 86400000 })
+  const recent = primary.filter((e) => e.strategyFamily !== 'attention'
+    && Date.parse(e.availableAt) <= Date.parse(asOf)
+    && Date.parse(e.publicAt) >= Date.parse(asOf) - 14 * 86400000)
   return candidatesFromEvidence([...attention, ...recent], attentionBoard).map((candidate) => {
     const matches = master.resolve({ securityId: candidate.securityId, asOf })
     if (matches.length !== 1 || matches[0].issuerId !== candidate.issuerId) return { ...candidate, securityId: null }
