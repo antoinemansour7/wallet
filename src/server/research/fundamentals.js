@@ -31,7 +31,6 @@ const CONCEPT = {
   pretaxIncome: ['IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest',
     'IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments'],
   cash: ['CashAndCashEquivalentsAtCarryingValue', 'CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents'],
-  debt: ['LongTermDebtNoncurrent', 'LongTermDebt', 'LongTermDebtCurrent', 'DebtCurrent'],
 }
 
 // Facts whose presence means a change in the headline numbers may not be
@@ -69,16 +68,19 @@ function cite(fact) {
 /**
  * Pick one fact per role. A filer may tag revenue under several concepts in the
  * same quarter; preferring the earlier entry in CONCEPT keeps the choice
- * deterministic rather than dependent on archive ordering, and the chosen
- * concept is cited so the pick is auditable.
+ * deterministic rather than dependent on archive ordering. The newest period
+ * wins before concept preference, and the chosen concept is cited so the pick
+ * is auditable.
  */
 function selectFact(facts, names, periodEnd) {
-  for (const name of names) {
-    const match = facts.find((f) => isUsGaap(f) && bare(f.concept) === name
-      && (periodEnd == null || f.periodEnd === periodEnd))
-    if (match) return match
-  }
-  return null
+  const priority = new Map(names.map((name, index) => [name, index]))
+  return facts
+    .filter((fact) => isUsGaap(fact) && priority.has(bare(fact.concept))
+      && (periodEnd == null || fact.periodEnd === periodEnd))
+    .sort((a, b) => Date.parse(b.periodEnd) - Date.parse(a.periodEnd)
+      || priority.get(bare(a.concept)) - priority.get(bare(b.concept))
+      || Date.parse(b.publicAt) - Date.parse(a.publicAt)
+      || String(a.accession || '').localeCompare(String(b.accession || '')))[0] || null
 }
 
 /**
@@ -90,15 +92,61 @@ function selectFact(facts, names, periodEnd) {
 export function comparableInstantFacts(facts, asOf) {
   const allowed = facts.filter((f) => !f.periodStart && finite(f.value) && f.periodEnd
     && Date.parse(f.publicAt) <= Date.parse(asOf))
+    .sort((a, b) => Date.parse(b.periodEnd) - Date.parse(a.periodEnd)
+      || Date.parse(b.publicAt) - Date.parse(a.publicAt)
+      || String(a.concept).localeCompare(String(b.concept))
+      || String(a.accession || '').localeCompare(String(b.accession || '')))
   return allowed.map((fact) => {
     const matches = allowed
       .filter((prior) => prior.concept === fact.concept && prior.units === fact.units
         && prior.periodEnd < fact.periodEnd
         && Date.parse(prior.publicAt) <= Date.parse(fact.publicAt)
         && Math.abs((Date.parse(fact.periodEnd) - Date.parse(prior.periodEnd)) / day - 365) <= 21)
-      .sort((a, b) => Date.parse(b.publicAt) - Date.parse(a.publicAt))
+      .sort((a, b) => Math.abs((Date.parse(fact.periodEnd) - Date.parse(a.periodEnd)) / day - 365)
+        - Math.abs((Date.parse(fact.periodEnd) - Date.parse(b.periodEnd)) / day - 365)
+        || Date.parse(b.publicAt) - Date.parse(a.publicAt)
+        || Date.parse(b.periodEnd) - Date.parse(a.periodEnd)
+        || String(a.accession || '').localeCompare(String(b.accession || '')))
     return { ...fact, derivation: 'instant', priorComparable: matches[0] ? cite(matches[0]) : null }
   })
+}
+
+/**
+ * Build one coherent net-debt snapshot. Cash and debt must share current/prior
+ * dates and units. Consolidated LongTermDebt wins over its overlapping pieces;
+ * otherwise noncurrent debt is combined with one current-debt concept.
+ */
+function newestNetDebtSnapshot(facts) {
+  const comparable = facts.filter((fact) => finite(fact.value) && finite(fact.priorComparable?.value)
+    && fact.concept === fact.priorComparable.concept && fact.units === fact.priorComparable.units
+    && fact.priorComparable.periodEnd < fact.periodEnd)
+  const groups = new Map()
+  for (const fact of comparable) {
+    const key = `${fact.periodEnd}:${fact.priorComparable.periodEnd}:${fact.units}`
+    if (!groups.has(key)) groups.set(key, { periodEnd: fact.periodEnd, priorPeriodEnd: fact.priorComparable.periodEnd, units: fact.units, facts: [] })
+    groups.get(key).facts.push(fact)
+  }
+  const ordered = [...groups.values()].sort((a, b) => Date.parse(b.periodEnd) - Date.parse(a.periodEnd)
+    || Date.parse(b.priorPeriodEnd) - Date.parse(a.priorPeriodEnd) || String(a.units).localeCompare(String(b.units)))
+  for (const group of ordered) {
+    const cash = selectFact(group.facts, CONCEPT.cash, group.periodEnd)
+    if (!cash) continue
+    const totalDebt = selectFact(group.facts, ['LongTermDebt'], group.periodEnd)
+    const debtFacts = totalDebt ? [totalDebt] : [
+      selectFact(group.facts, ['LongTermDebtNoncurrent'], group.periodEnd),
+      // DebtCurrent is the broader current-debt concept. Do not add the
+      // overlapping current portion of long-term debt when both are present.
+      selectFact(group.facts, ['DebtCurrent', 'LongTermDebtCurrent'], group.periodEnd),
+    ].filter(Boolean)
+    if (!debtFacts.length) continue
+    return {
+      cash,
+      debtFacts,
+      currentDebt: debtFacts.reduce((sum, fact) => sum + fact.value, 0),
+      priorDebt: debtFacts.reduce((sum, fact) => sum + fact.priorComparable.value, 0),
+    }
+  }
+  return null
 }
 
 /** A ratio change reported as a feature, with both sides cited. */
@@ -310,16 +358,12 @@ export function computeFundamentalFeatures({ quarterly = [], instant = [] } = {}
   // Fewer shares is the shareholder-friendly direction, so invert the label.
   if (dilution) features.push({ ...dilution, direction: dilution.value < 0 ? 'improved' : dilution.value > 0 ? 'declined' : 'unchanged' })
 
-  // Net debt, from the balance sheet rather than the income statement.
-  const instantAt = (names) => {
-    const fact = selectFact(instant, names)
-    return fact?.priorComparable ? { current: fact, prior: fact.priorComparable } : null
-  }
-  const cashPair = instantAt(CONCEPT.cash)
-  const debtPair = instantAt(CONCEPT.debt)
-  if (cashPair || debtPair) {
-    const currentNet = (debtPair?.current.value ?? 0) - (cashPair?.current.value ?? 0)
-    const priorNet = (debtPair?.prior.value ?? 0) - (cashPair?.prior.value ?? 0)
+  // Net debt, from one coherent balance-sheet date rather than whichever fact
+  // happened to appear first in archive order.
+  const netDebtSnapshot = newestNetDebtSnapshot(instant)
+  if (netDebtSnapshot) {
+    const currentNet = netDebtSnapshot.currentDebt - netDebtSnapshot.cash.value
+    const priorNet = netDebtSnapshot.priorDebt - netDebtSnapshot.cash.priorComparable.value
     if (finite(currentNet) && finite(priorNet) && priorNet !== 0) {
       const change = (currentNet - priorNet) / Math.abs(priorNet)
       features.push({
@@ -330,8 +374,8 @@ export function computeFundamentalFeatures({ quarterly = [], instant = [] } = {}
         direction: change < 0 ? 'improved' : change > 0 ? 'declined' : 'unchanged',
         currentNetDebt: Number(currentNet.toFixed(2)),
         priorNetDebt: Number(priorNet.toFixed(2)),
-        current: [cashPair?.current, debtPair?.current].filter(Boolean).map(cite),
-        prior: [cashPair?.prior, debtPair?.prior].filter(Boolean),
+        current: [netDebtSnapshot.cash, ...netDebtSnapshot.debtFacts].map(cite),
+        prior: [netDebtSnapshot.cash.priorComparable, ...netDebtSnapshot.debtFacts.map((fact) => fact.priorComparable)],
       })
     }
   }

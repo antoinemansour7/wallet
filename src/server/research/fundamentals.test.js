@@ -275,6 +275,74 @@ describe('comparableInstantFacts', () => {
     expect(netDebt.priorNetDebt).toBe(500) // 800 debt - 300 cash
     expect(netDebt.direction).toBe('improved')
   })
+
+  it('selects the newest comparable snapshot independently of input order', () => {
+    const facts = [
+      // This older fact has no comparison and used to suppress the valid pair
+      // when chronological archive order placed it first.
+      instant('CashAndCashEquivalentsAtCarryingValue', 100, '2024-06-30'),
+      instant('CashAndCashEquivalentsAtCarryingValue', 300, YEAR_AGO),
+      instant('LongTermDebtNoncurrent', 800, YEAR_AGO),
+      instant('CashAndCashEquivalentsAtCarryingValue', 500, CURRENT),
+      instant('LongTermDebtNoncurrent', 400, CURRENT),
+    ]
+    const orders = [
+      [...facts].sort((a, b) => Date.parse(a.periodEnd) - Date.parse(b.periodEnd)),
+      [...facts].sort((a, b) => Date.parse(b.periodEnd) - Date.parse(a.periodEnd)),
+      [facts[2], facts[0], facts[4], facts[1], facts[3]],
+    ]
+    const features = orders.map((ordered) => computeFundamentalFeatures({
+      quarterly: [fact('Revenues', 120, CURRENT), fact('Revenues', 100, YEAR_AGO)],
+      instant: comparableInstantFacts(ordered, `${CURRENT}T23:00:00.000Z`),
+    }).features.find((feature) => feature.name === 'netDebtChange'))
+
+    expect(features).toEqual([features[0], features[0], features[0]])
+    expect(features[0]).toMatchObject({ currentNetDebt: -100, priorNetDebt: 500, direction: 'improved' })
+    expect(new Set(features[0].current.map((item) => item.periodEnd))).toEqual(new Set([CURRENT]))
+  })
+
+  it('uses consolidated debt without double counting overlapping debt concepts', () => {
+    const values = [
+      ['CashAndCashEquivalentsAtCarryingValue', 100, CURRENT], ['CashAndCashEquivalentsAtCarryingValue', 80, YEAR_AGO],
+      ['LongTermDebt', 500, CURRENT], ['LongTermDebt', 600, YEAR_AGO],
+      ['LongTermDebtNoncurrent', 450, CURRENT], ['LongTermDebtNoncurrent', 540, YEAR_AGO],
+      ['DebtCurrent', 50, CURRENT], ['DebtCurrent', 60, YEAR_AGO],
+      ['LongTermDebtCurrent', 40, CURRENT], ['LongTermDebtCurrent', 55, YEAR_AGO],
+    ].map((args) => instant(...args))
+    const instants = comparableInstantFacts([values[6], values[0], values[8], values[4], values[2], values[7], values[1], values[9], values[5], values[3]], `${CURRENT}T23:00:00.000Z`)
+    const result = computeFundamentalFeatures({
+      quarterly: [fact('Revenues', 120, CURRENT), fact('Revenues', 100, YEAR_AGO)], instant: instants,
+    })
+    const netDebt = result.features.find((feature) => feature.name === 'netDebtChange')
+
+    expect(netDebt).toMatchObject({ currentNetDebt: 400, priorNetDebt: 520 })
+    expect(netDebt.current.map((item) => item.concept)).toEqual([
+      'us-gaap:CashAndCashEquivalentsAtCarryingValue', 'us-gaap:LongTermDebt',
+    ])
+  })
+
+  it('combines noncurrent debt with one deterministic current-debt concept', () => {
+    const values = [
+      ['CashAndCashEquivalentsAtCarryingValue', 200, CURRENT], ['CashAndCashEquivalentsAtCarryingValue', 150, YEAR_AGO],
+      ['LongTermDebtNoncurrent', 400, CURRENT], ['LongTermDebtNoncurrent', 500, YEAR_AGO],
+      ['DebtCurrent', 100, CURRENT], ['DebtCurrent', 120, YEAR_AGO],
+      ['LongTermDebtCurrent', 80, CURRENT], ['LongTermDebtCurrent', 90, YEAR_AGO],
+    ].map((args) => instant(...args))
+    const featureFor = (ordered) => computeFundamentalFeatures({
+      quarterly: [fact('Revenues', 120, CURRENT), fact('Revenues', 100, YEAR_AGO)],
+      instant: comparableInstantFacts(ordered, `${CURRENT}T23:00:00.000Z`),
+    }).features.find((feature) => feature.name === 'netDebtChange')
+    const ascending = featureFor(values)
+    const descending = featureFor([...values].reverse())
+
+    expect(descending).toEqual(ascending)
+    expect(ascending).toMatchObject({ currentNetDebt: 300, priorNetDebt: 470 })
+    expect(ascending.current.map((item) => item.concept)).toEqual([
+      'us-gaap:CashAndCashEquivalentsAtCarryingValue',
+      'us-gaap:LongTermDebtNoncurrent',
+      'us-gaap:DebtCurrent',
+    ])
+  })
 })
 
 // The issue is explicit: a "beat" requires an identifiable prior expectation,
