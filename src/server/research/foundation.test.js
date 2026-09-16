@@ -357,7 +357,7 @@ describe('zero-mention end-to-end acceptance', () => {
 
 describe('primary review prompt budget', () => {
   it('starts a new forward cohort for the materially different evidence packet', () => {
-    expect(RESEARCH_MODEL_VERSION).toBe('evidence-v6-gpt-5.4-mini')
+    expect(RESEARCH_MODEL_VERSION).toBe('evidence-v7-gpt-5.4-mini')
   })
 
   it('keeps core comparable facts while bounding documents and excerpts', () => {
