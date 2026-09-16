@@ -3,12 +3,17 @@
    named separately so this page can be denser and more tabular than the
    workspace without drifting off the palette. */
 .wallai-system.research-logs {
-  --rl-paper: var(--wa-cream); --rl-surface: var(--wa-soft); --rl-text: var(--wa-ink);
+  --rl-paper: var(--wa-soft); --rl-surface: var(--wa-cream); --rl-text: var(--wa-ink);
   --rl-muted: var(--wa-muted); --rl-line: var(--wa-line); --rl-accent: var(--wa-forest);
+  /* Status roles resolve to the app's own semantic colours. The previous
+     `--wa-warning` did not exist, so every partial run fell back to brand green
+     and read healthier than the warning it carried. */
+  --rl-positive: rgb(var(--color-accent));
+  --rl-warning: rgb(var(--color-warning));
   --rl-negative: var(--wa-error);
   min-height: calc(100svh - 64px); background: var(--rl-paper); color: var(--rl-text);
-  font-size: var(--wa-small); line-height: 1.6;
-  padding: 24px clamp(16px, 4vw, 48px) 64px;
+  font-size: var(--wa-small); line-height: 1.5;
+  padding: 20px clamp(16px, 4vw, 48px) 64px;
 }
 
 /* Dark follows the app rather than the landing palette, exactly as the research
@@ -17,133 +22,191 @@
   --rl-paper: rgb(var(--color-wall-bg)); --rl-surface: rgb(var(--color-wall-elevated));
   --rl-text: rgb(var(--color-text-primary)); --rl-muted: rgb(var(--color-text-secondary));
   --rl-line: rgb(var(--color-border)); --rl-accent: rgb(var(--color-accent));
+  --rl-positive: rgb(var(--color-gain));
   --rl-negative: rgb(var(--color-loss));
   color-scheme: dark;
 }
 
-.research-logs h1 { font-size: clamp(24px, 2.6vw, 36px); font-weight: 400; margin: 4px 0 8px; }
-.research-logs h2 { font-size: 16px; font-weight: 500; margin: 0; }
+.research-logs :is(h1, h2, h3, h4) { font-weight: 500; margin: 0; }
+.research-logs h1 { font-size: clamp(22px, 2.2vw, 30px); font-weight: 400; margin: 2px 0 4px; }
 .logs-eyebrow { display: inline-block; font-size: var(--wa-label, 12px); letter-spacing: .12em;
   text-transform: uppercase; color: var(--rl-muted); }
-.logs-lede { color: var(--rl-muted); max-width: 68ch; margin: 0 0 16px; }
-.logs-head { border-bottom: 1px solid var(--rl-line); padding-bottom: 16px; margin-bottom: 24px; }
-.logs-state { padding: 48px 0; }
-.logs-empty { color: var(--rl-muted); }
-.logs-schedule-warning {
-  border: 1px solid var(--wa-warning, var(--rl-accent)); border-radius: 14px;
-  padding: 14px 16px; margin: 0 0 20px; background: var(--rl-surface);
+.logs-lede { color: var(--rl-muted); margin: 0 0 14px; }
+.logs-head { border-bottom: 1px solid var(--rl-line); padding-bottom: 14px; margin-bottom: 14px; }
+.logs-empty, .logs-count { color: var(--rl-muted); }
+.logs-count { margin: 0 0 12px; font-variant-numeric: tabular-nums; }
+.logs-muted { color: var(--rl-muted); }
+
+/* Screen-reader-only: labels and the search note stay available without
+   spending vertical space on an operational page. */
+.logs-sr {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
-.logs-schedule-warning h2 { color: var(--wa-warning, var(--rl-accent)); }
-.logs-schedule-warning p { color: var(--rl-muted); margin: 4px 0 8px; }
-.logs-schedule-warning ul { margin: 0; padding-left: 20px; }
-.logs-schedule-warning li + li { margin-top: 4px; }
 
-.logs-filters { display: flex; align-items: center; gap: 8px; }
-.logs-filters label { color: var(--rl-muted); }
-.logs-filters input {
-  font: inherit; color: inherit; background: var(--rl-paper);
-  border: 1px solid var(--wa-border, var(--rl-line)); border-radius: 12px;
-  padding: 8px 12px; min-height: 44px; min-width: 12ch;
+/* ------------------------------------------------------------------ toolbar */
+/* One line on desktop, wrapping cleanly on mobile. Filters never dominate. */
+.logs-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.logs-segmented { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 2px;
+  border: 1px solid var(--rl-line); border-radius: 10px; background: var(--rl-surface); }
+.logs-segmented button {
+  font: inherit; cursor: pointer; border: 0; border-radius: 8px; background: transparent;
+  color: var(--rl-muted); min-height: 32px; padding: 4px 10px; font-variant-numeric: tabular-nums;
 }
-.logs-filters input:focus-visible { outline: 2px solid var(--wa-focus, var(--rl-accent)); outline-offset: 4px; }
-
-.logs-run { border: 1px solid var(--rl-line); border-radius: 20px; padding: 16px; margin-bottom: 20px; background: var(--rl-surface); }
-.logs-run-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; margin-bottom: 12px; color: var(--rl-muted); }
-.logs-status { border-radius: 9999px; border: 1px solid var(--rl-line); padding: 2px 12px; color: var(--rl-text); }
-.logs-status-partial, .logs-stage-degraded th { color: var(--wa-warning, var(--rl-accent)); }
-.logs-status-failed, .logs-stage-failed th { color: var(--rl-negative); }
-.logs-muted, .logs-legacy { color: var(--rl-muted); }
-.logs-legacy { margin: 4px 0 12px; }
-
-.logs-funnel {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 1px; overflow: hidden; border: 1px solid var(--rl-line); border-radius: 14px;
-  background: var(--rl-line); margin: 0 0 16px;
+.logs-segmented button:hover { color: var(--rl-text); }
+.logs-segmented button[aria-pressed="true"] { background: var(--rl-accent); color: var(--rl-paper); }
+.logs-select, .logs-search {
+  font: inherit; color: inherit; background: var(--rl-surface);
+  border: 1px solid var(--rl-line); border-radius: 10px; min-height: 36px; padding: 6px 10px;
 }
-.logs-funnel-step { display: flex; flex-direction: column; min-height: 74px; padding: 10px 12px; background: var(--rl-paper); }
-.logs-funnel-step span { color: var(--rl-muted); font-size: 12px; }
-.logs-funnel-step strong { font-size: 24px; font-weight: 500; line-height: 1.2; }
-.logs-funnel-note { color: var(--rl-muted); margin: -6px 0 16px; }
-.logs-funnel-note strong { color: var(--rl-text); font-weight: 500; }
+.logs-search { min-width: 15ch; flex: 0 1 200px; }
+.research-logs :is(button, summary, select, input, [role="tabpanel"]):focus-visible,
+.logs-table-wrap:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
 
-.logs-cutoffs, .logs-more { border: 1px solid var(--rl-line); border-radius: 12px; margin: 0 0 16px; }
-.logs-cutoffs > summary, .logs-more > summary { cursor: pointer; color: var(--rl-accent); padding: 9px 12px; }
-.logs-cutoff-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; padding: 4px 12px 14px; }
-.logs-cutoff-grid h3, .logs-candidate-group h3 { font-size: 14px; font-weight: 500; margin: 0 0 4px; }
+/* -------------------------------------------------------------- page alert */
+/* Same shape and restraint as a warning run card, so a missed slot reads as
+   part of the same system rather than as a second visual language. */
+.logs-alert {
+  border: 1px solid var(--rl-line); border-left: 3px solid var(--rl-warning);
+  border-radius: 12px; padding: 12px 16px; margin: 0 0 12px; background: var(--rl-surface);
+}
+.logs-alert-head { margin-bottom: 6px; }
+.logs-alert p { margin: 0; }
+.logs-alert .logs-issue { color: var(--rl-warning); }
+.logs-alert-list { margin: 8px 0 0; padding: 0; list-style: none; font-variant-numeric: tabular-nums; }
+.logs-alert-list li + li { margin-top: 3px; }
+
+/* ----------------------------------------------------------------- run card */
+/* Compact by default: a laptop screen shows several runs without scrolling
+   through a card each. Status colour is an accent, never a wash. */
+.logs-run {
+  border: 1px solid var(--rl-line); border-left: 3px solid var(--rl-line);
+  border-radius: 12px; padding: 12px 16px; margin-bottom: 10px; background: var(--rl-surface);
+}
+.logs-run-warning { border-left-color: var(--rl-warning); }
+.logs-run-negative { border-left-color: var(--rl-negative); }
+.logs-run-head { display: flex; align-items: center; gap: 12px; }
+.logs-run-head h2 { font-size: 15px; margin-right: auto; }
+.logs-run-meta { margin: 2px 0 0; color: var(--rl-muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+
+.logs-status {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  border-radius: 9999px; border: 1px solid var(--rl-line); padding: 2px 10px;
+  font-size: 12px; color: var(--rl-muted); white-space: nowrap;
+}
+.logs-status-glyph { font-size: 11px; line-height: 1; }
+.logs-tone-positive .logs-status-glyph { color: var(--rl-positive); }
+.logs-status.logs-tone-warning { color: var(--rl-warning); border-color: var(--rl-warning); }
+.logs-status.logs-tone-negative { color: var(--rl-negative); border-color: var(--rl-negative); }
+.logs-tone-positive { color: var(--rl-positive); }
+.logs-tone-negative { color: var(--rl-negative); }
+
+/* The one-line funnel: known numbers only, tabular so columns line up between
+   stacked run cards. */
+.logs-chain { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin: 8px 0 0; }
+.logs-chain-step { display: inline-flex; align-items: baseline; gap: 6px; color: var(--rl-muted); }
+.logs-chain-step strong { color: var(--rl-text); font-weight: 500; font-variant-numeric: tabular-nums; }
+.logs-chain-arrow { color: var(--rl-line); padding-right: 2px; }
+.logs-run-published { margin: 6px 0 0; font-variant-numeric: tabular-nums; }
+.logs-run-issue { margin-top: 8px; }
+.logs-run-issue p { margin: 0; }
+.logs-issue { margin: 0; color: var(--rl-text); font-weight: 500; }
+.logs-run-warning .logs-issue { color: var(--rl-warning); }
+.logs-run-negative .logs-issue { color: var(--rl-negative); }
+
+.logs-run-foot { display: flex; justify-content: flex-end; margin-top: 2px; }
+.logs-expand {
+  font: inherit; cursor: pointer; border: 0; background: transparent; color: var(--rl-accent);
+  min-height: 28px; padding: 2px 0 2px 8px; border-radius: 8px;
+}
+.logs-expand:disabled { cursor: default; color: var(--rl-muted); }
+.logs-run-body { border-top: 1px solid var(--rl-line); margin-top: 10px; }
+
+/* --------------------------------------------------------------------- tabs */
+.logs-tablist { display: flex; flex-wrap: wrap; gap: 2px; margin: 0 0 4px; }
+.logs-tablist button {
+  font: inherit; cursor: pointer; background: transparent; color: var(--rl-muted);
+  border: 0; border-bottom: 2px solid transparent; min-height: 36px; padding: 6px 10px;
+}
+.logs-tablist button:hover { color: var(--rl-text); }
+.logs-tablist button[aria-selected="true"] { color: var(--rl-text); border-bottom-color: var(--rl-accent); }
+.research-logs [role="tabpanel"] { padding-top: 4px; }
+.research-logs [role="tabpanel"]:focus-visible { outline-offset: -2px; }
+.logs-panel-body > :first-child { margin-top: 0; }
+.logs-block { margin-top: 14px; }
+.logs-block h3 { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--rl-muted); margin-bottom: 6px; }
+
+/* Facts read as a quiet grid, not as a stack of boxed cards. */
+.logs-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px 20px; margin: 8px 0 0; }
+.logs-facts dt { color: var(--rl-muted); font-size: 12px; }
+.logs-facts dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.logs-note { color: var(--rl-muted); font-size: 13px; margin: 8px 0 0; }
+.logs-note strong { color: var(--rl-text); font-weight: 500; }
+.logs-issue-list { margin: 0; padding-left: 18px; color: var(--rl-text); }
+.logs-issue-list li + li { margin-top: 3px; }
+
+/* Horizontal progression on desktop, stacked on mobile. The connector is drawn
+   by CSS so the direction can change with the layout; it is decorative either
+   way and the labels carry the meaning. */
+.logs-funnel { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0; padding: 0; list-style: none; }
+.logs-funnel-step { display: flex; align-items: center; gap: 8px; }
+.logs-funnel-cell { display: flex; align-items: baseline; gap: 6px; }
+.logs-funnel-label { color: var(--rl-muted); font-size: 12px; }
+.logs-funnel-step strong { font-size: 16px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.logs-funnel-arrow::before { content: '→'; color: var(--rl-line); }
+
+/* --------------------------------------------------------------- candidates */
+.logs-candidate-group { margin-top: 12px; }
+.logs-candidate-group h3 { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--rl-muted); margin-bottom: 4px; }
+.logs-candidate-group h3 span { font-weight: 400; }
+.logs-candidate { border-bottom: 1px solid var(--rl-line); }
+.logs-candidate > summary { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 8px 0; }
+.logs-candidate > summary::after { content: '+'; color: var(--rl-accent); flex: none; }
+.logs-candidate[open] > summary::after { content: '−'; }
+.logs-candidate-identity { margin-right: auto; min-width: 0; }
+.logs-candidate-outcome { color: var(--rl-muted); font-size: 12px; flex: none; }
+.logs-symbol { font-weight: 500; font-variant-numeric: tabular-nums; }
+.logs-company { color: var(--rl-muted); margin-left: 8px; font-size: 12px; }
+.logs-candidate-facts-line { display: block; color: var(--rl-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.logs-evidence { margin: 6px 0; padding-left: 18px; }
+.logs-subline { display: block; color: var(--rl-muted); font-size: 12px; font-weight: 400; overflow-wrap: anywhere; }
+
+/* Disclosures are the deepest layer only: the raw record and the long tails. */
+.logs-disclosure { margin: 8px 0; }
+.research-logs summary { cursor: pointer; }
+.logs-disclosure > summary { color: var(--rl-accent); padding: 6px 0; }
+.logs-cutoff-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; padding: 4px 0 8px; }
+.logs-cutoff-grid h4 { font-size: 13px; margin-bottom: 4px; }
 .logs-cutoff-grid p { color: var(--rl-muted); margin: 0 0 6px; }
-.logs-cutoff-grid ol { margin: 0; padding-left: 24px; }
-.logs-cutoff-grid li { margin-bottom: 7px; }
+.logs-cutoff-grid ol { margin: 0; padding-left: 20px; }
+.logs-cutoff-grid li { margin-bottom: 6px; }
 .logs-cutoff-grid li span { display: block; color: var(--rl-muted); font-size: 12px; }
-.logs-candidate-group { margin-top: 16px; }
-.logs-candidate-group h3 span { color: var(--rl-muted); font-weight: 400; }
-.logs-more .logs-table-wrap { padding: 0 12px 8px; }
 
 /* Wide tables scroll inside their own container so the page body never does. */
-.logs-table-wrap { overflow-x: auto; margin-bottom: 12px; }
-.research-logs table { width: 100%; border-collapse: collapse; text-align: left; }
+.logs-table-wrap { overflow-x: auto; margin: 6px 0 10px; }
+.research-logs table { width: 100%; border-collapse: collapse; text-align: left; font-variant-numeric: tabular-nums; }
 .research-logs caption { text-align: left; color: var(--rl-muted); padding-bottom: 6px; }
-.research-logs th, .research-logs td { border-bottom: 1px solid var(--rl-line); padding: 8px 12px 8px 0; vertical-align: top; white-space: nowrap; }
+.research-logs th, .research-logs td { border-bottom: 1px solid var(--rl-line); padding: 6px 12px 6px 0; vertical-align: top; white-space: nowrap; }
 .research-logs thead th { color: var(--rl-muted); font-weight: 500; }
 .research-logs tbody th { font-weight: 500; }
 .research-logs td:last-child { white-space: normal; color: var(--rl-muted); }
-.logs-symbol, .logs-company, .logs-security-id, .logs-subline { display: block; }
-.logs-company, .logs-security-id, .logs-subline { color: var(--rl-muted); font-size: 12px; font-weight: 400; }
-.logs-security-id { max-width: 26ch; overflow: hidden; text-overflow: ellipsis; }
-.logs-yes { color: var(--rl-accent); }
-.logs-no { color: var(--rl-negative); }
-.logs-evidence { margin: 6px 0; padding-left: 18px; }
-.logs-evidence code { display: block; color: var(--rl-muted); max-width: 34ch; overflow: hidden; text-overflow: ellipsis; }
-
-@media (max-width: 640px) {
-  .logs-funnel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.logs-stage-degraded th { color: var(--rl-warning); }
+.logs-stage-failed th { color: var(--rl-negative); }
+.research-logs pre {
+  white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 420px; overflow: auto;
+  padding: 10px; background: var(--rl-paper); border: 1px solid var(--rl-line); border-radius: 8px;
 }
 
-/* Keep the first scan quiet; disclosures hold the full diagnostic record. */
-.logs-filters { flex-wrap: wrap; align-items: flex-end; gap: 16px 24px; }
-.logs-filters fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
-.logs-filters legend, .logs-ticker-filter label { display: block; font-size: 12px; color: var(--rl-muted); margin-bottom: 6px; }
-.logs-filter-options { display: flex; flex-wrap: wrap; gap: 4px; }
-.logs-filter-options button, .logs-expand {
-  font: inherit; cursor: pointer; border: 1px solid var(--rl-line); border-radius: 8px;
-  background: transparent; color: var(--rl-text); min-height: 40px; padding: 7px 12px;
-}
-.logs-filter-options button[aria-pressed="true"] { background: var(--rl-accent); color: var(--rl-paper); border-color: var(--rl-accent); }
-.research-logs button:focus-visible, .research-logs summary:focus-visible, .logs-table-wrap:focus-visible {
-  outline: 2px solid var(--rl-accent); outline-offset: 3px;
-}
-.logs-run { padding: 20px; }
-.logs-run-head h2 { color: var(--rl-text); margin-right: auto; }
-.logs-run-head time { font-size: 13px; }
-.logs-status { font-size: 12px; }
-.logs-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 16px 0; }
-.logs-summary dt { color: var(--rl-muted); font-size: 12px; }
-.logs-summary dd { margin: 0; font-size: 26px; line-height: 1.4; font-variant-numeric: tabular-nums; }
-.logs-warnings { padding: 10px 12px 10px 28px; margin: 12px 0; border-left: 2px solid var(--wa-warning, var(--rl-accent)); background: var(--rl-paper); border-radius: 0 8px 8px 0; font-size: 13px; }
-.logs-warnings li + li { margin-top: 4px; }
-.logs-expand { color: var(--rl-accent); padding-left: 0; border: 0; }
-.logs-expand:disabled { cursor: default; }
-.logs-run-body { border-top: 1px solid var(--rl-line); padding-top: 16px; }
-.logs-handoff { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--rl-muted); margin-bottom: 12px; }
-.research-logs summary { cursor: pointer; }
-.logs-candidates > summary, .logs-technical > summary { color: var(--rl-accent); padding: 10px 0; }
-.logs-technical { border-top: 1px solid var(--rl-line); margin-top: 12px; }
-.logs-candidate { border: 1px solid var(--rl-line); border-radius: 12px; margin: 8px 0; padding: 0 14px; background: var(--rl-paper); }
-.logs-candidate > summary { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; }
-.logs-candidate > summary::after { content: '+'; color: var(--rl-accent); }
-.logs-candidate[open] > summary::after { content: '−'; }
-.logs-candidate > summary > span:first-child { margin-right: auto; }
-.logs-candidate-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px 24px; margin: 12px 0 16px; }
-.logs-candidate-facts dt { color: var(--rl-muted); font-size: 12px; }
-.logs-candidate-facts dd { margin: 0; overflow-wrap: anywhere; }
-.logs-candidate-note, .logs-search-note { color: var(--rl-muted); font-size: 13px; }
-.research-logs pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 480px; overflow: auto; padding: 12px; background: var(--rl-paper); border: 1px solid var(--rl-line); border-radius: 8px; }
-.logs-evidence code { max-width: none; overflow: visible; overflow-wrap: anywhere; }
-.logs-more .logs-candidate { margin: 8px 12px; }
 @media (max-width: 640px) {
-  .logs-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-  .logs-run { padding: 14px; border-radius: 14px; }
-  .logs-run-head { gap: 8px; }
-  .logs-run-head h2 { flex-basis: 55%; }
-  .logs-candidate-facts { grid-template-columns: minmax(0, 1fr); }
-  .logs-filter-options button { min-height: 44px; }
+  .wallai-system.research-logs { padding: 16px 16px 48px; }
+  .logs-run { padding: 12px; }
+  .logs-run-head { flex-wrap: wrap; gap: 8px; }
+  .logs-run-head h2 { flex-basis: 100%; }
+  .logs-search { flex: 1 1 100%; }
+  .logs-facts { grid-template-columns: minmax(0, 1fr); }
+  /* Stacked funnel: the connector points down the column instead of across. */
+  .logs-funnel { flex-direction: column; align-items: flex-start; gap: 0; }
+  .logs-funnel-step { flex-direction: column; align-items: flex-start; gap: 0; }
+  .logs-funnel-arrow::before { content: '↓'; }
+  .logs-segmented button, .logs-tablist button, .logs-expand { min-height: 40px; }
 }
