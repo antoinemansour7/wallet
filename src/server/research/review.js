@@ -22,10 +22,21 @@ export async function prepareDiscovery(signals, attentionBoard, foundation, opti
 }
 
 const clean = (bytes) => bytes.toString('utf8').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
-const PRIMARY_DOCUMENT_LIMIT = 2
-const PRIMARY_DOCUMENT_CHARS = 8000
+const PRIMARY_DOCUMENT_LIMIT = 1
+const PRIMARY_DOCUMENT_CHARS = 3000
+const PRIMARY_SOURCE_EXCERPT_CHARS = 1200
+const PRIMARY_FACT_LIMIT = 16
+const CORE_FACT = /(revenue|sales|grossprofit|costof(revenue|goods)|operatingincome|netincome|earningspershare|cashandcashequivalents|netcashprovidedbyusedinoperatingactivities|researchanddevelopment)/i
 
-function primaryModelCandidates(candidates) {
+function primaryFacts(facts = []) {
+  return facts
+    .map((fact, index) => ({ fact, index, core: CORE_FACT.test(fact.concept || '') }))
+    .sort((a, b) => Number(b.core) - Number(a.core) || a.index - b.index)
+    .slice(0, PRIMARY_FACT_LIMIT)
+    .map(({ fact }) => fact)
+}
+
+export function primaryModelCandidates(candidates) {
   return candidates.map((candidate) => ({
     securityId: candidate.securityId,
     ticker: candidate.ticker,
@@ -34,10 +45,10 @@ function primaryModelCandidates(candidates) {
       id: e.id,
       strategyFamily: e.strategyFamily,
       decision: e.decision,
-      observedFacts: e.observedFacts,
+      observedFacts: primaryFacts(e.observedFacts),
       interpretation: e.interpretation,
       publicAt: e.publicAt,
-      source: { documentId: e.source?.documentId, url: e.source?.url, excerpt: e.source?.excerpt },
+      source: { documentId: e.source?.documentId, url: e.source?.url, excerpt: e.source?.excerpt?.slice(0, PRIMARY_SOURCE_EXCERPT_CHARS) },
     })),
     documents: candidate.documents.slice(0, PRIMARY_DOCUMENT_LIMIT).map((document) => ({
       ...document,

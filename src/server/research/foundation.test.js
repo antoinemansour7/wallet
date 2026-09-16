@@ -9,7 +9,7 @@ import { createSecurityMaster, refreshSecurityMaster, referenceSecurity, withSec
 import { createEvidence, archiveEvidence, earliestAction, replayEvidence } from './evidence.js'
 import { admitCandidates } from './admission.js'
 import { ingestIssuer, comparableQuarterlyFacts, parseDailyIndex } from './secDisclosures.js'
-import { prepareDiscovery } from './review.js'
+import { prepareDiscovery, primaryModelCandidates } from './review.js'
 import { extractTickersFromText } from '../xSignals.js'
 import { selectCandidates, extractTickers } from '../researchEngine.js'
 import { sessionCheckpoints, computeLearningStats, EVALUATION_VERSION, RESEARCH_MODEL_VERSION } from '../researchPerformance.js'
@@ -302,6 +302,32 @@ describe('zero-mention end-to-end acceptance', () => {
     expect(reviewed.picksByHorizon[5]).toBeUndefined()
     expect(await archive.list('admissions', reviewedAt)).toHaveLength(1)
     expect(await archive.list('reviews', reviewedAt)).toHaveLength(1)
+  })
+})
+
+describe('primary review prompt budget', () => {
+  it('keeps core comparable facts while bounding documents and excerpts', () => {
+    const incidental = Array.from({ length: 59 }, (_, index) => ({ concept: `OtherFact${index}`, value: index }))
+    const revenue = { concept: 'us-gaap:Revenues', value: 120, priorComparable: { value: 100 } }
+    const [candidate] = primaryModelCandidates([{
+      securityId: 'figi:QUIET', ticker: 'QUIET', horizon: 20,
+      evidence: [{
+        id: 'evidence-1', strategyFamily: 'fundamentals', decision: { status: 'eligible' },
+        observedFacts: [...incidental, revenue], interpretation: { thesis: 'Revenue improved' }, publicAt,
+        source: { documentId: 'document-1', url: 'https://www.sec.gov/filing', excerpt: 'e'.repeat(2000) },
+      }],
+      documents: [
+        { id: 'document-1', text: 'a'.repeat(5000), truncated: false },
+        { id: 'document-2', text: 'b'.repeat(5000), truncated: false },
+      ],
+      omittedDocuments: 0, measurements: {},
+    }])
+    expect(candidate.evidence[0].observedFacts).toHaveLength(16)
+    expect(candidate.evidence[0].observedFacts).toContainEqual(revenue)
+    expect(candidate.evidence[0].source.excerpt).toHaveLength(1200)
+    expect(candidate.documents).toHaveLength(1)
+    expect(candidate.documents[0].text).toHaveLength(3000)
+    expect(candidate.documents[0].truncated).toBe(true)
   })
 })
 

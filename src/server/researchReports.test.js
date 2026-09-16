@@ -168,7 +168,7 @@ describe('generateResearchReports', () => {
     ])
   })
 
-  it('uses OpenAI web search with a two-call default concurrency in production mode', async () => {
+  it('uses OpenAI web search with a three-call default concurrency in production mode', async () => {
     process.env.RESEARCH_MODEL_PROVIDER = 'openai'
     process.env.OPENAI_API_KEY = 'openai-test-key'
     let inFlight = 0
@@ -184,7 +184,7 @@ describe('generateResearchReports', () => {
       }
     })
     const results = await generateResearchReports(tickerList('AAA', 'BBB', 'CCC'))
-    expect(peak).toBe(2)
+    expect(peak).toBe(3)
     expect(results[0]).toMatchObject({ ticker: 'AAA', report: 'AAA report', citations: ['https://example.com/source'] })
     expect(createResponse.mock.calls[0][0].tools).toEqual([{ type: 'web_search' }])
     expect(createMessage).not.toHaveBeenCalled()
