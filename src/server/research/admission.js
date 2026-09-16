@@ -1,4 +1,4 @@
-import { reviewBudgets, STRATEGIES } from './policy.js'
+import { ADMISSION_POLICY_VERSION, enabledDiscoveryStrategies, reviewBudgets, STRATEGIES } from './policy.js'
 import { reviewPriorityModel, REVIEW_PRIORITY_VERSION } from './reviewPriority.js'
 
 const unique = (values) => [...new Set(values.filter(Boolean))]
@@ -49,8 +49,12 @@ function candidateDetails(candidate, extra = {}) {
   }
 }
 
-export function admitCandidates(candidates, { budgets = reviewBudgets(), asOf = Date.now() } = {}) {
+export function admitCandidates(candidates, { budgets = reviewBudgets(), asOf = Date.now(), enabledStrategies = enabledDiscoveryStrategies() } = {}) {
   budgets = reviewBudgets(budgets)
+  if (!Array.isArray(enabledStrategies) || enabledStrategies.some((family) => !Object.hasOwn(STRATEGIES, family))) {
+    throw new Error('Enabled discovery strategies must be known strategy families')
+  }
+  const enabled = new Set(enabledStrategies)
   const decisionTime = new Date(asOf).getTime()
   if (!Number.isFinite(decisionTime)) throw new Error('Invalid admission time')
   const known = (e) => Date.parse(e.availableAt) <= decisionTime && Date.parse(e.publicAt) <= decisionTime
@@ -65,14 +69,26 @@ export function admitCandidates(candidates, { budgets = reviewBudgets(), asOf = 
     } else merged.set(candidate.securityId, { ...candidate, evidence: [...candidate.evidence] })
   }
   for (const candidate of merged.values()) {
-    const adverse = candidate.evidence.find((e) => known(e) && (e.decision.status === 'rejected' || e.interpretation.adverse === true))
+    // Disabled strategies remain readable in the immutable archive, but cannot
+    // affect a new decision. This also closes the 14-day window in which old
+    // placeholder filing/Form 4 evidence would otherwise remain reviewable.
+    const enabledEvidence = candidate.evidence.filter((e) => enabled.has(e.strategyFamily))
+    const adverse = enabledEvidence.find((e) => known(e) && (e.decision.status === 'rejected' || e.interpretation.adverse === true))
     if (adverse) { rejected.push(candidateDetails(candidate, { reason: adverse.decision.reason, evidenceId: adverse.id })); continue }
-    const streams = Object.keys(STRATEGIES).filter((family) => candidate.evidence.some((e) => e.strategyFamily === family && e.decision.status === 'eligible' && known(e)))
-    if (!streams.length) { rejected.push(candidateDetails(candidate, { reason: 'evidence_not_actionable_yet' })); continue }
-    const eligibleEvidence = candidate.evidence.filter((e) => streams.includes(e.strategyFamily) && known(e))
+    const streams = Object.keys(STRATEGIES).filter((family) => enabled.has(family)
+      && enabledEvidence.some((e) => e.strategyFamily === family && e.decision.status === 'eligible' && known(e)))
+    if (!streams.length) {
+      const deferred = candidate.evidence.some((e) => !enabled.has(e.strategyFamily) && e.decision.status === 'eligible' && known(e))
+      rejected.push(candidateDetails(candidate, { reason: deferred ? 'strategy_not_enabled' : 'evidence_not_actionable_yet' }))
+      continue
+    }
+    const eligibleEvidence = enabledEvidence.filter((e) => streams.includes(e.strategyFamily) && known(e))
     const legacyPriority = Math.max(...eligibleEvidence.map((e) => e.priority))
     const priorityModel = reviewPriorityModel(candidate, { asOf: decisionTime, evidence: eligibleEvidence })
-    eligible.push({ ...candidate, streams, legacyPriority, priority: priorityModel.score, priorityModel })
+    // Downstream review reads candidate.evidence directly. Carry only enabled,
+    // cutoff-valid evidence so a disabled 60-session record cannot bypass the
+    // admission stream list and reach review through its horizon alone.
+    eligible.push({ ...candidate, evidence: eligibleEvidence, streams, legacyPriority, priority: priorityModel.score, priorityModel })
   }
   eligible.sort(rankOrder)
   const selected = new Map(), used = Object.fromEntries(Object.keys(budgets).map((key) => [key, 0]))
@@ -164,6 +180,7 @@ export function admitCandidates(candidates, { budgets = reviewBudgets(), asOf = 
     ...extra,
   })
   return { candidates: admitted, audit: {
+    admissionPolicy: { version: ADMISSION_POLICY_VERSION, enabledStrategies: [...enabled] },
     priorityModel: { version: REVIEW_PRIORITY_VERSION, usedForAdmission: true },
     budgets,
     reservedUsed: used,

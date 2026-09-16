@@ -5,6 +5,11 @@ export const EVIDENCE_VERSION = 'discovery-evidence-v1'
 // so they are a different cohort and must not be pooled with these; the version
 // check in researchPerformance.js is what enforces that.
 export const HORIZON_POLICY_VERSION = 'strategy-horizons-v2'
+// This is separate from the horizon policy because a strategy can remain
+// readable for historical cohorts while being unavailable to new production
+// decisions. Enabling a deferred stream is a policy change: bump this version
+// when its validated evidence extractor and experiment are ready.
+export const ADMISSION_POLICY_VERSION = 'strategy-admission-v1'
 export const HISTORY_RETENTION_SECONDS = 400 * 86400
 export const HISTORY_LIMIT = 400
 // `horizon` is the horizon a strategy is ranked and published on. `horizons` is
@@ -20,15 +25,23 @@ export const HISTORY_LIMIT = 400
 // list is a policy change and requires bumping HORIZON_POLICY_VERSION, which
 // starts a new cohort rather than relabelling the old one.
 export const STRATEGIES = Object.freeze({
-  attention: Object.freeze({ horizon: 5, horizons: Object.freeze([5]), budget: 12 }),
-  fundamentals: Object.freeze({ horizon: 20, horizons: Object.freeze([5, 20]), budget: 10 }),
-  filing_changes: Object.freeze({ horizon: 60, horizons: Object.freeze([60]), budget: 5 }),
-  insider: Object.freeze({ horizon: 60, horizons: Object.freeze([60]), budget: 3 }),
+  attention: Object.freeze({ horizon: 5, horizons: Object.freeze([5]), budget: 12, admissionEnabled: true }),
+  fundamentals: Object.freeze({ horizon: 20, horizons: Object.freeze([5, 20]), budget: 10, admissionEnabled: true }),
+  // #114 keeps these streams deferred until #107 proves incremental value and
+  // each stream has its own validated extractor. Their definitions stay here so
+  // archived records remain interpretable; generic filings cannot enter a new
+  // admission or publication merely because their form maps to a strategy.
+  filing_changes: Object.freeze({ horizon: 60, horizons: Object.freeze([60]), budget: 5, admissionEnabled: false }),
+  insider: Object.freeze({ horizon: 60, horizons: Object.freeze([60]), budget: 3, admissionEnabled: false }),
 })
 export function strategyPolicy(family) {
   const policy = Object.hasOwn(STRATEGIES, family) && STRATEGIES[family]
   if (!policy) throw new Error(`Unknown discovery strategy: ${family}`)
   return policy
+}
+
+export function enabledDiscoveryStrategies() {
+  return Object.entries(STRATEGIES).filter(([, policy]) => policy.admissionEnabled).map(([family]) => family)
 }
 
 /** Every horizon this strategy predeclared for evaluation, ranking horizon first. */

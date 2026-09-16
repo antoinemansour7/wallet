@@ -2,6 +2,7 @@ import { digest } from './archive.js'
 import { issuerId } from './securityMaster.js'
 import { createEvidence, archiveEvidence } from './evidence.js'
 import { comparableInstantFacts, computeFundamentalFeatures, improvementPriority, summarizeImprovement } from './fundamentals.js'
+import { enabledDiscoveryStrategies } from './policy.js'
 
 const FORMS = new Set(['10-Q', '10-Q/A', '10-K', '10-K/A', '8-K', '8-K/A', '4', '4/A'])
 const day = 86400000
@@ -169,7 +170,11 @@ export async function ingestIssuer(archive, master, cik, { client = createSecCli
       : { features: [], contamination: [], periodEnd: null, priorPeriodEnd: null }
     const improvement = summarizeImprovement(fundamentals)
     const excerpt = plain(bytes).slice(0, 1500) || `SEC ${filing.form} disclosure ${filing.accession}`
-    const families = filing.form.startsWith('4') ? ['insider'] : filing.form.startsWith('8-K') ? ['fundamentals'] : ['filing_changes', ...(quarters.length ? ['fundamentals'] : [])]
+    const enabled = new Set(enabledDiscoveryStrategies())
+    const proposedFamilies = filing.form.startsWith('4') ? ['insider'] : filing.form.startsWith('8-K') ? ['fundamentals'] : ['filing_changes', ...(quarters.length ? ['fundamentals'] : [])]
+    // Raw filings and exhibits are archived above regardless. Evidence enters
+    // production only for strategies whose validated admission policy is on.
+    const families = proposedFamilies.filter((family) => enabled.has(family))
     for (const security of securities) for (const family of families) {
       const evidence = createEvidence({ security, strategyFamily: family,
         source: { documentId: document.id, accession: filing.accession, url: primaryUrl, excerpt, factSnapshotId: factsDocument.id, completeSubmissionId: complete.id, exhibitIds: result.documents.filter((d) => d.accession === filing.accession && /^EX-99/.test(d.form)).map((d) => d.id) },
