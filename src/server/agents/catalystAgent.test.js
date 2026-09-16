@@ -13,6 +13,12 @@ vi.mock('@anthropic-ai/sdk', () => {
   }
 })
 
+vi.mock('openai', () => ({
+  default: class MockOpenAI {
+    constructor() { this.responses = { create: (...args) => mockCreate(...args) } }
+  },
+}))
+
 vi.mock('exa-js', () => {
   return {
     default: class MockExa {
@@ -41,6 +47,8 @@ describe('runCatalystAgent', () => {
   afterEach(() => {
     delete process.env.ANTHROPIC_API_KEY
     delete process.env.EXA_API_KEY
+    delete process.env.OPENAI_API_KEY
+    delete process.env.RESEARCH_MODEL_PROVIDER
     vi.clearAllMocks()
   })
 
@@ -169,6 +177,23 @@ describe('runCatalystAgent', () => {
     ]) }] })
     const result = await runCatalystAgent([{ ticker: 'MU' }, { ticker: 'ASTS' }])
     expect(result.every((pick) => pick.catalystVerified === false)).toBe(true)
+  })
+
+  it('uses OpenAI structured output in production mode', async () => {
+    process.env.RESEARCH_MODEL_PROVIDER = 'openai'
+    process.env.OPENAI_API_KEY = 'openai-test-key'
+    const eventDate = new Date(Date.now() + 86400000).toISOString().slice(0, 10)
+    mockCreate.mockResolvedValue({
+      status: 'completed',
+      output_text: JSON.stringify({ items: [{
+        ticker: 'MU', catalystVerified: true, catalyst: 'Earnings tomorrow', timeline: 'tomorrow', eventDate,
+        pricedIn: false, confidence: 8, sources: ['https://example.com'],
+      }] }),
+      usage: {},
+    })
+    const [result] = await runCatalystAgent([{ ticker: 'MU', reason: 'Test' }])
+    expect(result).toMatchObject({ ticker: 'MU', catalystVerified: true, catalystConfidence: 8 })
+    expect(mockCreate.mock.calls[0][0].text.format).toMatchObject({ type: 'json_schema', name: 'catalyst_verifications' })
   })
 
 })

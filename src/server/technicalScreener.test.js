@@ -4,6 +4,7 @@ import {
   withSectorFilter,
   FOCUS_SECTOR_FILTERS,
   parseFinvizTickers,
+  parseNasdaqCandidates,
 } from './technicalScreener'
 
 // We can't easily unit-test fetchBreakoutCandidates without mocking Redis + Finviz HTML.
@@ -71,6 +72,30 @@ describe('candidatesToSignals', () => {
       { ticker: 'NVDA', setupType: 'squeeze+breakout', source: 'finviz-screener' },
     ])[0].themes
     expect(themes).toEqual(['squeeze', 'breakout'])
+  })
+
+  it('describes Nasdaq momentum using the observed price move and volume', () => {
+    const [signal] = candidatesToSignals([{
+      ticker: 'NVDA', setupType: 'momentum', source: 'nasdaq-screener', changePercent: 3.25, volume: 1234567,
+    }])
+    expect(signal).toMatchObject({ themes: ['momentum'], sourceLabels: ['nasdaq'], username: 'nasdaq-screener' })
+    expect(signal.text).toContain('3.25%')
+    expect(signal.text).toContain('1,234,567 shares')
+  })
+})
+
+describe('Nasdaq stock screen', () => {
+  it('keeps liquid, tradable gainers and ranks focus industries first', () => {
+    const rows = [
+      { symbol: 'BANK', lastsale: '$20.00', pctchange: '8.0%', volume: '900,000', marketCap: '900000000', sector: 'Finance', industry: 'Banks' },
+      { symbol: 'NVDA', lastsale: '$100.00', pctchange: '+2.5%', volume: '2,000,000', marketCap: '1000000000', sector: 'Technology', industry: 'Semiconductors' },
+      { symbol: 'PENNY', lastsale: '$2.00', pctchange: '12%', volume: '2000000', marketCap: '500000000', sector: 'Technology', industry: 'Software' },
+      { symbol: 'THIN', lastsale: '$12.00', pctchange: '4%', volume: '200000', marketCap: '500000000', sector: 'Technology', industry: 'Software' },
+    ]
+    expect(parseNasdaqCandidates(rows)).toEqual([
+      expect.objectContaining({ ticker: 'NVDA', setupType: 'momentum', source: 'nasdaq-screener' }),
+      expect.objectContaining({ ticker: 'BANK' }),
+    ])
   })
 })
 

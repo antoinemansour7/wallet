@@ -18,11 +18,15 @@ vi.mock('@upstash/redis', () => ({
 import { fetchBreakoutCandidates } from './technicalScreener.js'
 
 beforeEach(() => {
+  process.env.TECHNICAL_SCREENER_PROVIDER = 'finviz'
   mocks.values.clear()
   vi.clearAllMocks()
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 403 })))
 })
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  delete process.env.TECHNICAL_SCREENER_PROVIDER
+  vi.unstubAllGlobals()
+})
 
 describe('Finviz failure handling', () => {
   it('stops after the broad probes when the provider blocks Vercel', async () => {

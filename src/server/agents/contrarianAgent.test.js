@@ -13,6 +13,12 @@ vi.mock('@anthropic-ai/sdk', () => {
   }
 })
 
+vi.mock('openai', () => ({
+  default: class MockOpenAI {
+    constructor() { this.responses = { create: (...args) => mockCreate(...args) } }
+  },
+}))
+
 vi.mock('exa-js', () => {
   return {
     default: class MockExa {
@@ -38,6 +44,8 @@ describe('runContrarianAgent', () => {
   afterEach(() => {
     delete process.env.ANTHROPIC_API_KEY
     delete process.env.EXA_API_KEY
+    delete process.env.OPENAI_API_KEY
+    delete process.env.RESEARCH_MODEL_PROVIDER
     vi.clearAllMocks()
   })
 
@@ -120,5 +128,16 @@ describe('runContrarianAgent', () => {
 
     const result = await runContrarianAgent([{ ticker: 'MU', reason: 'Test', conviction: 7 }])
     expect(result[0].bearCase).toBe('Basic risk')
+  })
+
+  it('uses OpenAI structured output in production mode', async () => {
+    process.env.RESEARCH_MODEL_PROVIDER = 'openai'
+    process.env.OPENAI_API_KEY = 'openai-test-key'
+    mockCreate.mockResolvedValue({
+      status: 'completed', output_text: JSON.stringify({ items: [{ ticker: 'MU', bearCase: 'OpenAI risk review.', riskScore: 6 }] }), usage: {},
+    })
+    const [result] = await runContrarianAgent([{ ticker: 'MU', reason: 'Test', conviction: 7 }])
+    expect(result).toMatchObject({ ticker: 'MU', bearCase: 'OpenAI risk review.', riskScore: 6 })
+    expect(mockCreate.mock.calls[0][0].text.format).toMatchObject({ type: 'json_schema', name: 'contrarian_reviews' })
   })
 })

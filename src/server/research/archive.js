@@ -5,7 +5,18 @@ import { createObjectStore } from './objectStore.js'
 export const digest = (value) => createHash('sha256').update(typeof value === 'string' || Buffer.isBuffer(value) ? value : JSON.stringify(value)).digest('hex')
 const PREFIX = 'research:archive:v1'
 const RECORD_STORAGE = 'r2-json-gzip-v1'
-const EXTERNAL_RECORD_KINDS = new Set(['facts', 'evidence'])
+// Large immutable research artifacts belong in R2, not in Redis. Evaluation
+// inputs/runs can each be several megabytes and were the main reason the free
+// Upstash database reached its storage cap. Redis retains only small, indexed
+// pointers; createArchive transparently reads the payload from R2.
+export const EXTERNAL_RECORD_KINDS = new Set([
+  'evaluation-job-input',
+  'evaluation-input',
+  'evaluation-run',
+  'admission',
+  'facts',
+  'evidence',
+])
 
 // Append-only application storage: content-addressed blobs and SET NX records,
 // with no TTL. Original bytes, revisions and indexes survive all test horizons.
@@ -13,6 +24,10 @@ const EXTERNAL_RECORD_KINDS = new Set(['facts', 'evidence'])
 // Operators can still delete data; use bucket retention/backups for recovery.
 export function createArchive(redis, { objectStore } = {}) {
   if (!redis) throw new Error('Disclosure archive requires persistent storage')
+  // Most unit tests use an in-memory Redis alone. Keep those fixtures inline
+  // unless a test supplies an object store explicitly; production still fails
+  // closed if R2 is not configured.
+  const externalStorageAvailable = Boolean(objectStore) || process.env.NODE_ENV !== 'test'
   const blobs = () => (objectStore ||= createObjectStore())
   const isRecordPointer = (value) => value?.storage === RECORD_STORAGE && typeof value.key === 'string' && typeof value.sha256 === 'string'
   async function readStoredRecord(value) {
@@ -30,7 +45,7 @@ export function createArchive(redis, { objectStore } = {}) {
   }
   async function put(kind, id, record, index = kind, availableAt = Date.now()) {
     const key = `${PREFIX}:${kind}:${id}`
-    const redisValue = EXTERNAL_RECORD_KINDS.has(kind) ? await externalizeRecord(kind, record) : record
+    const redisValue = EXTERNAL_RECORD_KINDS.has(kind) && externalStorageAvailable ? await externalizeRecord(kind, record) : record
     const result = await redis.set(key, redisValue, { nx: true })
     const stored = result ? record : await readStoredRecord(await redis.get(key))
     if (!stored) throw new Error('Archive write did not persist')
@@ -108,7 +123,7 @@ export function createArchive(redis, { objectStore } = {}) {
     return { id, sha256: document.sha256, migrated: previous.storage !== 'r2', deletedChunks: deleteRedisChunks ? chunks : 0 }
   }
   async function migrateRecord(kind, id) {
-    if (!EXTERNAL_RECORD_KINDS.has(kind)) throw new Error('Only facts and evidence records can be migrated')
+    if (!EXTERNAL_RECORD_KINDS.has(kind)) throw new Error(`Record kind ${kind} is not configured for external storage`)
     const redisKey = `${PREFIX}:${kind}:${id}`
     const previous = await redis.get(redisKey)
     if (!previous) throw new Error('Missing archived record')

@@ -9,7 +9,7 @@ vi.mock('openai', () => ({
   },
 }))
 
-import { generateStructuredArray, usesOpenAIResearch } from './openaiModel.js'
+import { generateStructuredArray, generateWebReport, usesOpenAIResearch } from './openaiModel.js'
 
 describe('OpenAI research model', () => {
   const originalKey = process.env.OPENAI_API_KEY
@@ -61,5 +61,22 @@ describe('OpenAI research model', () => {
     await expect(generateStructuredArray({
       name: 'test_ranking', instructions: 'Rank.', input: 'ABC', itemSchema: { type: 'string' },
     })).rejects.toThrow('max_output_tokens')
+  })
+
+  it('uses Responses web search and collects cited URLs', async () => {
+    mocks.create.mockResolvedValue({
+      status: 'completed',
+      model: 'gpt-5.4-mini-2026-03-17',
+      output_text: 'Grounded report',
+      output: [{ content: [{ annotations: [{ type: 'url_citation', url: 'https://example.com/filing' }] }] }],
+      usage: { input_tokens: 200, output_tokens: 80, total_tokens: 280 },
+    })
+    await expect(generateWebReport({ input: 'Research ABC' })).resolves.toEqual({
+      report: 'Grounded report', citations: ['https://example.com/filing'],
+    })
+    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
+      tools: [{ type: 'web_search' }],
+      store: false,
+    }), undefined)
   })
 })

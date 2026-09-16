@@ -1,8 +1,8 @@
-// Move large immutable fact/evidence JSON records from Redis to private R2.
+// Move large immutable research JSON records from Redis to private R2.
 // R2 is read back and checksum-verified before each Redis value is replaced.
 // Run with: node --env-file=.env scripts/migrate-research-records.js
 import { Redis } from '@upstash/redis'
-import { createArchive } from '../src/server/research/archive.js'
+import { createArchive, EXTERNAL_RECORD_KINDS } from '../src/server/research/archive.js'
 
 const options = new Map(process.argv.slice(2).map((argument) => argument.split('=')))
 if (options.has('--help')) {
@@ -18,7 +18,7 @@ if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 50) throw
 const redis = Redis.fromEnv()
 const archive = createArchive(redis)
 const records = []
-for (const kind of ['facts', 'evidence']) {
+for (const kind of EXTERNAL_RECORD_KINDS) {
   let cursor = '0'
   do {
     const [nextCursor, keys] = await redis.scan(cursor, { match: `research:archive:v1:${kind}:*`, count: 500 })

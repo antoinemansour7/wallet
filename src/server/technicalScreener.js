@@ -1,9 +1,11 @@
 import { Redis } from '@upstash/redis'
 
-const SCREENER_CACHE_KEY = 'screener:breakout-candidates'
+const SCREENER_CACHE_KEY = 'screener:breakout-candidates:v2'
 const SCREENER_LAST_GOOD_KEY = 'screener:breakout-candidates:last-good'
 const SCREENER_CACHE_TTL = 43200 // 12 hours
 const SCREENER_LAST_GOOD_TTL = 30 * 24 * 60 * 60
+const NASDAQ_SCREENER_URL = 'https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=10000&offset=0&download=true'
+const NASDAQ_MAX_CANDIDATES = Number(process.env.NASDAQ_SCREENER_MAX_CANDIDATES || 80)
 
 // Finviz paginates at 20 rows and, without an explicit sort, orders results
 // alphabetically. Requesting only the first page therefore returned nothing but
@@ -112,6 +114,101 @@ async function fetchFinvizScreener(baseUrl, maxPages = MAX_PAGES) {
   return all
 }
 
+function marketNumber(value) {
+  const normalized = String(value ?? '').replace(/[$,%+\s,]/g, '')
+  if (!normalized || normalized === '--') return null
+  const number = Number(normalized)
+  return Number.isFinite(number) ? number : null
+}
+
+const FOCUS_INDUSTRY = /(software|semiconductor|aerospace|defense|computer|electronic)/i
+
+export function parseNasdaqCandidates(rows, limit = NASDAQ_MAX_CANDIDATES) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => ({
+      ticker: String(row.symbol || '').trim().toUpperCase(),
+      price: marketNumber(row.lastsale),
+      changePercent: marketNumber(row.pctchange),
+      volume: marketNumber(row.volume),
+      marketCap: marketNumber(row.marketCap),
+      industry: String(row.industry || ''),
+      sector: String(row.sector || ''),
+    }))
+    .filter((row) => (
+      /^[A-Z][A-Z0-9.-]{0,5}$/.test(row.ticker)
+      && row.price >= 5
+      && row.volume >= 300000
+      && row.marketCap >= 300000000
+      && row.changePercent >= 1.5
+      && row.changePercent <= 20
+    ))
+    .sort((a, b) => {
+      const focusDifference = Number(FOCUS_INDUSTRY.test(`${b.sector} ${b.industry}`)) - Number(FOCUS_INDUSTRY.test(`${a.sector} ${a.industry}`))
+      return focusDifference || b.changePercent - a.changePercent || b.volume - a.volume
+    })
+    .slice(0, limit)
+    .map((row) => ({ ...row, setupType: 'momentum', source: 'nasdaq-screener' }))
+}
+
+export async function fetchNasdaqCandidates() {
+  const response = await fetch(NASDAQ_SCREENER_URL, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+      'Accept': 'application/json, text/plain, */*',
+      'Origin': 'https://www.nasdaq.com',
+      'Referer': 'https://www.nasdaq.com/',
+    },
+    signal: AbortSignal.timeout(15000),
+  })
+  if (!response.ok) throw new Error(`Nasdaq returned ${response.status}`)
+  const payload = await response.json()
+  const rows = payload?.data?.rows
+  if (!Array.isArray(rows)) throw new Error('Nasdaq response did not contain stock rows')
+  return parseNasdaqCandidates(rows)
+}
+
+async function fetchFinvizCandidates(lastGood) {
+  console.log('[technicalScreener] fetching from Finviz...')
+
+  const screen = async (url, maxPages, label) => {
+    try { return { tickers: await fetchFinvizScreener(url, maxPages), error: null } }
+    catch (error) {
+      console.error(`[technicalScreener] ${label} fetch failed:`, error.message)
+      return { tickers: [], error }
+    }
+  }
+
+  const broad = await Promise.all([
+    screen(SQUEEZE_URL, MAX_PAGES, 'squeeze'),
+    screen(BREAKOUT_URL, MAX_PAGES, 'breakout'),
+  ])
+  if (broad.every((result) => result.error)) {
+    if (lastGood.length > 0) return lastGood
+    throw new Error(`Finviz unavailable: ${broad.map((result) => result.error.message).join(', ')}`)
+  }
+
+  const sectorTasks = FOCUS_SECTOR_FILTERS.flatMap((sec) => [
+    () => screen(withSectorFilter(SQUEEZE_URL, sec), SECTOR_SCREEN_PAGES, `squeeze/${sec}`),
+    () => screen(withSectorFilter(BREAKOUT_URL, sec), SECTOR_SCREEN_PAGES, `breakout/${sec}`),
+  ])
+  const sectorResults = []
+  for (let index = 0; index < sectorTasks.length; index += 2) {
+    sectorResults.push(...await Promise.all(sectorTasks.slice(index, index + 2).map((task) => task())))
+  }
+  const squeezeTickers = [...new Set([broad[0].tickers, ...sectorResults.filter((_, index) => index % 2 === 0).map((result) => result.tickers)].flat())]
+  const breakoutTickers = [...new Set([broad[1].tickers, ...sectorResults.filter((_, index) => index % 2 === 1).map((result) => result.tickers)].flat())]
+  const squeezeSet = new Set(squeezeTickers)
+  const breakoutSet = new Set(breakoutTickers)
+  const candidates = [...new Set([...squeezeTickers, ...breakoutTickers])].map((ticker) => {
+    const isSqueeze = squeezeSet.has(ticker)
+    const isBreakout = breakoutSet.has(ticker)
+    const setupType = isSqueeze && isBreakout ? 'squeeze+breakout' : isSqueeze ? 'squeeze' : 'breakout'
+    return { ticker, setupType, source: 'finviz-screener' }
+  })
+  console.log(`[technicalScreener] found ${candidates.length} Finviz candidates (${squeezeTickers.length} squeeze, ${breakoutTickers.length} breakout)`)
+  return candidates
+}
+
 export async function fetchBreakoutCandidates() {
   // Try cache first
   const redis = getRedis()
@@ -128,59 +225,22 @@ export async function fetchBreakoutCandidates() {
     console.error('[technicalScreener] cache read failed:', err.message)
   }
 
-  console.log('[technicalScreener] fetching from Finviz...')
-
-  const screen = async (url, maxPages, label) => {
-    try { return { tickers: await fetchFinvizScreener(url, maxPages), error: null } }
-    catch (error) {
-      console.error(`[technicalScreener] ${label} fetch failed:`, error.message)
-      return { tickers: [], error }
+  const provider = (process.env.TECHNICAL_SCREENER_PROVIDER || 'nasdaq').toLowerCase()
+  let candidates
+  try {
+    if (provider === 'finviz') candidates = await fetchFinvizCandidates(lastGood)
+    else {
+      console.log('[technicalScreener] fetching from Nasdaq...')
+      candidates = await fetchNasdaqCandidates()
+      console.log(`[technicalScreener] found ${candidates.length} Nasdaq momentum candidates`)
     }
-  }
-
-  // Probe the two broad screens first. Vercel IPs can be blocked by Finviz;
-  // when both probes fail, do not amplify that into ten simultaneous 403s.
-  const broad = await Promise.all([
-    screen(SQUEEZE_URL, MAX_PAGES, 'squeeze'),
-    screen(BREAKOUT_URL, MAX_PAGES, 'breakout'),
-  ])
-  if (broad.every((result) => result.error)) {
+  } catch (error) {
     if (lastGood.length > 0) {
-      console.warn(`[technicalScreener] Finviz unavailable; using ${lastGood.length} last-known-good candidates`)
+      console.warn(`[technicalScreener] ${provider} unavailable; using ${lastGood.length} last-known-good candidates`)
       return lastGood
     }
-    throw new Error(`Finviz unavailable: ${broad.map((result) => result.error.message).join(', ')}`)
+    throw error
   }
-
-  // Limit sector fan-out to two requests at a time to avoid provider blocking.
-  const sectorTasks = FOCUS_SECTOR_FILTERS.flatMap((sec) => [
-    () => screen(withSectorFilter(SQUEEZE_URL, sec), SECTOR_SCREEN_PAGES, `squeeze/${sec}`),
-    () => screen(withSectorFilter(BREAKOUT_URL, sec), SECTOR_SCREEN_PAGES, `breakout/${sec}`),
-  ])
-  const sectorResults = []
-  for (let index = 0; index < sectorTasks.length; index += 2) {
-    sectorResults.push(...await Promise.all(sectorTasks.slice(index, index + 2).map((task) => task())))
-  }
-  const squeezeLists = [broad[0].tickers, ...sectorResults.filter((_, index) => index % 2 === 0).map((result) => result.tickers)]
-  const breakoutLists = [broad[1].tickers, ...sectorResults.filter((_, index) => index % 2 === 1).map((result) => result.tickers)]
-
-  const squeezeTickers = [...new Set(squeezeLists.flat())]
-  const breakoutTickers = [...new Set(breakoutLists.flat())]
-
-  const squeezSet = new Set(squeezeTickers)
-  const breakoutSet = new Set(breakoutTickers)
-  const allTickers = new Set([...squeezeTickers, ...breakoutTickers])
-
-  const candidates = [...allTickers].map((ticker) => {
-    const isSqueeze = squeezSet.has(ticker)
-    const isBreakout = breakoutSet.has(ticker)
-    const setupType = isSqueeze && isBreakout
-      ? 'squeeze+breakout'
-      : isSqueeze
-      ? 'squeeze'
-      : 'breakout'
-    return { ticker, setupType, source: 'finviz-screener' }
-  })
 
   // Cache results
   if (candidates.length > 0) {
@@ -192,14 +252,15 @@ export async function fetchBreakoutCandidates() {
     }
   }
 
-  console.log(`[technicalScreener] found ${candidates.length} candidates (${squeezeTickers.length} squeeze, ${breakoutTickers.length} breakout)`)
   return candidates
 }
 
 export function candidatesToSignals(candidates) {
   return candidates.map((c, i) => ({
     id: `screener-${c.ticker}-${Date.now()}-${i}`,
-    text: `${c.ticker} identified as ${c.setupType} setup by technical screener (Finviz)`,
+    text: c.source === 'nasdaq-screener'
+      ? `${c.ticker} gained ${c.changePercent}% today on ${Math.round(c.volume).toLocaleString('en-US')} shares in Nasdaq market data`
+      : `${c.ticker} identified as ${c.setupType} setup by technical screener (Finviz)`,
     tickers: [c.ticker],
     // Declare every screen the ticker actually passed. The board classifies
     // screener signals from these themes rather than regexing the synthetic
@@ -207,11 +268,12 @@ export function candidatesToSignals(candidates) {
     themes: [
       ...(c.setupType.includes('squeeze') ? ['squeeze'] : []),
       ...(c.setupType.includes('breakout') ? ['breakout'] : []),
+      ...(c.setupType === 'momentum' ? ['momentum'] : []),
     ],
     score: 6.5,
     sourceType: 'screener',
     sourceRole: 'conviction',
-    sourceLabels: ['finviz'],
-    username: 'finviz-screener',
+    sourceLabels: [c.source === 'nasdaq-screener' ? 'nasdaq' : 'finviz'],
+    username: c.source || 'technical-screener',
   }))
 }

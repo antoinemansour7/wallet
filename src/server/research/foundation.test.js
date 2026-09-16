@@ -463,7 +463,7 @@ describe('private object archive and migration', () => {
     expect(await archive.get('document', id)).toEqual(document)
     expect((await archive.readDocument(id)).bytes.equals(bytes)).toBe(true)
   })
-  it('stores large fact and evidence records in R2 and safely migrates legacy Redis records', async () => {
+  it('stores large research records in R2 and safely migrates legacy Redis records', async () => {
     const redis = memoryRedis(), objectStore = memoryObjectStore(), archive = createArchive(redis, { objectStore })
     const fact = { issuerId: 'cik:0000000001', availableAt: seenAt, facts: [{ concept: 'Revenue', detail: 'x'.repeat(10000) }] }
     expect(await archive.put('facts', 'new-fact', fact, 'facts:cik:0000000001', seenAt)).toEqual(fact)
@@ -479,6 +479,13 @@ describe('private object archive and migration', () => {
     expect(await archive.get('evidence', 'legacy-evidence')).toEqual(evidence)
     expect(await archive.latest('evidence')).toEqual(evidence)
     expect(await archive.migrateRecord('evidence', 'legacy-evidence')).toMatchObject({ migrated: false })
+
+    for (const kind of ['admission', 'evaluation-job-input', 'evaluation-input', 'evaluation-run']) {
+      const record = { id: `${kind}-1`, availableAt: seenAt, payload: 'z'.repeat(10000) }
+      expect(await archive.put(kind, record.id, record, kind, seenAt)).toEqual(record)
+      expect(redis.values.get(`research:archive:v1:${kind}:${record.id}`)).toMatchObject({ storage: 'r2-json-gzip-v1' })
+      expect(await archive.get(kind, record.id)).toEqual(record)
+    }
   })
   it('signs private R2 requests, uses conditional writes, and reports missing objects', async () => {
     const fetchImpl = vi.fn().mockResolvedValueOnce(new Response(null, { status: 412 })).mockResolvedValueOnce(new Response(Buffer.from('compressed bytes'))).mockResolvedValueOnce(new Response(null, { status: 404 }))

@@ -6,12 +6,19 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 // costs the reports that did succeed.
 
 const createMessage = vi.fn()
+const createResponse = vi.fn()
 
 vi.mock('@anthropic-ai/sdk', () => ({
   default: class {
     constructor() {
       this.messages = { create: createMessage }
     }
+  },
+}))
+
+vi.mock('openai', () => ({
+  default: class {
+    constructor() { this.responses = { create: createResponse } }
   },
 }))
 
@@ -23,8 +30,11 @@ const tickerList = (...symbols) => symbols.map((ticker) => ({ ticker, conviction
 describe('generateResearchReports', () => {
   beforeEach(() => {
     createMessage.mockReset()
+    createResponse.mockReset()
     process.env.ANTHROPIC_API_KEY = 'test-key'
     delete process.env.RESEARCH_REPORT_CONCURRENCY
+    delete process.env.OPENAI_API_KEY
+    delete process.env.RESEARCH_MODEL_PROVIDER
   })
 
   afterEach(() => {
@@ -156,5 +166,27 @@ describe('generateResearchReports', () => {
       'https://example.com/b',
       'https://example.com/c',
     ])
+  })
+
+  it('uses OpenAI web search with a two-call default concurrency in production mode', async () => {
+    process.env.RESEARCH_MODEL_PROVIDER = 'openai'
+    process.env.OPENAI_API_KEY = 'openai-test-key'
+    let inFlight = 0
+    let peak = 0
+    createResponse.mockImplementation(async ({ input }) => {
+      inFlight += 1
+      peak = Math.max(peak, inFlight)
+      await Promise.resolve()
+      inFlight -= 1
+      return {
+        status: 'completed', output_text: input.includes('AAA') ? 'AAA report' : 'report',
+        output: [{ content: [{ annotations: [{ url: 'https://example.com/source' }] }] }], usage: {},
+      }
+    })
+    const results = await generateResearchReports(tickerList('AAA', 'BBB', 'CCC'))
+    expect(peak).toBe(2)
+    expect(results[0]).toMatchObject({ ticker: 'AAA', report: 'AAA report', citations: ['https://example.com/source'] })
+    expect(createResponse.mock.calls[0][0].tools).toEqual([{ type: 'web_search' }])
+    expect(createMessage).not.toHaveBeenCalled()
   })
 })

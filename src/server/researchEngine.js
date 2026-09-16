@@ -81,7 +81,7 @@ import { fetchMarketQuotes } from './marketQuotes.js'
 import { extractTickersFromText } from './xSignals.js'
 import { formatRegimeForPrompt } from './marketRegime.js'
 import { evidenceAdjustment, RESEARCH_MODEL_VERSION } from './researchPerformance.js'
-import { generateStructuredArray, usesOpenAIResearch } from './research/openaiModel.js'
+import { generateStructuredArray, generateWebReport, usesOpenAIResearch } from './research/openaiModel.js'
 
 const CLAUDE_MODEL = 'claude-sonnet-5'
 
@@ -1350,13 +1350,12 @@ export function finalizePicks(picks) {
   return safe.sort((a, b) => b.finalScore - a.finalScore || a.ticker.localeCompare(b.ticker))
 }
 
-// ─── Claude: generate research reports (with web search) ─────────────────────
+// ─── Generate research reports (with web search) ─────────────────────────────
 
-// The reports were generated through OpenAI's Responses API, but every stored
-// report came back empty: api.openai.com is unreachable from the run
-// environment, so each per-ticker call failed and was silently swallowed into
-// report:null. Anthropic is already the extraction provider on this key and is
-// reachable, so reports run through Claude's server-side web search instead.
+// Production uses the same OpenAI account as ranking and review. The legacy
+// Anthropic path remains available in tests and for an explicit provider
+// override, which preserves the historical behavior without making live
+// reports depend on a second paid account.
 const RESEARCH_REPORT_MODEL = process.env.RESEARCH_REPORT_MODEL || CLAUDE_MODEL
 
 function buildResearchPrompt(tickerObj) {
@@ -1421,15 +1420,16 @@ Based on everything above, give ${ticker} an overall Buy Score out of 10. Break 
 - **Overall Buy Score**: X/10 — one sentence verdict.`
 }
 
-// Reports are the longest leg of the nightly run: one Claude call per ticker,
-// each with up to six web searches. Run sequentially they cost ~58s apiece,
-// which alone overran the 300s function limit and killed the run before it
-// could store anything. They share no state, so they run concurrently.
-const DEFAULT_REPORT_CONCURRENCY = 5
+// Web reports are the longest and largest model calls. Two concurrent OpenAI
+// requests leave headroom under the Tier 1 token-per-minute gate; the legacy
+// Anthropic test path retains its previous concurrency.
+const DEFAULT_OPENAI_REPORT_CONCURRENCY = 2
+const DEFAULT_ANTHROPIC_REPORT_CONCURRENCY = 5
 
-function reportConcurrency() {
+function reportConcurrency(useOpenAI) {
   const configured = Number(process.env.RESEARCH_REPORT_CONCURRENCY)
-  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_REPORT_CONCURRENCY
+  if (Number.isFinite(configured) && configured > 0) return configured
+  return useOpenAI ? DEFAULT_OPENAI_REPORT_CONCURRENCY : DEFAULT_ANTHROPIC_REPORT_CONCURRENCY
 }
 
 function isCreditError(err) {
@@ -1486,14 +1486,15 @@ async function mapWithConcurrency(items, limit, task) {
 }
 
 export async function generateResearchReports(tickers, options = {}) {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  const useOpenAI = usesOpenAIResearch()
+  const apiKey = useOpenAI ? process.env.OPENAI_API_KEY : process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
-    console.warn('[researchEngine] ANTHROPIC_API_KEY not set — returning picks without reports')
+    console.warn(`[researchEngine] ${useOpenAI ? 'OPENAI' : 'ANTHROPIC'}_API_KEY not set — returning picks without reports`)
     return tickers.map((t) => ({ ...t, report: null, citations: [] }))
   }
 
-  const client = new Anthropic({ apiKey })
-  const limit = reportConcurrency()
+  const client = useOpenAI ? null : new Anthropic({ apiKey })
+  const limit = reportConcurrency(useOpenAI)
   let creditExhausted = false
 
   const results = await mapWithConcurrency(tickers, limit, async (tickerObj) => {
@@ -1503,11 +1504,18 @@ export async function generateResearchReports(tickers, options = {}) {
     if (creditExhausted) return { ...tickerObj, report: null, citations: [] }
 
     try {
+      if (useOpenAI) {
+        const { report, citations } = await generateWebReport({
+          input: buildResearchPrompt(tickerObj),
+          requestOptions: options.requestOptions,
+        })
+        return { ...tickerObj, report, citations }
+      }
       return await generateOneReport(client, tickerObj, options.requestOptions)
     } catch (err) {
       console.error(`[researchEngine] report failed for ${tickerObj.ticker}:`, err.message)
       if (isCreditError(err)) {
-        if (!creditExhausted) console.warn('[researchEngine] Anthropic credits/rate limit hit — remaining picks return without reports')
+        if (!creditExhausted) console.warn(`[researchEngine] ${useOpenAI ? 'OpenAI' : 'Anthropic'} credits/rate limit hit — remaining picks return without reports`)
         creditExhausted = true
       }
       // Record the failure on the pick so an empty report is diagnosable from
