@@ -3,6 +3,7 @@ import { verifyOwner } from './evaluationApi.js'
 import { createArchive } from './archive.js'
 import { evaluationJobsByRunId } from './evaluationJob.js'
 import { RESEARCH_RUNS_KEY } from './observability.js'
+import { researchScheduleHealth } from './scheduleHealth.js'
 
 const DEFAULT_LIMIT = 30
 
@@ -40,8 +41,8 @@ export default async function runsHandler(req, res) {
     const redis = Redis.fromEnv()
     const stored = await redis.lrange(RESEARCH_RUNS_KEY, 0, hours === null ? DEFAULT_LIMIT - 1 : -1)
     const now = Date.now()
-    const parsed = (stored || []).map(parseRun).filter((run) => run && (hours === null
-      || (Date.parse(run.startedAt) >= now - hours * 3600000 && Date.parse(run.startedAt) <= now)))
+    const history = (stored || []).map(parseRun).filter((run) => run && Date.parse(run.startedAt) <= now)
+    const parsed = history.filter((run) => hours === null || Date.parse(run.startedAt) >= now - hours * 3600000)
 
     // Only nightly-research runs hand off to an evaluation job; attaching a
     // null elsewhere keeps the shape predictable for the frontend either way.
@@ -49,14 +50,18 @@ export default async function runsHandler(req, res) {
     const runs = parsed.map((run) => ({ ...run, evaluation: run.job === 'nightly-research' ? (byRunId.get(run.runId) || null) : null }))
 
     const ticker = String(req.query?.ticker || '').trim().toUpperCase()
-    if (!ticker) return res.status(200).json({ runs })
+    // Health uses the full retained history even when the caller asks to show
+    // a narrow window. Otherwise yesterday's valid daily run could disappear
+    // from a 12-hour response and look like a missed schedule.
+    const scheduleHealth = researchScheduleHealth(history, now)
+    if (!ticker) return res.status(200).json({ runs, scheduleHealth })
 
     // A trace carries the run it came from, so one ticker's path can be read
     // across several runs without opening each of them.
     const traces = runs.flatMap((run) => (run.candidates || [])
       .filter((candidate) => candidate.ticker === ticker)
       .map((candidate) => ({ ...candidate, runId: run.runId, job: run.job, startedAt: run.startedAt })))
-    return res.status(200).json({ runs, traces })
+    return res.status(200).json({ runs, traces, scheduleHealth })
   } catch {
     return res.status(503).json({ error: 'Run history is unavailable' })
   }

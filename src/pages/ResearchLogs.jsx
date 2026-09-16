@@ -300,7 +300,7 @@ export default function ResearchLogs() {
         })
         const data = await response.json()
         if (!response.ok) throw new Error(data.error || 'Run history is unavailable')
-        if (!controller.signal.aborted) setState({ uid: user.uid, runs: data.runs || [], now: Date.now() })
+        if (!controller.signal.aborted) setState({ uid: user.uid, runs: data.runs || [], scheduleHealth: data.scheduleHealth, now: Date.now() })
       } catch (error) {
         if (!controller.signal.aborted) setState({ uid: user?.uid, error: error.message })
       }
@@ -336,6 +336,14 @@ export default function ResearchLogs() {
       </div>
       <p id="logs-search-help" className="logs-muted">Search covers all retained runs in the selected time window and run type, including collapsed candidates. History is limited to retained records.</p>
     </header>
+    {current.scheduleHealth?.missing?.length > 0 && <section className="logs-schedule-warning" role="alert" aria-label="Schedule health warning">
+      <h2>Scheduled research run missing</h2>
+      <p>{current.scheduleHealth.missing.length === 1 ? 'One job did not record a run' : `${current.scheduleHealth.missing.length} jobs did not record runs`} after the {current.scheduleHealth.graceMinutes}-minute delivery grace period.</p>
+      <ul>{current.scheduleHealth.missing.map((item) => <li key={`${item.job}:${item.expectedAt}`}>
+        <strong>{jobName(item.job)}</strong> · expected {friendlyTime(item.expectedAt, current.now)}
+        {item.lastRunAt && <span> · last recorded {friendlyTime(item.lastRunAt, current.now)}</span>}
+      </li>)}</ul>
+    </section>}
     {current.runs.length === 0 && <p className="logs-empty">No research runs recorded in the last 30 days. The next scheduled run will appear here.</p>}
     {current.runs.length > 0 && runs.length === 0 && <p className="logs-empty">{search ? `No runs mention “${ticker.trim()}” in this time window and run type.` : 'No runs in this time window and run type.'}</p>}
     <p className="logs-muted" role="status">{runs.length} run{runs.length === 1 ? '' : 's'} · Last {timeWindow.toLowerCase()}</p>

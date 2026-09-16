@@ -106,6 +106,23 @@ describe('private research logs page', () => {
     expect(screen.queryByText('exa timeout')).not.toBeInTheDocument()
   })
 
+  it('puts a missed scheduled job above otherwise successful run cards', async () => {
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({
+      runs: [run()],
+      scheduleHealth: {
+        checkedAt: new Date(NOW).toISOString(), graceMinutes: 90,
+        missing: [{ job: 'nightly-research', expectedAt: '2026-09-10T07:00:00.000Z', lastRunAt: '2026-09-09T07:48:00.000Z' }],
+      },
+    }) })
+    renderLogs()
+
+    const warning = await screen.findByRole('alert', { name: 'Schedule health warning' })
+    expect(within(warning).getByText('Scheduled research run missing')).toBeVisible()
+    expect(within(warning).getByText(/90-minute delivery grace period/)).toBeVisible()
+    expect(within(warning).getByText(/Nightly Research/)).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Nightly Research' })).toBeVisible()
+  })
+
   it('preserves identity, admission, rank, budget, source, evidence and raw reasons', async () => {
     renderLogs()
     await openRun()
