@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   duration, friendlyTime, isLegacyRun, primaryIssue, publishedTickers, runFunnel, runIssues,
-  runSummary, stageName, statusName, statusTone,
+  runSummary, scheduleAlert, stageName, statusName, statusTone,
 } from './researchLogsDisplay'
 
 describe('research log presentation', () => {
@@ -147,6 +147,26 @@ describe('research log presentation', () => {
       ] })).toEqual(['META', 'GME'])
       expect(isLegacyRun({ job: 'nightly-research', admission: null, candidates: [] })).toBe(true)
       expect(isLegacyRun({ job: 'nightly-research', admission: { funnel: { discovered: 1 } }, candidates: [] })).toBe(false)
+    })
+  })
+
+  describe('missed schedule alert', () => {
+    it('stays silent when every slot produced a run', () => {
+      expect(scheduleAlert(undefined)).toBeNull()
+      expect(scheduleAlert({ missing: [] })).toBeNull()
+    })
+
+    it('names how many slots were missed and how long the grace period was', () => {
+      const one = scheduleAlert({ graceMinutes: 90, missing: [{ job: 'nightly-research', expectedAt: 'x' }] })
+      expect(one.headline).toBe('A scheduled research run did not arrive')
+      expect(one.detail).toBe('Nothing was recorded 90 minutes after the scheduled slot.')
+      expect(scheduleAlert({ graceMinutes: 90, missing: [{ job: 'a' }, { job: 'b' }] }).headline)
+        .toBe('2 scheduled research runs did not arrive')
+    })
+
+    it('drops the grace figure rather than inventing one', () => {
+      expect(scheduleAlert({ missing: [{ job: 'nightly-research' }] }).detail)
+        .toBe('Nothing was recorded after the scheduled slot.')
     })
   })
 })

@@ -5,8 +5,8 @@ import '../components/landing/tokens.css'
 import './ResearchLogs.css'
 import {
   TIME_FILTERS, RUN_TYPES, cardIssue, duration, friendlyName, friendlyTime, isLegacyRun, jobName,
-  publishedTickers, runFunnel, runIssues, runSummary, seconds, stageName, statusGlyph, statusName,
-  statusTone, wasSent,
+  publishedTickers, runFunnel, runIssues, runSummary, scheduleAlert, seconds, stageName, statusGlyph,
+  statusName, statusTone, wasSent,
 } from './researchLogsDisplay'
 
 const OUTCOME = {
@@ -418,6 +418,30 @@ function Run({ run, ticker, now }) {
 
 const Eyebrow = () => <span className="logs-eyebrow">Private · Read only</span>
 
+// Page-level, not a run card: a slot that produced nothing has no run to sit
+// inside, and it outranks anything in the list below it. It takes the same
+// restrained treatment as a warning run — neutral surface, amber accent only.
+function ScheduleAlert({ scheduleHealth, now }) {
+  const alert = scheduleAlert(scheduleHealth)
+  if (!alert) return null
+  return <section className="logs-alert" role="alert" aria-label="Schedule health warning">
+    <div className="logs-alert-head">
+      <span className="logs-status logs-tone-warning">
+        <span className="logs-status-glyph" aria-hidden="true">⚠</span>Missed schedule
+      </span>
+    </div>
+    <p className="logs-issue">{alert.headline}</p>
+    <p className="logs-muted">{alert.detail}</p>
+    <ul className="logs-alert-list">
+      {alert.missing.map((item) => <li key={`${item.job}:${item.expectedAt}`}>
+        <strong>{jobName(item.job)}</strong>
+        <span className="logs-muted"> · expected {friendlyTime(item.expectedAt, now)}</span>
+        {item.lastRunAt && <span className="logs-muted"> · last recorded {friendlyTime(item.lastRunAt, now)}</span>}
+      </li>)}
+    </ul>
+  </section>
+}
+
 export default function ResearchLogs() {
   const { user } = useAuth()
   const [state, setState] = useState(null)
@@ -436,7 +460,7 @@ export default function ResearchLogs() {
         })
         const data = await response.json()
         if (!response.ok) throw new Error(data.error || 'Run history is unavailable')
-        if (!controller.signal.aborted) setState({ uid: user.uid, runs: data.runs || [], now: Date.now() })
+        if (!controller.signal.aborted) setState({ uid: user.uid, runs: data.runs || [], scheduleHealth: data.scheduleHealth, now: Date.now() })
       } catch (error) {
         if (!controller.signal.aborted) setState({ uid: user?.uid, error: error.message })
       }
@@ -481,6 +505,7 @@ export default function ResearchLogs() {
       <p id="logs-search-help" className="logs-sr">Search covers all retained runs in the selected time window and run type, including collapsed candidates.</p>
     </header>
 
+    <ScheduleAlert scheduleHealth={current.scheduleHealth} now={current.now} />
     <p className="logs-count" role="status">{runs.length} run{runs.length === 1 ? '' : 's'} · Last {timeWindow.toLowerCase()}</p>
     {current.runs.length === 0 && <p className="logs-empty">No research runs recorded in the last 30 days. The next scheduled run will appear here.</p>}
     {current.runs.length > 0 && runs.length === 0 && <p className="logs-empty">{search ? `No runs mention “${ticker.trim()}” in this time window and run type.` : 'No runs in this time window and run type.'}</p>}

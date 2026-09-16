@@ -42,7 +42,21 @@ describe('private research run log', () => {
       runId: 'run-1', job: 'nightly-research', status: 'success', durationMs: 134000,
       stages: [{ stage: 'x_discovery', status: 'success' }],
     })
+    expect(body(res).scheduleHealth).toMatchObject({ checkedAt: '2026-09-10T12:00:00.000Z', graceMinutes: 90 })
     expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, no-store')
+  })
+
+  it('reports a missing nightly slot after the delivery grace period', async () => {
+    mocks.lrange.mockResolvedValue([
+      run({ runId: 'old-nightly', startedAt: '2026-09-10T02:30:00.000Z' }),
+      run({ runId: 'performance', job: 'track-performance', startedAt: '2026-09-10T09:42:00.000Z' }),
+      run({ runId: 'foundation', job: 'research-foundation', startedAt: '2026-09-10T10:45:00.000Z' }),
+    ])
+    const res = response(); await handler(request({ hours: '720' }), res)
+
+    expect(body(res).scheduleHealth.missing).toContainEqual(expect.objectContaining({
+      job: 'nightly-research', expectedAt: '2026-09-10T07:00:00.000Z', lastRunAt: '2026-09-10T02:30:00.000Z',
+    }))
   })
 
   it('reads beyond the default 30-run limit for windowed ticker search without changing records', async () => {
@@ -67,6 +81,18 @@ describe('private research run log', () => {
     ])
     const res = response(); await handler(request({ hours: String(hours) }), res)
     expect(body(res).runs.map((r) => r.runId)).toEqual(['boundary'])
+  })
+
+  it('checks schedule health against retained history outside a narrow display window', async () => {
+    mocks.lrange.mockResolvedValue([
+      run({ runId: 'recent', job: 'research-foundation', startedAt: new Date(Date.now() - 60 * 60000).toISOString() }),
+      run({ runId: 'nightly', startedAt: '2026-09-10T07:40:00.000Z' }),
+      run({ runId: 'prior-evaluation', job: 'research-evaluation', startedAt: '2026-09-09T11:45:00.000Z' }),
+    ])
+    const res = response(); await handler(request({ hours: '12' }), res)
+
+    expect(body(res).runs.map((item) => item.runId)).toEqual(['recent', 'nightly'])
+    expect(body(res).scheduleHealth.missing.map((item) => item.job)).not.toContain('research-evaluation')
   })
 
   it.each(['', '0', '-1', '721', 'Infinity', 'invalid'])('rejects an invalid window: %s', async (hours) => {

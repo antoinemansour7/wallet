@@ -211,3 +211,22 @@ export const publishedTickers = (run) => (run.candidates || [])
 
 /** Older records predate admission and candidate tracing; say so once, quietly. */
 export const isLegacyRun = (run) => run.job === 'nightly-research' && !run.admission && !(run.candidates || []).length
+
+/**
+ * A scheduled slot whose grace period expired with nothing recorded. Reported
+ * separately from run issues on purpose: the evidence here is the *absence* of
+ * a run, so there is no run record to hang it on.
+ */
+export function scheduleAlert(scheduleHealth) {
+  const missing = scheduleHealth?.missing || []
+  if (!missing.length) return null
+  return {
+    headline: missing.length === 1
+      ? 'A scheduled research run did not arrive'
+      : `${missing.length} scheduled research runs did not arrive`,
+    detail: Number.isFinite(scheduleHealth.graceMinutes)
+      ? `Nothing was recorded ${scheduleHealth.graceMinutes} minutes after the scheduled slot.`
+      : 'Nothing was recorded after the scheduled slot.',
+    missing,
+  }
+}

@@ -229,7 +229,9 @@ describe('research activity page', () => {
     renderLogs()
     await ready()
     fireEvent.change(screen.getByLabelText('Run type'), { target: { value: label } })
-    expect(screen.getAllByRole('heading', { level: 2 }).every((heading) => heading.textContent === label)).toBe(true)
+    const headings = screen.getAllByRole('article').map((article) => within(article).getByRole('heading', { level: 2 }).textContent)
+    expect(headings.length).toBeGreaterThan(0)
+    expect(headings.every((heading) => heading === label)).toBe(true)
     expect(screen.getByLabelText('Run type')).toHaveValue(label)
   })
 
@@ -338,6 +340,48 @@ describe('research activity page', () => {
     expect(within(collapsed).queryByText(/Evaluation snapshot was not saved/)).not.toBeInTheDocument()
     expect(screen.queryByText('time_budget')).not.toBeInTheDocument()
     expect(screen.queryByText('internal failure')).not.toBeInTheDocument()
+  })
+
+  /* ------------------------------------------------------- missed schedules */
+  it('raises a missed scheduled slot above the run list, in the run-card idiom', async () => {
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({
+      runs: [run()],
+      scheduleHealth: {
+        checkedAt: new Date(NOW).toISOString(), graceMinutes: 90,
+        missing: [{ job: 'nightly-research', expectedAt: '2026-09-10T07:00:00.000Z', lastRunAt: '2026-09-09T07:48:00.000Z' }],
+      },
+    }) })
+    renderLogs()
+    const alert = await screen.findByRole('alert', { name: 'Schedule health warning' })
+    expect(within(alert).getByText('A scheduled research run did not arrive')).toBeVisible()
+    expect(within(alert).getByText(/90 minutes after the scheduled slot/)).toBeVisible()
+    expect(within(alert).getByText('Nightly Research')).toBeVisible()
+    expect(within(alert).getByText(/expected/)).toBeVisible()
+    expect(within(alert).getByText(/last recorded/)).toBeVisible()
+    // Status colour stays an accent on a neutral surface, as on a warning run.
+    expect(within(alert).getByText('Missed schedule')).toHaveClass('logs-tone-warning')
+    // The alert is page-level: the run list below it is untouched.
+    expect(within(card()).getByText('Completed')).toBeVisible()
+  })
+
+  it('pluralises several missed slots and never shows the alert when all were met', async () => {
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({
+      runs: [run()],
+      scheduleHealth: { graceMinutes: 90, missing: [
+        { job: 'nightly-research', expectedAt: '2026-09-10T07:00:00.000Z', lastRunAt: null },
+        { job: 'track-performance', expectedAt: '2026-09-10T09:00:00.000Z', lastRunAt: null },
+      ] },
+    }) })
+    renderLogs()
+    const alert = await screen.findByRole('alert', { name: 'Schedule health warning' })
+    expect(within(alert).getByText('2 scheduled research runs did not arrive')).toBeVisible()
+    expect(within(alert).queryByText(/last recorded/)).not.toBeInTheDocument()
+
+    cleanup()
+    serve([run()])
+    renderLogs()
+    await ready()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   /* --------------------------------------------------- candidate detail intact */
