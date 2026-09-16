@@ -10,6 +10,8 @@ import {
   strategyPolicy,
   ingestIssuerBudget,
   DEFAULT_INGEST_MAX_ISSUERS,
+  ADMISSION_POLICY_VERSION,
+  enabledDiscoveryStrategies,
 } from './policy.js'
 import { createEvidence } from './evidence.js'
 import { sessionCheckpoints, computeLearningStats, EVALUATION_VERSION, RESEARCH_MODEL_VERSION } from '../researchPerformance.js'
@@ -35,6 +37,13 @@ describe('predeclared horizons', () => {
       expect(policy.horizons).toContain(policy.horizon)
       expect(Object.isFrozen(policy.horizons), `${family} horizons must be frozen`).toBe(true)
     }
+  })
+
+  it('keeps deferred strategies readable but out of production admission', () => {
+    expect(ADMISSION_POLICY_VERSION).toBe('strategy-admission-v1')
+    expect(enabledDiscoveryStrategies()).toEqual(['attention', 'fundamentals'])
+    expect(strategyPolicy('filing_changes').admissionEnabled).toBe(false)
+    expect(strategyPolicy('insider').admissionEnabled).toBe(false)
   })
 
   // Adding a horizon changes what a stored cohort means, so the version has to

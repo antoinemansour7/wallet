@@ -14,7 +14,7 @@ import { extractTickersFromText } from '../xSignals.js'
 import { selectCandidates, extractTickers } from '../researchEngine.js'
 import { sessionCheckpoints, computeLearningStats, EVALUATION_VERSION, RESEARCH_MODEL_VERSION } from '../researchPerformance.js'
 import { fetchMarketQuotes } from '../marketQuotes.js'
-import { HORIZON_POLICY_VERSION } from './policy.js'
+import { HORIZON_POLICY_VERSION, STRATEGIES } from './policy.js'
 
 vi.mock('../marketQuotes.js', async (importOriginal) => ({ ...await importOriginal(), fetchMarketQuotes: vi.fn() }))
 
@@ -173,18 +173,19 @@ describe('quarterly comparability', () => {
 })
 
 describe('stream admission', () => {
+  const allStrategies = Object.keys(STRATEGIES)
   const candidate = (id, families, priority = 1, adverse = false) => ({ ...security(id), evidence: families.map((family) => ({ id: `${id}:${family}`, strategyFamily: family, horizon: family === 'fundamentals' ? 20 : family === 'attention' ? 5 : 60,
     source: family === 'attention' ? { url: 'https://x.com/research/status/1', type: 'account', labels: ['@research'] } : { url: 'https://www.sec.gov/filing.htm', accession: 'fixture' },
     publicAt, availableAt: seenAt, priority, decision: { status: adverse ? 'rejected' : 'eligible', reason: adverse ? 'Material adverse filing' : 'Valid evidence' }, interpretation: { adverse } })) })
   it('honors 12/10/5/3 even when zero-attention candidates have lower priority', () => {
     const board = [...Array.from({ length: 30 }, (_, i) => candidate(`A${i}`, ['attention'], 100)), ...Array.from({ length: 15 }, (_, i) => candidate(`F${i}`, ['fundamentals'])), ...Array.from({ length: 8 }, (_, i) => candidate(`D${i}`, ['filing_changes'])), ...Array.from({ length: 6 }, (_, i) => candidate(`I${i}`, ['insider']))]
-    const result = selectCandidates(board, 30, { asOf: reviewedAt, structuredResult: true })
+    const result = selectCandidates(board, 30, { asOf: reviewedAt, structuredResult: true, enabledStrategies: allStrategies })
     expect(result.candidates).toHaveLength(30)
     expect(result.audit.reservedUsed).toEqual({ attention: 12, fundamentals: 10, filing_changes: 5, insider: 3 })
   })
   it('merges overlaps into one slot, reallocates only eligible names and records the decision', () => {
     const overlap = candidate('BOTH', ['attention', 'fundamentals'])
-    const result = admitCandidates([overlap, { ...overlap, evidence: [candidate('BOTH', ['insider']).evidence[0]] }, ...Array.from({ length: 29 }, (_, i) => candidate(`A${i}`, ['attention']))], { asOf: reviewedAt })
+    const result = admitCandidates([overlap, { ...overlap, evidence: [candidate('BOTH', ['insider']).evidence[0]] }, ...Array.from({ length: 29 }, (_, i) => candidate(`A${i}`, ['attention']))], { asOf: reviewedAt, enabledStrategies: allStrategies })
     expect(result.candidates).toHaveLength(30)
     expect(new Set(result.candidates.map((c) => c.securityId)).size).toBe(30)
     expect(result.candidates.find((c) => c.ticker === 'BOTH').evidence).toHaveLength(3)
@@ -195,7 +196,7 @@ describe('stream admission', () => {
     const popular = candidate('POPULAR', ['attention'], 100)
     const adverse = candidate('POPULAR', ['filing_changes'], 0, true)
     const future = candidate('FUTURE', ['fundamentals']); future.evidence[0].publicAt = '2030-01-01'
-    const result = admitCandidates([popular, adverse, future], { asOf: reviewedAt })
+    const result = admitCandidates([popular, adverse, future], { asOf: reviewedAt, enabledStrategies: allStrategies })
     expect(result.candidates).toEqual([])
     expect(result.audit.rejected.find((r) => r.securityId === popular.securityId).reason).toBe('Material adverse filing')
     expect(() => admitCandidates([], { budgets: { attention: 30 } })).toThrow('exactly 30')
@@ -208,7 +209,7 @@ describe('stream admission', () => {
       ...Array.from({ length: 3 }, (_, i) => candidate(`I${i}`, ['insider'], 60 - i)),
     ]
 
-    const result = admitCandidates(board, { asOf: reviewedAt })
+    const result = admitCandidates(board, { asOf: reviewedAt, enabledStrategies: allStrategies })
     const excluded = result.audit.notReviewed.find((item) => item.ticker === 'F10')
     const fundamentals = result.audit.streams.find((stream) => stream.strategy === 'fundamentals')
 
@@ -242,7 +243,7 @@ describe('stream admission', () => {
       ...Array.from({ length: 3 }, (_, index) => candidate(`I${index}`, ['insider'], 50 - index)),
     ]
 
-    const result = admitCandidates(board, { asOf: reviewedAt })
+    const result = admitCandidates(board, { asOf: reviewedAt, enabledStrategies: allStrategies })
     const selected = new Set(result.candidates.map((item) => item.ticker))
     const richAudit = result.audit.selected.find((item) => item.ticker === 'RICH')
     const displacedAudit = result.audit.notReviewed.find((item) => item.ticker === 'A10')
@@ -257,10 +258,41 @@ describe('stream admission', () => {
     expect(result.audit.reservedUsed).toEqual({ attention: 12, fundamentals: 10, filing_changes: 5, insider: 3 })
     expect(result.audit.priorityModel).toEqual({ version: 'attention-review-priority-v2', usedForAdmission: true })
   })
+
+  it('rejects deferred evidence and reallocates its reserved slots to active streams', () => {
+    const board = [
+      ...Array.from({ length: 20 }, (_, index) => candidate(`A${index}`, ['attention'], 100 - index)),
+      ...Array.from({ length: 15 }, (_, index) => candidate(`F${index}`, ['fundamentals'], 80 - index)),
+      candidate('DEFERRED-FILING', ['filing_changes'], 100),
+      candidate('DEFERRED-INSIDER', ['insider'], 100),
+    ]
+
+    const result = admitCandidates(board, { asOf: reviewedAt })
+
+    expect(result.candidates).toHaveLength(30)
+    expect(result.candidates.every((item) => item.streams.every((stream) => ['attention', 'fundamentals'].includes(stream)))).toBe(true)
+    expect(result.audit.admissionPolicy).toEqual({ version: 'strategy-admission-v1', enabledStrategies: ['attention', 'fundamentals'] })
+    expect(result.audit.reservedUsed).toEqual({ attention: 12, fundamentals: 10, filing_changes: 0, insider: 0 })
+    expect(result.audit.reallocations.filter((item) => ['filing_changes', 'insider'].includes(item.from))).toHaveLength(8)
+    expect(result.audit.rejected.filter((item) => item.reason === 'strategy_not_enabled').map((item) => item.ticker).sort())
+      .toEqual(['DEFERRED-FILING', 'DEFERRED-INSIDER'])
+  })
+
+  it('strips archived deferred evidence before a mixed candidate reaches review', () => {
+    const active = candidate('MIXED', ['fundamentals'], 70)
+    const deferred = candidate('MIXED', ['filing_changes'], 100, true)
+
+    const result = admitCandidates([active, deferred], { asOf: reviewedAt })
+
+    expect(result.candidates).toHaveLength(1)
+    expect(result.candidates[0].streams).toEqual(['fundamentals'])
+    expect(result.candidates[0].evidence.map((item) => item.strategyFamily)).toEqual(['fundamentals'])
+    expect(result.candidates[0].priority).toBe(70)
+  })
 })
 
 describe('zero-mention end-to-end acceptance', () => {
-  it('ingests an SEC filing, archives the original, reserves a review slot, fetches one quote and publishes a longer-horizon idea', async () => {
+  it('ingests an SEC filing, archives the original, and publishes only the active fundamentals idea', async () => {
     const archive = createArchive(memoryRedis(), { objectStore: memoryObjectStore() }), master = masterFor(security())
     const accession = '0000000001-26-000001'
     const submissions = { filings: { recent: { accessionNumber: [accession], form: ['10-Q'], acceptanceDateTime: [publicAt], filingDate: ['2026-02-01'], reportDate: ['2025-12-31'], primaryDocument: ['quarter.htm'] } } }
@@ -268,7 +300,7 @@ describe('zero-mention end-to-end acceptance', () => {
     const client = { request: vi.fn(async (url) => url.includes('/submissions/') ? submissions : url.includes('/companyfacts/') ? facts : Buffer.from('<DOCUMENT><TYPE>10-Q\n<TEXT>Revenue increased to 120 from 100.</TEXT></DOCUMENT>')) }
     expect(parseDailyIndex(`1|QUIET Corporation|10-Q|2026-02-01|edgar/data/1/${accession}.txt`, master, reviewedAt)).toHaveLength(1)
     const ingested = await ingestIssuer(archive, master, '1', { client, since: early, now: () => seenAt })
-    expect(ingested.evidence.map((e) => e.horizon).sort()).toEqual([20, 60])
+    expect(ingested.evidence.map((e) => e.horizon)).toEqual([20])
     expect((await archive.readDocument(ingested.evidence[0].source.documentId)).bytes.toString()).toContain('Revenue increased')
     const admission = await prepareDiscovery([], [], { archive, master }, { asOf: reviewedAt, select: (candidates, options) => selectCandidates(candidates, 30, { ...options, structuredResult: true }) })
     expect(admission.candidates).toHaveLength(1)
@@ -288,7 +320,7 @@ describe('zero-mention end-to-end acceptance', () => {
       expect(fetchMarketQuotes).toHaveBeenCalledTimes(1)
       expect(fetchMarketQuotes.mock.calls[0][0].filter((ticker) => ticker === 'QUIET')).toHaveLength(1)
     } finally { vi.useRealTimers(); vi.unstubAllEnvs() }
-    expect(reviewer).toHaveBeenCalledTimes(2)
+    expect(reviewer).toHaveBeenCalledTimes(1)
     expect(reviewer.mock.calls.every(([input]) => input.candidates[0].measurements.attention === 0)).toBe(true)
     expect(reviewed.picksByHorizon[20][0]).toMatchObject({ ticker: 'QUIET', strategyFamily: 'fundamentals', horizon: 20, signalCount: 0, earliestActionAt: '2026-02-02T12:02:00.000Z' })
     // #107: the pick carries both predeclared horizons and the experiment arm it
@@ -298,10 +330,23 @@ describe('zero-mention end-to-end acceptance', () => {
     expect(reviewed.picksByHorizon[20][0].experiment).toMatchObject({ version: 'fundamentals-quiet-v1', attention: 0 })
     // Zero mentions and no measured day change is the quiet arm.
     expect(reviewed.picksByHorizon[20][0].experiment.quiet).toBe(null)
-    expect(reviewed.picksByHorizon[60][0].horizon).toBe(60)
+    expect(reviewed.picksByHorizon[60]).toEqual([])
     expect(reviewed.picksByHorizon[5]).toBeUndefined()
     expect(await archive.list('admissions', reviewedAt)).toHaveLength(1)
     expect(await archive.list('reviews', reviewedAt)).toHaveLength(1)
+  })
+
+  it('archives a Form 4 without emitting placeholder insider evidence', async () => {
+    const archive = createArchive(memoryRedis(), { objectStore: memoryObjectStore() }), master = masterFor(security())
+    const accession = '0000000001-26-000004'
+    const submissions = { filings: { recent: { accessionNumber: [accession], form: ['4'], acceptanceDateTime: [publicAt], filingDate: ['2026-02-01'], reportDate: ['2026-02-01'], primaryDocument: ['form4.xml'] } } }
+    const client = { request: vi.fn(async (url) => url.includes('/submissions/') ? submissions : Buffer.from('<ownershipDocument><issuerTradingSymbol>QUIET</issuerTradingSymbol></ownershipDocument>')) }
+
+    const ingested = await ingestIssuer(archive, master, '1', { client, since: early, now: () => seenAt })
+
+    expect(ingested.documents.length).toBeGreaterThan(0)
+    expect(ingested.evidence).toEqual([])
+    expect((await archive.readDocument(ingested.documents[0].id)).bytes.toString()).toContain('ownershipDocument')
   })
 })
 
