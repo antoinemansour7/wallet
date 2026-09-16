@@ -9,7 +9,7 @@ import { createSecurityMaster, refreshSecurityMaster, referenceSecurity, withSec
 import { createEvidence, archiveEvidence, earliestAction, replayEvidence } from './evidence.js'
 import { admitCandidates } from './admission.js'
 import { ingestIssuer, comparableQuarterlyFacts, parseDailyIndex } from './secDisclosures.js'
-import { prepareDiscovery, primaryModelCandidates } from './review.js'
+import { prepareDiscovery, primaryDocumentPassages, primaryModelCandidates, reviewPrimaryCandidates } from './review.js'
 import { extractTickersFromText } from '../xSignals.js'
 import { selectCandidates, extractTickers } from '../researchEngine.js'
 import { sessionCheckpoints, computeLearningStats, EVALUATION_VERSION, RESEARCH_MODEL_VERSION } from '../researchPerformance.js'
@@ -305,7 +305,12 @@ describe('zero-mention end-to-end acceptance', () => {
     const admission = await prepareDiscovery([], [], { archive, master }, { asOf: reviewedAt, select: (candidates, options) => selectCandidates(candidates, 30, { ...options, structuredResult: true }) })
     expect(admission.candidates).toHaveLength(1)
     expect(admission.candidates[0].streams).not.toContain('attention')
-    const reviewer = vi.fn(async ({ horizon, candidates }) => candidates.flatMap((c) => [...new Set(c.evidence.map((e) => e.strategyFamily))].map((strategyFamily) => ({ securityId: c.securityId, strategyFamily, horizon, status: 'accepted', score: 75, reason: 'Revenue growth merits further work', evidenceIds: c.evidence.filter((e) => e.strategyFamily === strategyFamily).map((e) => e.id) }))))
+    const reviewer = vi.fn(async ({ horizon, candidates }) => candidates.flatMap((c) => [...new Set(c.evidence.map((e) => e.strategyFamily))].map((strategyFamily) => {
+      const evidenceIds = c.evidence.filter((e) => e.strategyFamily === strategyFamily).map((e) => e.id)
+      return { securityId: c.securityId, strategyFamily, horizon, status: 'accepted', score: 75,
+        reason: 'Revenue growth merits further work', evidenceIds, reasonSourceIds: evidenceIds,
+        bearCase: null, bearCaseSourceIds: [], materialAdverse: false }
+    })))
     vi.useFakeTimers()
     vi.setSystemTime(new Date(reviewedAt))
     vi.stubEnv('ANTHROPIC_API_KEY', 'offline-fixture')
@@ -351,6 +356,10 @@ describe('zero-mention end-to-end acceptance', () => {
 })
 
 describe('primary review prompt budget', () => {
+  it('starts a new forward cohort for the materially different evidence packet', () => {
+    expect(RESEARCH_MODEL_VERSION).toBe('evidence-v5-gpt-5.4-mini')
+  })
+
   it('keeps core comparable facts while bounding documents and excerpts', () => {
     const incidental = Array.from({ length: 59 }, (_, index) => ({ concept: `OtherFact${index}`, value: index }))
     const revenue = { concept: 'us-gaap:Revenues', value: 120, priorComparable: { value: 100 } }
@@ -370,9 +379,91 @@ describe('primary review prompt budget', () => {
     expect(candidate.evidence[0].observedFacts).toHaveLength(16)
     expect(candidate.evidence[0].observedFacts).toContainEqual(revenue)
     expect(candidate.evidence[0].source.excerpt).toHaveLength(1200)
-    expect(candidate.documents).toHaveLength(1)
-    expect(candidate.documents[0].text).toHaveLength(3000)
-    expect(candidate.documents[0].truncated).toBe(true)
+    expect(candidate.documents).toHaveLength(2)
+    expect(candidate.documents.flatMap((document) => document.passages).reduce((sum, item) => sum + item.text.length, 0)).toBe(5000)
+    expect(candidate.documents.every((document) => document.passages[0].id && document.truncated)).toBe(true)
+  })
+
+  it('finds relevant filing content after an irrelevant cover page', () => {
+    const document = { id: 'late-content', bytes: Buffer.from(`${'Cover page boilerplate. '.repeat(250)} Management expects revenue growth next quarter. ${'More boilerplate. '.repeat(250)} The company disclosed a material weakness and liquidity risk.`) }
+    const passages = primaryDocumentPassages(document)
+    const supplied = passages.map((item) => item.text).join(' ')
+
+    expect(supplied).toContain('Management expects revenue growth next quarter')
+    expect(supplied).toContain('material weakness')
+    expect(supplied.length).toBeLessThanOrEqual(2500)
+    expect(passages.every((item) => item.id && Number.isInteger(item.start))).toBe(true)
+  })
+
+  it('puts an EX-99 earnings release ahead of its 8-K shell and preserves claim citations', async () => {
+    const archive = createArchive(memoryRedis(), { objectStore: memoryObjectStore() })
+    const primary = await archive.putDocument({ issuerId: security().issuerId, accession: '0000000001-26-000008', form: '8-K',
+      url: 'https://www.sec.gov/8k.htm', publicAt, firstSeenAt: seenAt, bytes: '<p>Item 2.02. Results of Operations. See exhibit.</p>' })
+    const release = await archive.putDocument({ issuerId: security().issuerId, accession: primary.accession, form: 'EX-99.1',
+      url: 'https://www.sec.gov/release.htm', publicAt, firstSeenAt: seenAt,
+      bytes: `<h1>Quarterly results</h1><p>Revenue increased 20 percent and operating cash flow improved.</p><p>Debt remains a material downside risk.</p>${'<p>Appendix</p>'.repeat(300)}` })
+    const evidence = await archiveEvidence(archive, createEvidence({ security: security(), strategyFamily: 'fundamentals',
+      source: { documentId: primary.id, accession: primary.accession, url: primary.url, excerpt: 'Results were furnished in Exhibit 99.1.', exhibitIds: [release.id] },
+      publicAt, firstSeenAt: seenAt, extractionCompletedAt: seenAt, interpretation: { thesis: 'Measured improvement requires review.' }, priority: 70 }))
+    const admission = { id: 'admission-exhibit', asOf: reviewedAt, candidates: [{ ...security(), evidence: [evidence], streams: ['fundamentals'] }] }
+    const reviewer = vi.fn(async ({ horizon, candidates }) => {
+      const candidate = candidates[0]
+      const sourceId = candidate.documents[0].passages[0].id
+      return [{ securityId: candidate.securityId, strategyFamily: 'fundamentals', horizon, status: 'accepted', score: 80,
+        reason: 'The release reports improved revenue and cash flow.', materialAdverse: false, evidenceIds: [evidence.id],
+        reasonSourceIds: [sourceId], bearCase: 'Debt remains a downside risk.', bearCaseSourceIds: [sourceId] }]
+    })
+
+    const reviewed = await reviewPrimaryCandidates(admission, new Map([['QUIET', { price: 12, currency: 'USD', volume: 100000 }]]),
+      { archive, reviewer, now: () => reviewedAt })
+    const input = reviewer.mock.calls[0][0].candidates[0]
+
+    expect(input.documents.map((document) => document.role)).toEqual(['earnings_release', 'primary_filing'])
+    expect(input.documents[0]).toMatchObject({ id: release.id, form: 'EX-99.1' })
+    expect(input.documents[0].passages.map((item) => item.text).join(' ')).toContain('Revenue increased 20 percent')
+    expect(reviewed.picksByHorizon[20][0].citations).toMatchObject({
+      reason: [input.documents[0].passages[0].id], bearCase: [input.documents[0].passages[0].id],
+      sources: [{ id: input.documents[0].passages[0].id, type: 'passage', documentId: release.id, url: release.url }],
+    })
+    expect(reviewed.picksByHorizon[20][0].sources).toContain(release.url)
+  })
+
+  it('rejects reviewer prose that cites a source outside the supplied packet', async () => {
+    const archive = createArchive(memoryRedis(), { objectStore: memoryObjectStore() })
+    const document = await archive.putDocument({ issuerId: security().issuerId, accession: '0000000001-26-000009', form: '10-Q',
+      url: 'https://www.sec.gov/10q.htm', publicAt, firstSeenAt: seenAt, bytes: '<p>Revenue increased from the prior comparable period.</p>' })
+    const evidence = await archiveEvidence(archive, createEvidence({ security: security(), strategyFamily: 'fundamentals',
+      source: { documentId: document.id, accession: document.accession, url: document.url, excerpt: 'Revenue increased.' },
+      publicAt, firstSeenAt: seenAt, extractionCompletedAt: seenAt, priority: 70 }))
+    const admission = { id: 'admission-invalid-citation', asOf: reviewedAt, candidates: [{ ...security(), evidence: [evidence], streams: ['fundamentals'] }] }
+    const reviewer = async ({ horizon, candidates }) => [{ securityId: candidates[0].securityId, strategyFamily: 'fundamentals', horizon,
+      status: 'accepted', score: 99, reason: 'Unsupported claim.', materialAdverse: false, evidenceIds: [evidence.id],
+      reasonSourceIds: ['invented-source'], bearCase: null, bearCaseSourceIds: [] }]
+
+    const reviewed = await reviewPrimaryCandidates(admission, new Map([['QUIET', { price: 12, currency: 'USD' }]]),
+      { archive, reviewer, now: () => reviewedAt })
+
+    expect(reviewed.picksByHorizon[20]).toEqual([])
+    expect(reviewed.decisions).toContainEqual(expect.objectContaining({ status: 'rejected', reason: 'Reviewer returned an invalid or unsupported decision' }))
+  })
+
+  it('rejects an acceptance supported only by a filing header', async () => {
+    const archive = createArchive(memoryRedis(), { objectStore: memoryObjectStore() })
+    const document = await archive.putDocument({ issuerId: security().issuerId, accession: '0000000001-26-000010', form: '8-K',
+      url: 'https://www.sec.gov/header-only.htm', publicAt, firstSeenAt: seenAt, bytes: '<p>Item 2.02. Results of Operations. See furnished exhibit.</p>' })
+    const evidence = await archiveEvidence(archive, createEvidence({ security: security(), strategyFamily: 'fundamentals',
+      source: { documentId: document.id, accession: document.accession, url: document.url, excerpt: 'Item 2.02. See furnished exhibit.' },
+      publicAt, firstSeenAt: seenAt, extractionCompletedAt: seenAt, priority: 30 }))
+    const admission = { id: 'admission-header-only', asOf: reviewedAt, candidates: [{ ...security(), evidence: [evidence], streams: ['fundamentals'] }] }
+    const reviewer = async ({ horizon, candidates }) => [{ securityId: candidates[0].securityId, strategyFamily: 'fundamentals', horizon,
+      status: 'accepted', score: 90, reason: 'A filing exists.', materialAdverse: false, evidenceIds: [evidence.id],
+      reasonSourceIds: [evidence.id], bearCase: null, bearCaseSourceIds: [] }]
+
+    const reviewed = await reviewPrimaryCandidates(admission, new Map([['QUIET', { price: 12, currency: 'USD' }]]),
+      { archive, reviewer, now: () => reviewedAt })
+
+    expect(reviewed.picksByHorizon[20]).toEqual([])
+    expect(reviewed.decisions).toContainEqual(expect.objectContaining({ status: 'rejected', reason: 'Reviewer returned an invalid or unsupported decision' }))
   })
 })
 
