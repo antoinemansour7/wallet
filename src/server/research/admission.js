@@ -73,16 +73,18 @@ export function admitCandidates(candidates, { budgets = reviewBudgets(), asOf = 
     // affect a new decision. This also closes the 14-day window in which old
     // placeholder filing/Form 4 evidence would otherwise remain reviewable.
     const enabledEvidence = candidate.evidence.filter((e) => enabled.has(e.strategyFamily))
-    const adverse = enabledEvidence.find((e) => known(e) && (e.decision.status === 'rejected' || e.interpretation.adverse === true))
+    const adverse = enabledEvidence.find((e) => known(e) && e.interpretation.adverse === true)
     if (adverse) { rejected.push(candidateDetails(candidate, { reason: adverse.decision.reason, evidenceId: adverse.id })); continue }
     const streams = Object.keys(STRATEGIES).filter((family) => enabled.has(family)
       && enabledEvidence.some((e) => e.strategyFamily === family && e.decision.status === 'eligible' && known(e)))
     if (!streams.length) {
       const deferred = candidate.evidence.some((e) => !enabled.has(e.strategyFamily) && e.decision.status === 'eligible' && known(e))
-      rejected.push(candidateDetails(candidate, { reason: deferred ? 'strategy_not_enabled' : 'evidence_not_actionable_yet' }))
+      const screenedOut = enabledEvidence.filter((e) => e.decision.status === 'rejected' && known(e))
+        .sort((a, b) => Date.parse(b.availableAt) - Date.parse(a.availableAt))[0]
+      rejected.push(candidateDetails(candidate, { reason: deferred ? 'strategy_not_enabled' : screenedOut?.decision.reason || 'evidence_not_actionable_yet' }))
       continue
     }
-    const eligibleEvidence = enabledEvidence.filter((e) => streams.includes(e.strategyFamily) && known(e))
+    const eligibleEvidence = enabledEvidence.filter((e) => streams.includes(e.strategyFamily) && e.decision.status === 'eligible' && known(e))
     const legacyPriority = Math.max(...eligibleEvidence.map((e) => e.priority))
     const priorityModel = reviewPriorityModel(candidate, { asOf: decisionTime, evidence: eligibleEvidence })
     // Downstream review reads candidate.evidence directly. Carry only enabled,

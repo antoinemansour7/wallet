@@ -1,10 +1,10 @@
 import { HORIZON_POLICY_VERSION, strategyPolicy, declaredHorizons, assertDeclaredHorizon } from './research/policy.js'
 // Versioned, forward-observed evaluation. These are hypothetical fills, not
 // executed trades; changing this policy must start a new comparison cohort.
-// v7 selects a coherent newest balance-sheet snapshot for net-debt scoring.
-// Keep its outcomes out of older cohorts because candidate priority and the
-// evidence supplied to the reviewer have materially changed.
-export const RESEARCH_MODEL_VERSION = 'evidence-v7-gpt-5.4-mini'
+// v8 admits only predeclared measured improvements to the fundamentals arm.
+// Keep its outcomes out of older cohorts that mixed improvements with generic
+// recent filings.
+export const RESEARCH_MODEL_VERSION = 'evidence-v8-gpt-5.4-mini'
 export const LEGACY_EVALUATION_VERSION = 'next-open-5-session-v1'
 export const EVALUATION_VERSION = 'next-open-strategy-session-v2'
 export const ROUND_TRIP_COST_BPS = 20

@@ -7,9 +7,9 @@ export const EVIDENCE_VERSION = 'discovery-evidence-v1'
 export const HORIZON_POLICY_VERSION = 'strategy-horizons-v2'
 // This is separate from the horizon policy because a strategy can remain
 // readable for historical cohorts while being unavailable to new production
-// decisions. Enabling a deferred stream is a policy change: bump this version
-// when its validated evidence extractor and experiment are ready.
-export const ADMISSION_POLICY_VERSION = 'strategy-admission-v1'
+// decisions. This also versions the eligibility boundary within an enabled
+// stream; bump it when a stream is enabled or its fixed screen changes.
+export const ADMISSION_POLICY_VERSION = 'strategy-admission-v2'
 export const HISTORY_RETENTION_SECONDS = 400 * 86400
 export const HISTORY_LIMIT = 400
 // `horizon` is the horizon a strategy is ranked and published on. `horizons` is

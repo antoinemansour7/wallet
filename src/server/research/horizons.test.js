@@ -40,7 +40,7 @@ describe('predeclared horizons', () => {
   })
 
   it('keeps deferred strategies readable but out of production admission', () => {
-    expect(ADMISSION_POLICY_VERSION).toBe('strategy-admission-v1')
+    expect(ADMISSION_POLICY_VERSION).toBe('strategy-admission-v2')
     expect(enabledDiscoveryStrategies()).toEqual(['attention', 'fundamentals'])
     expect(strategyPolicy('filing_changes').admissionEnabled).toBe(false)
     expect(strategyPolicy('insider').admissionEnabled).toBe(false)
