@@ -665,6 +665,18 @@ describe('private object archive and migration', () => {
       expect(await archive.get(kind, record.id)).toEqual(record)
     }
   })
+  it('skips a record behind an unreadable R2 object instead of failing the whole list', async () => {
+    const redis = memoryRedis(), objectStore = memoryObjectStore(), archive = createArchive(redis, { objectStore })
+    const good = { issuerId: 'cik:0000000001', availableAt: seenAt, facts: [{ concept: 'Revenue', detail: 'x'.repeat(10000) }] }
+    const bad = { issuerId: 'cik:0000000001', availableAt: reviewedAt, facts: [{ concept: 'Revenue', detail: 'y'.repeat(10000) }] }
+    await archive.put('facts', 'good-fact', good, 'facts:cik:0000000001', seenAt)
+    await archive.put('facts', 'bad-fact', bad, 'facts:cik:0000000001', reviewedAt)
+    const pointer = redis.values.get('research:archive:v1:facts:bad-fact')
+    const get = objectStore.get
+    objectStore.get = vi.fn(async (key) => { if (key === pointer.key) throw new TypeError('fetch failed'); return get(key) })
+    expect(await archive.list('facts:cik:0000000001')).toEqual([good])
+    objectStore.get = get
+  })
   it('signs private R2 requests, uses conditional writes, and reports missing objects', async () => {
     const fetchImpl = vi.fn().mockResolvedValueOnce(new Response(null, { status: 412 })).mockResolvedValueOnce(new Response(Buffer.from('compressed bytes'))).mockResolvedValueOnce(new Response(null, { status: 404 }))
     const objectStore = createObjectStore({ endpoint: 'https://account.r2.cloudflarestorage.com', bucket: 'research-fixture', accessKeyId: 'fixture-id', secretAccessKey: 'fixture-secret', fetchImpl })

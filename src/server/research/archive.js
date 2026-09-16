@@ -64,7 +64,13 @@ export function createArchive(redis, { objectStore } = {}) {
       const keys = await redis.zrange(`${PREFIX}:index:${index}`, minimum, new Date(asOf).getTime(), { byScore: true, offset: cursor, count: size })
       for (let i = 0; i < keys.length; i += 50) {
         const stored = await Promise.all(keys.slice(i, i + 50).map((key) => redis.get(key)))
-        values.push(...await Promise.all(stored.map(readStoredRecord)))
+        // A single unreadable object (transient R2 fetch failure, or a
+        // corrupt record) should thin the results, not fail the whole batch
+        // via Promise.all.
+        values.push(...await Promise.all(stored.map(async (value) => {
+          try { return await readStoredRecord(value) }
+          catch (error) { console.error(`[archive] skipping unreadable record: ${error.message}`); return null }
+        })))
       }
       if (keys.length < size) break
       cursor += keys.length
