@@ -56,11 +56,43 @@ describe('OpenAI research model', () => {
     }), undefined)
   })
 
-  it('fails closed on incomplete output', async () => {
+  it('retries max-output exhaustion once without reasoning', async () => {
+    mocks.create
+      .mockResolvedValueOnce({
+        status: 'incomplete',
+        model: 'gpt-5.4-mini-2026-03-17',
+        incomplete_details: { reason: 'max_output_tokens' },
+        usage: { input_tokens: 100, output_tokens: 4000, total_tokens: 4100 },
+      })
+      .mockResolvedValueOnce({
+        status: 'completed',
+        model: 'gpt-5.4-mini-2026-03-17',
+        output_text: '{"items":[{"ticker":"ABC"}]}',
+        usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+      })
+
+    await expect(generateStructuredArray({
+      name: 'test_ranking', instructions: 'Rank.', input: 'ABC', itemSchema: { type: 'string' },
+    })).resolves.toEqual([{ ticker: 'ABC' }])
+    expect(mocks.create).toHaveBeenCalledTimes(2)
+    expect(mocks.create.mock.calls[0][0].reasoning).toEqual({ effort: 'medium' })
+    expect(mocks.create.mock.calls[1][0].reasoning).toEqual({ effort: 'none' })
+  })
+
+  it('fails closed when the no-reasoning fallback is also incomplete', async () => {
     mocks.create.mockResolvedValue({ status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' } })
     await expect(generateStructuredArray({
       name: 'test_ranking', instructions: 'Rank.', input: 'ABC', itemSchema: { type: 'string' },
-    })).rejects.toThrow('max_output_tokens')
+    })).rejects.toThrow('OpenAI response incomplete after no-reasoning retry: max_output_tokens')
+    expect(mocks.create).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retry unrelated incomplete responses', async () => {
+    mocks.create.mockResolvedValue({ status: 'incomplete', incomplete_details: { reason: 'content_filter' } })
+    await expect(generateStructuredArray({
+      name: 'test_ranking', instructions: 'Rank.', input: 'ABC', itemSchema: { type: 'string' },
+    })).rejects.toThrow('content_filter')
+    expect(mocks.create).toHaveBeenCalledTimes(1)
   })
 
   it('uses Responses web search and collects cited URLs', async () => {

@@ -206,7 +206,7 @@ function candidateFacts(candidate) {
   const strategies = (candidate.strategies || []).map(title).filter(Boolean)
   if (strategies.length) facts.push(strategies.join(' · '))
   if (Number.isFinite(candidate.priority)) facts.push(`priority ${candidate.priority}`)
-  if (Number.isFinite(candidate.finalScore)) facts.push(`Claude ${candidate.finalScore}`)
+  if (Number.isFinite(candidate.finalScore)) facts.push(`model ${candidate.finalScore}`)
   if (candidate.rank) facts.push(`final #${candidate.rank}`)
   return facts.join(' · ')
 }
@@ -236,14 +236,14 @@ function Candidate({ candidate }) {
       <div><dt>Priority</dt><dd>{number(candidate.priority)}</dd></div>
       <div><dt>Admission rank</dt><dd><Rank candidate={candidate} /></dd></div>
       <div><dt>Admitted to review budget</dt><dd>{admitted}{candidate.admission && <span className="logs-subline">{title(candidate.admission.stream)} · {friendlyName(candidate.admission.kind)}</span>}</dd></div>
-      <div><dt>Sent to Claude</dt><dd>{sentToClaude ? 'Yes' : 'No'}</dd></div>
-      <div><dt>Claude result / score</dt><dd>{claudeLabel}<span className="logs-subline">Score {number(candidate.finalScore)}</span></dd></div>
+      <div><dt>Sent to model</dt><dd>{sentToClaude ? 'Yes' : 'No'}</dd></div>
+      <div><dt>Model result / score</dt><dd>{claudeLabel}<span className="logs-subline">Score {number(candidate.finalScore)}</span></dd></div>
       <div><dt>Catalyst</dt><dd>{candidate.catalystVerified === undefined ? 'Unknown' : candidate.catalystVerified ? 'Verified' : 'Unverified'}</dd></div>
       <div><dt>Final rank</dt><dd>{candidate.rank ? `#${candidate.rank}` : '—'}</dd></div>
       <div><dt>Published</dt><dd>{candidate.outcome === 'published' ? 'Yes' : 'No'}</dd></div>
       <div><dt>Evidence</dt><dd><Evidence candidate={candidate} /></dd></div>
     </dl>
-    {candidate.reason === 'review_budget_exhausted' && <p className="logs-note">Eligible for review, but all configured Claude review slots were used. This is a review-slot limit, not a runtime timeout.</p>}
+    {candidate.reason === 'review_budget_exhausted' && <p className="logs-note">Eligible for review, but all configured model review slots were used. This is a review-slot limit, not a runtime timeout.</p>}
     <details className="logs-disclosure">
       <summary>Technical details</summary>
       <dl className="logs-facts">

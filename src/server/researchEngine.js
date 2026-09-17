@@ -1211,6 +1211,11 @@ export async function extractTickers(signals, articles, options = {}) {
       instructions: systemPrompt,
       input: userContent,
       maxOutputTokens: 6000,
+      // max_output_tokens includes reasoning tokens. Medium exhausted the whole
+      // allowance in production before the five-item JSON result was emitted.
+      // The deterministic board already does the broad filtering and scoring;
+      // low leaves room for the final comparative judgment and visible answer.
+      reasoningEffort: 'low',
       itemSchema: {
         type: 'object',
         properties: {

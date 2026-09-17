@@ -8,7 +8,7 @@ export const RUN_TYPES = {
 }
 const STAGE_LABELS = {
   x_discovery: 'X discovery', foundation_sync: 'SEC ingestion', foundation_load: 'Load SEC research',
-  foundation_followup: 'SEC follow-up', claude_review: 'Claude review',
+  foundation_followup: 'SEC follow-up', claude_review: 'Candidate review',
   evaluation_input_freeze: 'Save evaluation snapshot', performance_tracking: 'Performance tracking',
 }
 export const friendlyName = (value) => {
@@ -131,7 +131,7 @@ export function runIssues(run) {
   if (waiting > 0) {
     issues.push({
       severity: 1,
-      headline: `${waiting} eligible candidate${waiting === 1 ? '' : 's'} did not receive a Claude review slot`,
+      headline: `${waiting} eligible candidate${waiting === 1 ? '' : 's'} did not receive a model review slot`,
       detail: 'The review budget was full. This is a review-slot limit, not a runtime timeout.',
     })
   }

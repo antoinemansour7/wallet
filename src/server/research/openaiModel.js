@@ -36,12 +36,12 @@ export async function generateStructuredArray({
 }) {
   if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not set')
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  const response = await client.responses.create({
+  const create = (effort) => client.responses.create({
     model: OPENAI_RESEARCH_MODEL,
     instructions,
     input,
     max_output_tokens: maxOutputTokens,
-    reasoning: { effort: reasoningEffort },
+    reasoning: { effort },
     text: {
       verbosity: 'low',
       format: {
@@ -59,6 +59,27 @@ export async function generateStructuredArray({
     },
     store: false,
   }, requestOptions)
+
+  let response = await create(reasoningEffort)
+  let retriedWithoutReasoning = false
+  // max_output_tokens includes hidden reasoning. A bounded structured result can
+  // therefore be cut off before any JSON is emitted even when its visible answer
+  // is small. Retry this one explicit terminal status without reasoning; network,
+  // rate-limit, abort and every other incomplete status still fail closed.
+  if (response.status === 'incomplete'
+    && response.incomplete_details?.reason === 'max_output_tokens'
+    && reasoningEffort !== 'none') {
+    console.warn('[research-model] retrying without reasoning', {
+      provider: 'openai',
+      model: response.model || OPENAI_RESEARCH_MODEL,
+      operation: name,
+      reason: 'max_output_tokens',
+      previousEffort: reasoningEffort,
+      ...usageMetrics(response.usage),
+    })
+    retriedWithoutReasoning = true
+    response = await create('none')
+  }
   if (response.status === 'incomplete') {
     const reason = response.incomplete_details?.reason || 'unknown reason'
     console.warn('[research-model] incomplete', {
@@ -68,7 +89,7 @@ export async function generateStructuredArray({
       reason,
       ...usageMetrics(response.usage),
     })
-    throw new Error(`OpenAI response incomplete: ${reason}`)
+    throw new Error(`OpenAI response incomplete${retriedWithoutReasoning ? ' after no-reasoning retry' : ''}: ${reason}`)
   }
   const parsed = JSON.parse(response.output_text)
   if (!Array.isArray(parsed.items)) throw new Error('OpenAI structured response did not contain an items array')

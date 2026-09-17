@@ -242,7 +242,7 @@ async function runDiscovery(res, startedAt, recordRun, foundation, budget) {
     errors.push({ step: 'regime', error: err.message })
   }
 
-  // Step 3: extract tickers via Claude
+  // Step 3: review and rank the candidate board
   let tickers = []
   let modelBoard = []
   let shadowBoard = []
@@ -257,7 +257,7 @@ async function runDiscovery(res, startedAt, recordRun, foundation, budget) {
     const discoveryHealthy = !errors.some((e) => DISCOVERY_STEPS.includes(e.step))
     if (!discoveryHealthy) console.warn('[nightly-research] discovery degraded — coverage history will not record this run')
 
-    tickers = await stage(STAGES.claude_review, () => withinCronBudget(budget, 'Claude review', (signal, timeout) =>
+    tickers = await stage(STAGES.claude_review, () => withinCronBudget(budget, 'Candidate review', (signal, timeout) =>
       extractTickers(signals, articles, {
         foundation,
         onPrimaryReview: (result) => { primaryReview = result },

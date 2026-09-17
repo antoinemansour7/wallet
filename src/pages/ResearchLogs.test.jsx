@@ -108,8 +108,8 @@ describe('research activity page', () => {
     }))
   })
 
-  /* --------------------------------------------- 2. partial, failed Claude run */
-  it('reduces a failed Claude stage to one plain sentence on the card', async () => {
+  /* --------------------------------------------- 2. partial, failed model run */
+  it('reduces a failed model stage to one plain sentence on the card', async () => {
     serve([run({ status: 'partial', admission: null, candidates: [], stages: [
       { stage: 'x_discovery', status: 'success', durationMs: 900 },
       { stage: 'claude_review', status: 'failed', durationMs: 4200, error: { message: 'anthropic 529 overloaded' } },
@@ -118,7 +118,7 @@ describe('research activity page', () => {
     await ready()
     const collapsed = card()
     expect(within(collapsed).getByText('Partial')).toBeVisible()
-    expect(within(collapsed).getByText('Claude review failed')).toBeVisible()
+    expect(within(collapsed).getByText('Candidate review failed')).toBeVisible()
     expect(within(collapsed).getByText('Research stopped before candidate review.')).toBeVisible()
     expect(collapsed).toHaveClass('logs-run-warning')
 
@@ -143,7 +143,7 @@ describe('research activity page', () => {
     expect(within(collapsed).queryByText('—')).not.toBeInTheDocument()
     expect(within(collapsed).queryByText(/= not recorded/)).not.toBeInTheDocument()
     expect(within(collapsed).getByText('Failed')).toBeVisible()
-    expect(within(collapsed).getByText('Claude review failed')).toBeVisible()
+    expect(within(collapsed).getByText('Candidate review failed')).toBeVisible()
   })
 
   /* --------------------------------------------------- 4. recorded zero is zero */
@@ -314,7 +314,7 @@ describe('research activity page', () => {
     const issues = within(panel).getByLabelText('Warnings and failures')
     expect(issues).toHaveTextContent('Catalyst verification failed')
     expect(issues).toHaveTextContent('The separate evaluation job failed')
-    expect(issues).toHaveTextContent('67 eligible candidates did not receive a Claude review slot')
+    expect(issues).toHaveTextContent('67 eligible candidates did not receive a model review slot')
 
     // Admission budgets, reallocation and cutoffs.
     expect(within(panel).getByText(/10 \/ 10 used/)).toBeVisible()
@@ -398,7 +398,7 @@ describe('research activity page', () => {
     expect(within(candidate).getByText('SEC')).toBeVisible()
     expect(within(candidate).getByText('5, 20 sessions')).toBeVisible()
     expect(within(candidate).getByText('Admitted to review budget').nextElementSibling).toHaveTextContent('No')
-    expect(within(candidate).getByText('Sent to Claude').nextElementSibling).toHaveTextContent('No')
+    expect(within(candidate).getByText('Sent to model').nextElementSibling).toHaveTextContent('No')
     expect(within(candidate).getByText('Published').nextElementSibling).toHaveTextContent('No')
     expect(within(candidate).getByText('review_budget_exhausted')).not.toBeVisible()
     fireEvent.click(within(candidate).getByText('Technical details'))
@@ -419,11 +419,11 @@ describe('research activity page', () => {
     await openRun()
     openTab(/Candidates/)
     const row = screen.getByText('RKLB', { selector: '.logs-symbol' }).closest('summary')
-    expect(row).toHaveTextContent('Attention · priority 68 · Claude 84 · final #2')
+    expect(row).toHaveTextContent('Attention · priority 68 · model 84 · final #2')
     expect(row).toHaveTextContent('Published')
 
     const candidate = candidateCard('RKLB')
-    expect(within(candidate).getByText('Sent to Claude').nextElementSibling).toHaveTextContent('Yes')
+    expect(within(candidate).getByText('Sent to model').nextElementSibling).toHaveTextContent('Yes')
     expect(within(candidate).getByText('Accepted')).toBeVisible()
     expect(within(candidate).getByText('Score 84')).toBeVisible()
     expect(within(candidate).getByText('Verified')).toBeVisible()

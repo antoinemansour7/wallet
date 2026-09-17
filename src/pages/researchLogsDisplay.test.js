@@ -17,7 +17,7 @@ describe('research log presentation', () => {
 
   it.each([
     ['x_discovery', 'X discovery'], ['foundation_sync', 'SEC ingestion'],
-    ['claude_review', 'Claude review'], ['evaluation_input_freeze', 'Save evaluation snapshot'],
+    ['claude_review', 'Candidate review'], ['evaluation_input_freeze', 'Save evaluation snapshot'],
     ['performance_tracking', 'Performance tracking'],
   ])('translates %s for display', (internal, label) => expect(stageName(internal)).toBe(label))
 
@@ -47,7 +47,7 @@ describe('research log presentation', () => {
         { stage: 'x_discovery', status: 'success' },
         { stage: 'claude_review', status: 'failed', error: { message: 'anthropic 529' } },
       ] })
-      expect(issue.headline).toBe('Claude review failed')
+      expect(issue.headline).toBe('Candidate review failed')
       expect(issue.detail).toBe('Research stopped before candidate review.')
     })
 
@@ -88,11 +88,11 @@ describe('research log presentation', () => {
           { stage: 'claude_review', status: 'failed' },
         ],
       }).map((issue) => issue.headline)
-      expect(headlines[0]).toBe('Claude review failed')
+      expect(headlines[0]).toBe('Candidate review failed')
       expect(headlines[1]).toBe('Evaluation snapshot was not saved because the run ran out of time')
       expect(headlines.slice(2)).toEqual([
         'The separate evaluation job failed',
-        '67 eligible candidates did not receive a Claude review slot',
+        '67 eligible candidates did not receive a model review slot',
       ])
     })
 
