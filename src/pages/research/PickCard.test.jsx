@@ -17,7 +17,7 @@ it('retains the complete research argument, uncertainty and evidence when expand
     catalystSources: ['https://example.com/confirmed-event', 'javascript:alert(1)'],
   }
   render(<PickCard pick={pick} rank={1} />)
-  fireEvent.click(screen.getByRole('button', { name: 'View research for QUIET' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Read research for QUIET' }))
   for (const text of ['The full investment thesis.', 'The opposing case.', 'The model and chart disagree.', "We couldn't confirm this event", 'Next Thursday', 'A reported but unverified event.', '4 independent sources', '0 mentions', '@one', '@two', 'Stock screener', 'News coverage', 'News search']) expect(screen.getByText(text)).toBeInTheDocument()
   expect(screen.getByText(/New mentions jumped to 8 today/)).toBeInTheDocument()
   expect(screen.getByText(/Market likely expects it/)).toBeInTheDocument()
