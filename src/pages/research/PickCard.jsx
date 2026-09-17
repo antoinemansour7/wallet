@@ -71,7 +71,7 @@ function ScoreMeter({ score, max = 10, tone = 'conviction', label }) {
 
 function Section({ label, trailing, children, className = '' }) {
   return <section className={`research-detail ${className}`}>
-    <div className="research-detail-heading"><h4>{label}</h4>{trailing}</div>
+    <div className="research-detail-heading"><h3>{label}</h3>{trailing}</div>
     {children}
   </section>
 }
@@ -142,12 +142,12 @@ export default function PickCard({ pick, rank, defaultOpen = false, featured = f
 
   return (
     <article className={`research-idea ${featured ? 'research-idea-featured' : ''}`} aria-label={ticker} data-open={open}>
-      {featured && <p className="research-leading-label"><span /> Leading idea <span className="research-leading-note">First in the research ranking</span></p>}
+
       <header className="research-idea-heading">
         <div className="research-identity">
           <span className="research-rank" aria-label={`Rank ${rank}`}>{String(rank).padStart(2, '0')}</span>
           <CompanyLogo symbol={ticker} size={40} />
-          <div><h3>{ticker}</h3>{setupType && <span className="research-setup">{SETUP_LABELS[setupType] || setupType}</span>}</div>
+          <div><h2>{ticker}</h2>{setupType && <span className="research-setup">{SETUP_LABELS[setupType] || setupType}</span>}</div>
         </div>
         <ChangedValue as="div" value={`${entry}:${change}`} className="research-price">
           <span className="research-micro">{priceIsLive ? 'Live price' : 'Run price'} · USD</span>
@@ -157,15 +157,14 @@ export default function PickCard({ pick, rank, defaultOpen = false, featured = f
           </span>
         </ChangedValue>
         <ScoreMeter score={primary ? pick.finalScore : conviction} max={primary ? 100 : 10} label={primary ? 'Priority' : undefined} />
-        <button type="button" className="research-expand" aria-expanded={open} aria-controls={detailId} aria-label={`${open ? 'Hide' : 'Read'} research for ${ticker}`} onClick={() => setOpen((value) => !value)}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d={open ? 'M5 12h14' : 'M5 12h14M12 5v14'} /></svg>
-        </button>
       </header>
       {!open && <div className="research-idea-preview">
         {reason && <p>{reason}</p>}
-        <div className="research-preview-sources">{sources.slice(0, 3).map((source, i) => <span key={`${source}-${i}`}>{sourceLabel(source)}</span>)}{sources.length > 3 && <span>+{sources.length - 3} more</span>}</div>
       </div>}
-      {open && <div className="research-idea-body" id={detailId}>
+      <button type="button" className="research-expand" aria-expanded={open} aria-controls={detailId} aria-label={`${open ? 'Hide' : 'View'} research for ${ticker}`} onClick={() => setOpen((value) => !value)}>
+        {open ? 'Hide research' : 'View research'} <span aria-hidden="true">{open ? '↑' : '↓'}</span>
+      </button>
+      <div className="research-idea-body" id={detailId} hidden={!open}>{open && <>
         <Section label="Why this one" className="research-thesis"><p>{reason || 'A written thesis was not included in this run.'}</p></Section>
         <div className="research-evidence-grid">
           <div className="research-evidence-column">
@@ -207,7 +206,7 @@ export default function PickCard({ pick, rank, defaultOpen = false, featured = f
           {themes.length > 0 && <p>About: {themes.join(', ')}</p>}
           <p className="research-provenance">{priceIsLive ? 'Price live' : entry > 0 ? `Price from ${runLabel(generatedAt)}${quoteVerified ? '' : ' · Not verified'}` : 'Price unavailable'}{priceIsLive && live.at ? ` · Updated ${new Date(live.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ''}</p>
         </footer>
-      </div>}
+      </>}</div>
     </article>
   )
 }
