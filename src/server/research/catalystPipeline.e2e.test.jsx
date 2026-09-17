@@ -213,7 +213,7 @@ describe('research catalyst pipeline smoke test', () => {
     })))
     await act(async () => { render(<Research />) })
     const card = await screen.findByRole('article', { name: 'ABC' })
-    if (!within(card).queryByText('The catalyst')) fireEvent.click(within(card).getByRole('button', { name: 'View research for ABC' }))
+    if (!within(card).queryByText('The catalyst')) fireEvent.click(within(card).getByRole('button', { name: 'Read research for ABC' }))
     expect(within(card).getByText('We confirmed this event')).toBeVisible()
     expect(within(card).getByText('ABC reports earnings after market close.')).toBeVisible()
     expect(within(card).getByText('in 3 days')).toBeVisible()
