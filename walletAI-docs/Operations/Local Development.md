@@ -47,9 +47,9 @@ and `PLAID_ENV`, plus `FIREBASE_SERVICE_ACCOUNT` for the server handler. Without
 those credentials, preview mode is the honest path: it answers the connection
 from fixtures and never leaves the machine.
 
-`get-research-history`, `position-sizing`, `slack-events` and
-`track-performance` remain Vercel-only. A client change that depends on one of
-those must be exercised in a deployed preview rather than assumed local.
+`get-research-history`, `position-sizing` and `track-performance` remain
+Vercel-only. A client change that depends on one of those must be exercised in
+a deployed preview rather than assumed local.
 
 ## Test environment
 

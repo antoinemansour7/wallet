@@ -188,7 +188,8 @@ export default function Portfolio() {
       // hiccup that cost nothing raised a warning banner reading "14 positions
       // refreshed; 0 symbols not found" — an announcement that nothing happened.
       if (result.updatedRows === 0 && result.errors?.length > 0) {
-        setLiveStatus('error'); setLiveMessage(result.errors[0].error)
+        setLiveStatus('partial')
+        setLiveMessage('Live prices are temporarily unavailable. Your last saved values are still shown.')
       } else if (result.updatedRows === 0) {
         setLiveStatus('partial'); setLiveMessage('No market data matched your holdings.')
       } else if (result.missing.length > 0) {
@@ -205,11 +206,12 @@ export default function Portfolio() {
         setLiveStatus('success'); setLiveMessage('')
       }
       return nextRows
-    } catch (err) {
+    } catch {
       if (!current()) return sourceRows
       applyPortfolioRows(sourceRows, options)
       updateValuationState({ type: 'quote-refresh-finished', complete: false })
-      setLiveStatus('error'); setLiveMessage(`Price refresh failed: ${err.message}`)
+      setLiveStatus('partial')
+      setLiveMessage('Live prices are temporarily unavailable. Your last saved values are still shown.')
       return sourceRows
     }
   }, [applyPortfolioRows])

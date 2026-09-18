@@ -21,8 +21,6 @@
     "@anthropic-ai/sdk": "^0.90.0",
     "@google/generative-ai": "^0.24.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@slack/bolt": "^4.7.2",
-    "@slack/web-api": "^7.16.0",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.37.0",
     "agent-twitter-client": "^0.0.18",

@@ -459,10 +459,14 @@ export default function ResearchLogs() {
           method: 'GET', headers: { Authorization: `Bearer ${token}` }, cache: 'no-store', signal: controller.signal,
         })
         const data = await response.json()
-        if (!response.ok) throw new Error(data.error || 'Run history is unavailable')
+        if (!response.ok) {
+          const error = new Error(data.error || 'Run history is unavailable')
+          error.status = response.status
+          throw error
+        }
         if (!controller.signal.aborted) setState({ uid: user.uid, runs: data.runs || [], scheduleHealth: data.scheduleHealth, now: Date.now() })
       } catch (error) {
-        if (!controller.signal.aborted) setState({ uid: user?.uid, error: error.message })
+        if (!controller.signal.aborted) setState({ uid: user?.uid, error: error.message, errorStatus: error.status })
       }
     }
     load()
@@ -480,9 +484,23 @@ export default function ResearchLogs() {
 
   // A non-owner must never learn this page exists: no title, no "Private ·
   // Read only" framing, nothing while loading, and an immediate exit on
-  // denial — the same redirect a truly unknown route would produce.
+  // denial — the same redirect a truly unknown route would produce. That
+  // applies only to an actual ownership denial (401/403) or a request that
+  // never got a response at all. verifyOwner runs before any storage read,
+  // so any other status (503 storage unavailable, 400 bad request) means the
+  // caller already cleared the owner check — they should see why the page is
+  // degraded, not be bounced out as though the page didn't exist.
   if (!current) return null
-  if (current.error) return <Navigate to="/portfolio" replace />
+  const denied = current.error && (!current.errorStatus || current.errorStatus === 401 || current.errorStatus === 403)
+  if (denied) return <Navigate to="/portfolio" replace />
+
+  if (current.error) return <div className="wallai-system research-logs">
+    <header className="logs-head">
+      <Eyebrow />
+      <h1>Research activity</h1>
+    </header>
+    <p className="logs-empty" role="alert">Logs are temporarily unavailable — {current.error} This page will work again once storage recovers.</p>
+  </div>
 
   return <div className="wallai-system research-logs">
     <header className="logs-head">

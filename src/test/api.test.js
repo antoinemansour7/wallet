@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
 // Every route under test here is now wrapped in withRunLog (#56), which calls
-// out to real Upstash/Slack credentials leaked into process.env from .env via
+// out to real Upstash credentials leaked into process.env from .env via
 // vite.config.js's loadEnv side effect (see node-version-blocks-test-suite
 // memory / the #54 PR). A passthrough here keeps that entirely out of any
 // test in this file, rather than chasing env-var deletions across every
@@ -239,6 +239,7 @@ describe('api/live-prices', () => {
   })
 
   it('returns 500 on error', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.doMock('../server/marketQuotes.js', () => ({
       fetchMarketQuotes: vi.fn().mockRejectedValue(new Error('Yahoo down')),
     }))
@@ -248,7 +249,32 @@ describe('api/live-prices', () => {
     await mod.default(mockReq('POST', { symbols: ['X'] }), res)
 
     expect(res.statusCode).toBe(500)
-    expect(res.body.error).toBe('Yahoo down')
+    expect(res.body.error).toBe('Market prices are temporarily unavailable.')
+    expect(res.body.error).not.toContain('Yahoo')
+    expect(consoleError).toHaveBeenCalledWith('[live-prices] request failed:', expect.any(Error))
+  })
+
+  it('logs provider details but returns sanitized per-symbol errors', async () => {
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.doMock('../server/marketQuotes.js', () => ({
+      fetchMarketQuotes: vi.fn().mockResolvedValue({
+        quotes: [],
+        missing: ['AAPL'],
+        errors: [{ symbol: 'AAPL', error: 'ERR max requests limit exceeded' }],
+      }),
+    }))
+    const mod = await import('../../api/live-prices.js')
+
+    const res = mockRes()
+    await mod.default(mockReq('POST', { symbols: ['AAPL'] }), res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.errors).toEqual([{ symbol: 'AAPL', error: 'Price unavailable' }])
+    expect(JSON.stringify(res.body)).not.toContain('max requests')
+    expect(consoleWarn).toHaveBeenCalledWith(
+      '[live-prices] provider errors:',
+      [{ symbol: 'AAPL', error: 'ERR max requests limit exceeded' }],
+    )
   })
 
   it('serves cached-only quotes instantly without a live fetch', async () => {
@@ -533,47 +559,6 @@ describe('api/get-research?history=1', () => {
     expect(res.statusCode).toBe(200)
     expect(res.body.entries).toHaveLength(1)
     expect(res.body.entries[0].picks[0].ticker).toBe('AAPL')
-  })
-})
-
-// ─── slack-events tests ─────────────────────────────────────────────────────
-// Signature verification needs a real HMAC and a live timestamp to exercise
-// meaningfully, so coverage here stays to the branches reachable without it —
-// still enough to confirm the withRunLog wrap didn't change routing.
-
-describe('api/slack-events', () => {
-  beforeEach(() => {
-    delete process.env.UPSTASH_REDIS_REST_URL
-    delete process.env.UPSTASH_REDIS_REST_TOKEN
-    delete process.env.SLACK_SIGNING_SECRET
-    vi.resetModules()
-  })
-
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
-
-  it('rejects non-POST requests', async () => {
-    const mod = await import('../../api/slack-events.js')
-    const res = mockRes()
-    await mod.default(mockReq('GET'), res)
-    expect(res.statusCode).toBe(405)
-  })
-
-  it('answers the URL verification challenge before checking a signature', async () => {
-    const mod = await import('../../api/slack-events.js')
-    const res = mockRes()
-    await mod.default(mockReq('POST', { type: 'url_verification', challenge: 'abc123' }), res)
-    expect(res.statusCode).toBe(200)
-    expect(res.body.challenge).toBe('abc123')
-  })
-
-  it('rejects an unsigned event when a signing secret is configured', async () => {
-    process.env.SLACK_SIGNING_SECRET = 'test-secret'
-    const mod = await import('../../api/slack-events.js')
-    const res = mockRes()
-    await mod.default(mockReq('POST', { event: { type: 'message', text: 'hi' } }), res)
-    expect(res.statusCode).toBe(401)
   })
 })
 

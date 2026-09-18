@@ -78,13 +78,12 @@ still easy to find. Check the docs rather than a search result.
 
 **Monitoring is `src/server/runLog.js`.** Every cron run writes a summary to
 Redis under `logs:runs` — job, timestamp, `durationMs`, `ok`, and any errors —
-keeping the last 90. Failures post to Slack when `SLACK_BOT_TOKEN` and
-`SLACK_CHANNEL_ID` are set. It exists because Hobby keeps runtime logs for about
-an hour, so a 3 AM run leaves no trace by morning.
+keeping the last 90. It exists because Hobby keeps runtime logs for about an
+hour, so a 3 AM run leaves no trace by morning.
 
 Reading `logs:runs` is how to answer "is the pipeline healthy":
 
 - `durationMs` near 299,000 with `ok: false` would mean the ceiling is being hit.
 - A scheduled slot with **no entry at all** means the function died before
-  reaching `recordRun` — the one failure neither Redis nor Slack can report,
-  since both happen at the end.
+  reaching `recordRun` — the one failure Redis can't report, since the record
+  is only written at the end.

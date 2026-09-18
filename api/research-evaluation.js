@@ -38,11 +38,25 @@ export default async function handler(req, res) {
   const startedAt = Date.now()
   const budget = createCronBudget({ startedAt })
   const lock = 'research:evaluation:lock:v1', token = randomUUID()
-  if (!await redis.set(lock, token, { nx: true, ex: 360 })) return res.status(409).json({ error: 'Evaluation already running' })
+  // See api/nightly-research.js: an unreachable/quota-exhausted Redis makes
+  // `set` throw instead of returning falsy, which otherwise crashes this
+  // invocation before recordResearchRun ever runs.
+  let acquired
+  try {
+    acquired = await redis.set(lock, token, { nx: true, ex: 360 })
+  } catch (error) {
+    console.error('[research-evaluation] lock acquisition failed:', error.message)
+    return res.status(503).json({ error: `Evaluation storage is unavailable: ${error.message}` })
+  }
+  if (!acquired) return res.status(409).json({ error: 'Evaluation already running' })
   try {
     return await recordResearchRun(redis, { job: 'research-evaluation' }, () => stage(STAGES.evaluation_job, () => runPending(redis, budget, res)))
   } finally {
-    await redis.eval("if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end", [lock], [token])
+    try {
+      await redis.eval("if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end", [lock], [token])
+    } catch (error) {
+      console.error('[research-evaluation] lock release failed:', error.message)
+    }
   }
 }
 

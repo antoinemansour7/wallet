@@ -117,15 +117,36 @@ export default async function handler(req, res) {
   const startedAt = Date.now()
   const budget = createCronBudget({ startedAt })
   const { recordRun } = await import('../src/server/runLog.js')
-  const redis = getRedis()
-  if (!redis) return res.status(503).json({ error: 'Redis not configured' })
-  const lock = 'research:publication:lock:v1', token = randomUUID()
-  if (!await redis.set(lock, token, { nx: true, ex: 360 })) return res.status(409).json({ error: 'Research publication already running' })
   const job = req.query?.mode === 'premarket' ? 'premarket-check' : 'nightly-research'
+  const redis = getRedis()
+  if (!redis) {
+    await recordRun(job, startedAt, { errors: [{ step: 'redis', error: 'Redis not configured' }] })
+    return res.status(503).json({ error: 'Redis not configured' })
+  }
+  const lock = 'research:publication:lock:v1', token = randomUUID()
+  // A quota-exhausted or unreachable Redis makes `set` throw rather than
+  // return falsy. Uncaught here, that exception crashed the whole invocation
+  // before a single run was ever recorded, leaving no trace in the run-log
+  // history. Recording and returning a clean 503 makes the same outage
+  // visible instead of invisible.
+  let acquired
+  try {
+    acquired = await redis.set(lock, token, { nx: true, ex: 360 })
+  } catch (error) {
+    await recordRun(job, startedAt, { errors: [{ step: 'lock', error: error.message }] })
+    return res.status(503).json({ error: `Research storage is unavailable: ${error.message}` })
+  }
+  if (!acquired) return res.status(409).json({ error: 'Research publication already running' })
   try {
     return await recordResearchRun(redis, { job }, () => runLocked(req, res, startedAt, recordRun, redis, budget))
   } finally {
-    await redis.eval("if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end", [lock], [token])
+    // A throw here (same Redis outage) would otherwise replace whatever the
+    // try block returned or threw, masking the real result of the run.
+    try {
+      await redis.eval("if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end", [lock], [token])
+    } catch (error) {
+      console.error('[nightly-research] lock release failed:', error.message)
+    }
   }
 }
 

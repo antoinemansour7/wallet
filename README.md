@@ -176,14 +176,6 @@ CRON_SECRET                     # guards the scheduled endpoints
 `GROQ_API_KEY` is also used by PDF statement extraction, so it is worth setting
 even if you never run research.
 
-### Slack (optional)
-
-```
-SLACK_BOT_TOKEN
-SLACK_CHANNEL_ID
-SLACK_SIGNING_SECRET
-```
-
 ### Tuning (all optional)
 
 ```
@@ -259,7 +251,7 @@ Eleven serverless functions live under `api/`, one below the Vercel Hobby limit.
 | `nightly-research` | yes | Vite middleware |
 | `plaid` | yes | The same `api/plaid.js` handler as production; needs Plaid sandbox and Firebase service-account credentials |
 | `market-regime` | yes | Same real-handler pattern as `plaid` — split out of `get-research` in #68 so each route stays to one job |
-| `get-research-history`, `position-sizing`, `slack-events`, `track-performance` | no | Vercel only |
+| `get-research-history`, `position-sizing`, `track-performance` | no | Vercel only |
 
 The dev server hand-registers a middleware for each route it supports, in
 `vite.config.js`. The Plaid middleware is an adapter rather than a second
