@@ -10,11 +10,21 @@ import { isRateLimited } from '../src/server/rateLimit.js'
 // unbounded array into a metered price lookup.
 const MAX_SYMBOLS = 200
 const MAX_POSITIONS = 500
+const PUBLIC_PRICE_ERROR = 'Market prices are temporarily unavailable.'
 
 function getBody(req) {
   if (!req.body) return {}
   if (typeof req.body === 'string') return JSON.parse(req.body)
   return req.body
+}
+
+function reportProviderErrors(errors) {
+  if (!Array.isArray(errors) || errors.length === 0) return errors
+  console.warn('[live-prices] provider errors:', errors)
+  return errors.map((error) => ({
+    symbol: error?.symbol,
+    error: 'Price unavailable',
+  }))
 }
 
 // One function, two market-data actions (Vercel Hobby caps deployments at 12
@@ -82,9 +92,15 @@ async function realHandler(req, res) {
     }
 
     const result = await fetchMarketQuotes(body.symbols)
-    return res.status(200).json(result)
+    return res.status(200).json({
+      ...result,
+      errors: reportProviderErrors(result.errors),
+    })
   } catch (err) {
-    return res.status(500).json({ error: err.message })
+    // Vercel retains the diagnostic; clients receive stable copy without
+    // provider names, infrastructure details, quotas, or command output.
+    console.error('[live-prices] request failed:', err)
+    return res.status(500).json({ error: PUBLIC_PRICE_ERROR })
   }
 }
 

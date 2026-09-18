@@ -1,6 +1,6 @@
 // ─── Portfolio Tools ───────────────────────────────────────────────────────────
 // Functions that let any agent reason about the user's portfolio.
-// Used by: Slack Agent, Position Sizing Agent, and any future MCP server.
+// Used by: Position Sizing Agent, and any future MCP server.
 // ────────────────────────────────────────────────────────────────────────────────
 
 // Sector classification map for common stocks (incl. Canadian CDR tickers,

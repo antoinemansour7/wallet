@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => {
   const archive = { put: vi.fn(async (kind, _id, payload) => { if (kind === 'publication') publications.push(structuredClone(payload)); return payload }) }
   const master = { resolve: ({ ticker }) => [{ ticker, securityId: `figi:${ticker}` }] }
   return { values, publications, redis, archive, master, load: vi.fn(), extract: vi.fn(), reports: vi.fn(), record: vi.fn(), quotes: vi.fn(),
-    yahoo: vi.fn(), freezeEvaluationJob: vi.fn(), slack: vi.fn() }
+    yahoo: vi.fn(), freezeEvaluationJob: vi.fn() }
 })
 vi.mock('@upstash/redis', () => ({ Redis: { fromEnv: () => mocks.redis } }))
 vi.mock('./evaluationJob.js', () => ({ freezeEvaluationJob: mocks.freezeEvaluationJob }))
@@ -27,7 +27,6 @@ vi.mock('../technicalScreener.js', () => ({ fetchBreakoutCandidates: async () =>
 vi.mock('../agents/contrarianAgent.js', () => ({ runContrarianAgent: async (picks) => picks }))
 vi.mock('../agents/catalystAgent.js', () => ({ runCatalystAgent: async (picks) => picks }))
 vi.mock('../agents/exaDiscoveryAgent.js', () => ({ runExaDiscovery: async () => [] }))
-vi.mock('../agents/slackAgent.js', () => ({ sendPickAlerts: mocks.slack }))
 vi.mock('../dayTradeSignals.js', () => ({ collectDayTradeSignals: async () => [] }))
 vi.mock('../marketRegime.js', () => ({ getMarketRegime: async () => ({ score: 6, label: 'Mixed' }), regimeSizeMultiplier: () => 0.75 }))
 vi.mock('../marketQuotes.js', () => ({ fetchMarketQuotes: mocks.quotes }))
@@ -114,18 +113,6 @@ describe('nightly foundation integration', () => {
     const stages = JSON.parse(line).stages
     expect(stages.find((entry) => entry.stage === 'evaluation_input_freeze')).toMatchObject({ status: 'success' })
     expect(stages.find((entry) => entry.stage === 'report_generation')).toMatchObject({ status: 'failed' })
-  })
-
-  it('does not send Slack alerts or record a Slack stage from nightly research', async () => {
-    mocks.extract.mockImplementation(async (_s, _a, options) => { options.onPrimaryReview(primary()); return [pick('FAST')] })
-    const res = response()
-
-    await handler(request(), res)
-
-    expect(mocks.slack).not.toHaveBeenCalled()
-    const [, line] = mocks.redis.lpush.mock.calls.find(([key]) => key === 'research:runs:v1')
-    expect(JSON.parse(line).stages.map((entry) => entry.stage)).not.toContain('slack_alerts')
-    expect(res.json.mock.calls[0][0].errors.some((error) => error.step === 'slack')).toBe(false)
   })
 
   it('synchronizes only the five-session premarket projection', async () => {

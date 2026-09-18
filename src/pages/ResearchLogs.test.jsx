@@ -473,10 +473,21 @@ describe('research activity page', () => {
   })
 
   it('redirects away when the API denies access', async () => {
-    vi.mocked(fetch).mockResolvedValue({ ok: false, json: async () => ({ error: 'Owner access required' }) })
+    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 403, json: async () => ({ error: 'Owner access required' }) })
     renderLogs()
     expect(await screen.findByText('PORTFOLIO')).toBeInTheDocument()
     expect(screen.queryByText(/Research activity/)).not.toBeInTheDocument()
+  })
+
+  it('shows a degraded message instead of redirecting when storage itself is down', async () => {
+    // The caller already cleared the owner check (verifyOwner runs first); a
+    // 503 here means Redis, not identity. Bouncing an owner out with no
+    // explanation is indistinguishable from the page not existing at all.
+    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 503, json: async () => ({ error: 'Run history is unavailable' }) })
+    renderLogs()
+    expect(await screen.findByRole('heading', { name: 'Research activity' })).toBeVisible()
+    expect(screen.getByRole('alert')).toHaveTextContent('Run history is unavailable')
+    expect(screen.queryByText('PORTFOLIO')).not.toBeInTheDocument()
   })
 
   it('never renders the page title while ownership is still being checked', () => {
