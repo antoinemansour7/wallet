@@ -1,6 +1,6 @@
 import {
   QUOTE_CACHE_TTL_SECONDS,
-  getCachedQuote,
+  getCachedQuotes,
   isFreshQuote,
   isRedisEnabled,
   rememberQuoteSymbols,
@@ -158,8 +158,9 @@ export async function fetchPolygonQuotes(symbols, options = {}) {
   const errors = []
 
   if (!options.forceRefresh) {
-    for (const symbol of uniqueSymbols) {
-      const cachedQuote = await getCachedQuote(symbol)
+    const cachedQuotes = await getCachedQuotes(uniqueSymbols)
+    for (const [index, symbol] of uniqueSymbols.entries()) {
+      const cachedQuote = cachedQuotes[index]
       if (cachedQuote && isPolygonCachedQuote(cachedQuote) && isFreshQuote(cachedQuote, now)) {
         quotes.push({ ...cachedQuote, cacheStatus: 'hit' })
       } else {

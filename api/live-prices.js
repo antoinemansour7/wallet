@@ -4,7 +4,6 @@ import { securitiesReferenceCache } from '../src/server/securitiesReferenceCache
 import { getPortfolioSeries, getIntradaySeries } from '../src/server/portfolioSeries.js'
 import { getPortfolioComparison } from '../src/server/portfolioComparison.js'
 import { isRateLimited } from '../src/server/rateLimit.js'
-import { withRunLog } from '../src/server/runLog.js'
 
 // A real portfolio has dozens of holdings, not thousands — this is nowhere
 // near that, and rejecting above it closes the cheapest version of sending an
@@ -89,4 +88,7 @@ async function realHandler(req, res) {
   }
 }
 
-export default withRunLog('live-prices', realHandler)
+// This user-driven endpoint runs on load and every five minutes. Persisting a
+// run record for every successful request consumed more Redis commands than
+// the quote cache itself and provided little operational value.
+export default realHandler

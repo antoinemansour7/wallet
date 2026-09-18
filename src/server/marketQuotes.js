@@ -1,4 +1,4 @@
-import { getCachedQuote, getKnownQuoteSymbols, isFreshQuote } from './quoteCache.js'
+import { getCachedQuotes, getKnownQuoteSymbols, isFreshQuote } from './quoteCache.js'
 import {
   fetchPolygonQuotes,
   isPolygonEnabled,
@@ -108,14 +108,12 @@ export async function fetchMarketQuotes(symbols, options = {}) {
 export async function fetchCachedMarketQuotes(symbols) {
   const uniqueSymbols = normalizeSymbols(symbols)
   const now = Date.now()
-  const quotes = []
-
-  for (const symbol of uniqueSymbols) {
-    const cached = await getCachedQuote(symbol)
-    if (cached && Number.isFinite(Number(cached.price))) {
-      quotes.push({ ...cached, cacheStatus: isFreshQuote(cached, now) ? 'hit' : 'stale' })
-    }
-  }
+  const cachedQuotes = await getCachedQuotes(uniqueSymbols)
+  const quotes = cachedQuotes.flatMap((cached) => (
+    cached && Number.isFinite(Number(cached.price))
+      ? [{ ...cached, cacheStatus: isFreshQuote(cached, now) ? 'hit' : 'stale' }]
+      : []
+  ))
 
   const foundSymbols = getFoundSymbols(quotes)
   const missing = uniqueSymbols.filter((symbol) => !foundSymbols.has(symbolKey(symbol)))

@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'vitest'
+import { afterEach, describe, expect, it, beforeEach, vi } from 'vitest'
 import { isFreshQuote, setCachedQuote, getCachedQuote, rememberQuoteSymbols, getKnownQuoteSymbols } from './quoteCache'
 
 // quoteCache uses in-memory fallback when Redis is not available (no env vars set)
@@ -92,5 +92,46 @@ describe('rememberQuoteSymbols / getKnownQuoteSymbols (in-memory)', () => {
 
     expect(known).not.toContain('')
     expect(known).not.toContain('  ')
+  })
+})
+
+describe('Redis degradation', () => {
+  beforeEach(() => {
+    process.env.UPSTASH_REDIS_REST_URL = 'https://redis.test'
+    process.env.UPSTASH_REDIS_REST_TOKEN = 'token'
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    delete process.env.UPSTASH_REDIS_REST_URL
+    delete process.env.UPSTASH_REDIS_REST_TOKEN
+    vi.doUnmock('@upstash/redis')
+    vi.restoreAllMocks()
+  })
+
+  it('batches cache reads into one Redis command', async () => {
+    const mget = vi.fn().mockResolvedValue([
+      { symbol: 'AAPL', price: 150, fetchedAt: Date.now() },
+      { symbol: 'MSFT', price: 400, fetchedAt: Date.now() },
+    ])
+    vi.doMock('@upstash/redis', () => ({ Redis: { fromEnv: () => ({ mget }) } }))
+    const { getCachedQuotes } = await import('./quoteCache.js')
+
+    const quotes = await getCachedQuotes(['AAPL', 'MSFT'])
+
+    expect(mget).toHaveBeenCalledTimes(1)
+    expect(quotes.map((quote) => quote.price)).toEqual([150, 400])
+  })
+
+  it('uses memory after Redis reaches its request limit', async () => {
+    const mget = vi.fn().mockRejectedValue(new Error('ERR max requests limit exceeded'))
+    vi.doMock('@upstash/redis', () => ({ Redis: { fromEnv: () => ({ mget }) } }))
+    const { getCachedQuote, setCachedQuote } = await import('./quoteCache.js')
+
+    expect(await getCachedQuote('AAPL')).toBeNull()
+    await setCachedQuote('AAPL', { price: 150, fetchedAt: Date.now() })
+
+    expect(await getCachedQuote('AAPL')).toMatchObject({ price: 150 })
+    expect(mget).toHaveBeenCalledTimes(1)
   })
 })
