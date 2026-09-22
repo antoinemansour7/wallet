@@ -7,7 +7,7 @@ const vercelConfig = new URL('../../vercel.json', import.meta.url)
 const vercelIgnore = new URL('../../.vercelignore', import.meta.url)
 
 describe('Vercel Hobby deployment shape', () => {
-  it('stays under the 12-function limit and excludes API tests', () => {
+  it('does not exceed the 12-function limit and excludes API tests', () => {
     const ignore = readFileSync(vercelIgnore, 'utf8')
     expect(ignore).toContain('*.test.js')
 
@@ -16,7 +16,9 @@ describe('Vercel Hobby deployment shape', () => {
       .map((entry) => entry.name)
       .sort()
 
-    expect(functions).toHaveLength(11)
+    expect(functions).toHaveLength(12)
+    expect(functions.length).toBeLessThanOrEqual(12)
+    expect(functions).toContain('options-scan.js')
     expect(functions).toContain('research-evaluation.js')
     expect(functions).not.toContain('get-research-history.js')
   })
