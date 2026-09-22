@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { OPTIONS_SHORTLIST_POLICY_VERSION, buildOptionsShortlist } from './shortlist.js'
+import { OPTIONS_SHORTLIST_POLICY_VERSION, buildOptionsShortlist, scoreOptionsDirection } from './shortlist.js'
 
 function watchlist(tickers) {
   return { securities: tickers.map((ticker) => ({ securityId: `wallai:security:${ticker.toLowerCase()}`, issuerId: `wallai:issuer:${ticker.toLowerCase()}`, ticker })) }
@@ -63,6 +63,13 @@ describe('buildOptionsShortlist', () => {
     const first = buildOptionsShortlist({ snapshot: snap, watchlist: list })
     const second = buildOptionsShortlist({ snapshot: snap, watchlist: list })
     expect(first.shortlistId).toBe(second.shortlistId)
+  })
+
+  it('reports a max score of only what is structurally reachable, since catalyst quality can never score above zero today', () => {
+    const score = scoreOptionsDirection(record({ ticker: 'AAA' }), 'call')
+    expect(score.max).toBe(25) // underlyingSetup(15) + technicalConfirmation(10) + catalystQuality(0, not 10)
+    const catalystComponent = score.components.find((c) => c.component === 'catalystQuality')
+    expect(catalystComponent.max).toBe(0)
   })
 
   it('scores catalyst quality as zero for both unknown and eligible coverage, never negative or positive', () => {

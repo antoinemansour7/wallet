@@ -53,17 +53,20 @@ function technicalConfirmationScore(record, direction) {
 // #206's evaluateNonEventHorizon only ever confirms "no event" (eligible) or
 // "unknown coverage" (unknown) in the current live setup — neither earns
 // points under the epic's own "no event = 0" rule. A known event excludes
-// the security entirely, one level up in buildOptionsShortlist.
+// the security entirely, one level up in buildOptionsShortlist. max is 0,
+// not the epic's nominal 10, because no input today can make this
+// component score above zero — a candidate's max should reflect what's
+// actually reachable, not a ceiling nothing can reach.
 function catalystQualityScore(record) {
   const state = record.nonEventHorizon.state
-  return { component: 'catalystQuality', max: 10, points: 0, coverage: state, evidence: [{ feature: 'nonEventHorizon.state', raw: state, points: 0 }] }
+  return { component: 'catalystQuality', max: 0, points: 0, coverage: state, evidence: [{ feature: 'nonEventHorizon.state', raw: state, points: 0 }] }
 }
 
 export function scoreOptionsDirection(record, direction) {
   if (!['call', 'put'].includes(direction)) throw new Error('direction must be call or put')
   const components = [underlyingSetupScore(record, direction), technicalConfirmationScore(record, direction), catalystQualityScore(record)]
-  return { securityId: record.security.securityId, ticker: record.security.ticker, direction, max: 35,
-    total: round(components.reduce((sum, c) => sum + c.points, 0)), components }
+  return { securityId: record.security.securityId, ticker: record.security.ticker, direction,
+    max: components.reduce((sum, c) => sum + c.max, 0), total: round(components.reduce((sum, c) => sum + c.points, 0)), components }
 }
 
 export function buildOptionsShortlist({ snapshot, watchlist, maxCandidates = OPTIONS_SHORTLIST_MAX_CANDIDATES, policyVersion = OPTIONS_SHORTLIST_POLICY_VERSION } = {}) {
