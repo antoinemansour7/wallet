@@ -35,7 +35,7 @@ export function validateOptionContract(raw, { security, enumeratedAt, provider, 
   const strike = number(raw?.strike_price)
   if (parsed && (strike === null || Math.abs(strike - parsed.strikePrice) > 0.0001)) reasons.push('strike_mismatch')
   if (String(raw?.style || '').toLowerCase() !== 'american') reasons.push('unsupported_exercise_style')
-  if (number(raw?.multiplier) !== 100 || number(raw?.size) !== 100 || raw?.ppind === true || (Array.isArray(raw?.additional_underlyings) && raw.additional_underlyings.length)) reasons.push('nonstandard_deliverable')
+  if (number(raw?.multiplier) !== 100 || number(raw?.size) !== 100 || (Array.isArray(raw?.additional_underlyings) && raw.additional_underlyings.length)) reasons.push('nonstandard_deliverable')
   if (raw?.status !== 'active' || raw?.tradable !== true) reasons.push('contract_not_active_tradable')
   if (!raw?.id) reasons.push('missing_provider_contract_id')
 
@@ -65,6 +65,7 @@ export function validateOptionContract(raw, { security, enumeratedAt, provider, 
     multiplier: 100,
     deliverableShares: 100,
     adjusted: false,
+    pennyProgram: raw.ppind === true,
     enumeratedAt,
   }
   return { ok: true, contract: { ...contract, fingerprint: digest(contract) }, reasons: [] }
