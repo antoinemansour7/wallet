@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
-import { ALPACA_ANALYTICS_UNITS, ALPACA_FEEDS, createAlpacaOptionsAdapter } from './alpaca.js'
+import { ALPACA_ANALYTICS_UNITS, ALPACA_FEATURE_SOURCE, ALPACA_FEEDS, createAlpacaOptionsAdapter } from './alpaca.js'
 import { OPTIONS_WATCHLIST_SNAPSHOT } from './watchlist.js'
 
 const recorded = JSON.parse(readFileSync(new URL('./fixtures/alpaca/recorded-chain.json', import.meta.url)))
@@ -191,6 +191,26 @@ describe('Alpaca free options-data adapter', () => {
   it('returns explicit missing rows when a requested underlying snapshot is absent', async () => {
     const result = await adapter(vi.fn(async () => response({}))).underlyingSnapshots([security], { deadline: request.deadline })
     expect(result).toMatchObject({ complete: false, pricingReady: false, observations: [], missing: [{ ticker: 'NVDA', reason: 'provider_snapshot_absent' }] })
+  })
+
+  it('fetches and normalizes fully paginated adjusted daily bars for point-in-time features', async () => {
+    const fetchImpl = vi.fn(async (input) => {
+      const url = new URL(input)
+      expect(url.pathname).toBe('/v2/stocks/bars')
+      expect(url.searchParams.get('adjustment')).toBe('all')
+      return response({
+        bars: { NVDA: [{ t: '2026-09-18T04:00:00Z', o: 198, h: 202, l: 197, c: 201, v: 123456 }] },
+        next_page_token: url.searchParams.get('page_token') ? null : 'bars-page-2',
+        ...(url.searchParams.get('page_token') ? { bars: { NVDA: [{ t: '2026-09-21T04:00:00Z', o: 201, h: 204, l: 200, c: 203, v: 234567 }] } } : {}),
+      })
+    })
+    const result = await adapter(fetchImpl).stockBars([security], { start: '2026-09-18', end: '2026-09-21', deadline: request.deadline })
+    expect(result).toMatchObject({ complete: true, pages: 2, requestCount: 2, missing: [] })
+    expect(result.observations).toHaveLength(2)
+    expect(result.observations[1]).toMatchObject({
+      securityId: security.securityId, ticker: 'NVDA', date: '2026-09-21', close: 203,
+      availableAt: now, source: ALPACA_FEATURE_SOURCE,
+    })
   })
 
   it('rejects credential-bearing or path-bearing base URLs before any request', () => {
