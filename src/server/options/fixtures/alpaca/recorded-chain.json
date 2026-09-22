@@ -1,0 +1,92 @@
+{
+  "stock": {
+    "NVDA": {
+      "dailyBar": { "c": 201.5, "h": 203, "l": 198, "n": 1000, "o": 199, "t": "2026-09-22T04:00:00Z", "v": 50000, "vw": 201 },
+      "latestQuote": { "ap": 201.6, "as": 12, "ax": "V", "bp": 201.4, "bs": 8, "bx": "V", "c": ["R"], "t": "2026-09-22T13:32:05.123456789Z", "z": "C" },
+      "latestTrade": { "c": ["@"], "i": 12345, "p": 201.5, "s": 10, "t": "2026-09-22T13:32:04.987654321Z", "x": "V", "z": "C" },
+      "minuteBar": { "c": 201.5, "h": 201.6, "l": 201.3, "n": 20, "o": 201.4, "t": "2026-09-22T13:31:00Z", "v": 300, "vw": 201.45 },
+      "prevDailyBar": { "c": 198, "h": 200, "l": 196, "n": 900, "o": 197, "t": "2026-09-21T04:00:00Z", "v": 45000, "vw": 198.5 }
+    }
+  },
+  "contracts": [
+    {
+      "option_contracts": [
+        {
+          "id": "provider-call-id",
+          "symbol": "NVDA261016C00200000",
+          "name": "NVDA Oct 16 2026 200 Call",
+          "status": "active",
+          "tradable": true,
+          "expiration_date": "2026-10-16",
+          "root_symbol": "NVDA",
+          "underlying_symbol": "NVDA",
+          "underlying_asset_id": "provider-underlying-id",
+          "type": "call",
+          "style": "american",
+          "strike_price": "200",
+          "multiplier": "100",
+          "size": "100",
+          "open_interest": "120",
+          "open_interest_date": "2026-09-21",
+          "close_price": "8.10",
+          "close_price_date": "2026-09-21",
+          "ppind": true
+        }
+      ],
+      "next_page_token": "metadata-page-2"
+    },
+    {
+      "option_contracts": [
+        {
+          "id": "provider-put-id",
+          "symbol": "NVDA261016P00190000",
+          "name": "NVDA Oct 16 2026 190 Put",
+          "status": "active",
+          "tradable": true,
+          "expiration_date": "2026-10-16",
+          "root_symbol": "NVDA",
+          "underlying_symbol": "NVDA",
+          "underlying_asset_id": "provider-underlying-id",
+          "type": "put",
+          "style": "american",
+          "strike_price": "190",
+          "multiplier": "100",
+          "size": "100",
+          "open_interest": null,
+          "open_interest_date": null,
+          "close_price": null,
+          "close_price_date": null,
+          "ppind": false
+        }
+      ],
+      "next_page_token": null
+    }
+  ],
+  "snapshots": [
+    {
+      "snapshots": {
+        "NVDA261016C00200000": {
+          "dailyBar": { "c": 8.4, "h": 8.6, "l": 7.8, "n": 50, "o": 8, "t": "2026-09-22T04:00:00Z", "v": 150, "vw": 8.25 },
+          "greeks": { "delta": 0.55, "gamma": 0.03, "rho": 0.05, "theta": -0.12, "vega": 0.08 },
+          "impliedVolatility": 0.54,
+          "latestQuote": { "ap": 8.5, "as": 10, "ax": "Z", "bp": 8.3, "bs": 5, "bx": "N", "c": "O", "t": "2026-09-22T13:32:03.111222333Z" },
+          "latestTrade": { "c": "g", "p": 8.4, "s": 2, "t": "2026-09-22T13:16:30.444555666Z", "x": "C" },
+          "minuteBar": { "c": 8.4, "h": 8.4, "l": 8.4, "n": 1, "o": 8.4, "t": "2026-09-22T13:16:00Z", "v": 2, "vw": 8.4 },
+          "prevDailyBar": { "c": 8.1, "h": 8.3, "l": 7.5, "n": 40, "o": 7.7, "t": "2026-09-21T04:00:00Z", "v": 110, "vw": 8 }
+        }
+      },
+      "next_page_token": "snapshot-page-2"
+    },
+    {
+      "snapshots": {
+        "NVDA261016P00190000": {
+          "dailyBar": { "c": 3.1, "h": 3.4, "l": 2.9, "n": 15, "o": 3, "t": "2026-09-22T04:00:00Z", "v": 30, "vw": 3.12 },
+          "latestQuote": { "ap": 3.2, "as": 7, "ax": "Z", "bp": 3, "bs": 6, "bx": "N", "c": "O", "t": "2026-09-22T13:32:02.000000001Z" },
+          "minuteBar": { "c": 3.1, "h": 3.1, "l": 3.1, "n": 1, "o": 3.1, "t": "2026-09-22T13:15:00Z", "v": 1, "vw": 3.1 },
+          "prevDailyBar": { "c": 3, "h": 3.3, "l": 2.8, "n": 10, "o": 3.2, "t": "2026-09-21T04:00:00Z", "v": 20, "vw": 3.05 }
+        }
+      },
+      "next_page_token": null
+    }
+  ]
+}

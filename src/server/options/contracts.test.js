@@ -41,6 +41,7 @@ describe('option contract identity', () => {
       multiplier: 100,
       deliverableShares: 100,
       adjusted: false,
+      pennyProgram: false,
     })
     expect(result.contract.fingerprint).toMatch(/^[a-f0-9]{64}$/)
   })
@@ -54,6 +55,7 @@ describe('option contract identity', () => {
       strike_price: '205',
       multiplier: '10',
       ppind: true,
+      additional_underlyings: [{ symbol: 'NVDA', qty: '5' }],
     }, { security, enumeratedAt, provider: 'fixture' })
     expect(result.ok).toBe(false)
     expect(result.reasons).toEqual(expect.arrayContaining([
@@ -75,7 +77,7 @@ describe('option contract identity', () => {
   it('archives accepted and rejected rows in a dated enumeration', () => {
     const enumeration = createContractEnumeration({
       security,
-      rawContracts: [standard, { ...standard, id: 'adjusted', symbol: 'NVDA1261016C00200000', root_symbol: 'NVDA1', ppind: true }],
+      rawContracts: [standard, { ...standard, id: 'adjusted', symbol: 'NVDA1261016C00200000', root_symbol: 'NVDA1', additional_underlyings: [{ symbol: 'NVDA', qty: '5' }] }],
       enumeratedAt,
       provider: 'alpaca-basic-indicative',
       complete: true,
