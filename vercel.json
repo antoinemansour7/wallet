@@ -57,6 +57,9 @@
     },
     "api/plaid.js": {
       "maxDuration": 300
+    },
+    "api/options-scan.js": {
+      "maxDuration": 300
     }
   },
   "rewrites": [

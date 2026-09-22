@@ -75,6 +75,10 @@ function localParts(instant) {
   }
 }
 
+export function optionsLocalParts(instant) {
+  return localParts(instant)
+}
+
 function timeMinutes(value) {
   const match = /^(\d{2}):(\d{2})$/.exec(value)
   if (!match) throw new Error(`Invalid market time: ${value}`)
