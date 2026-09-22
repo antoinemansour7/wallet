@@ -1,0 +1,50 @@
+{
+  "news": [
+    {
+      "eventId": "news-overnight",
+      "ticker": "NVDA",
+      "headline": "Overnight product announcement",
+      "publishedAt": "2026-09-22T10:30:00.000Z",
+      "availableAt": "2026-09-22T10:31:00.000Z",
+      "source": { "provider": "fixture", "licenseId": "test-fixture", "url": "https://example.test/news/overnight" }
+    },
+    {
+      "eventId": "news-late",
+      "ticker": "NVDA",
+      "headline": "Article discovered after the first freeze",
+      "publishedAt": "2026-09-22T12:00:00.000Z",
+      "availableAt": "2026-09-22T14:00:00.000Z",
+      "source": { "provider": "fixture", "licenseId": "test-fixture", "url": "https://example.test/news/late" }
+    }
+  ],
+  "sec": [
+    {
+      "documentId": "sec-current-day",
+      "ticker": "NVDA",
+      "accession": "0000000000-26-000001",
+      "form": "8-K",
+      "publicAt": "2026-09-22T11:00:00.000Z",
+      "availableAt": "2026-09-22T11:05:00.000Z",
+      "source": { "provider": "sec", "licenseId": "sec-edgar-public", "url": "https://www.sec.gov/Archives/edgar/data/1/filing.htm" }
+    }
+  ],
+  "earnings": [
+    {
+      "eventId": "nvda-q3",
+      "ticker": "NVDA",
+      "eventDate": "2026-09-30",
+      "timing": "BMO",
+      "availableAt": "2026-09-20T12:00:00.000Z",
+      "source": { "provider": "fixture", "licenseId": "test-fixture", "url": "https://example.test/events/nvda-q3" }
+    },
+    {
+      "eventId": "nvda-q3",
+      "ticker": "NVDA",
+      "eventDate": "2026-10-02",
+      "timing": "AC",
+      "availableAt": "2026-09-22T13:15:00.000Z",
+      "supersedesRevisionId": "prior-revision",
+      "source": { "provider": "fixture", "licenseId": "test-fixture", "url": "https://example.test/events/nvda-q3" }
+    }
+  ]
+}

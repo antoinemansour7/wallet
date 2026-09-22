@@ -15,6 +15,11 @@ export const ALPACA_ANALYTICS_UNITS = Object.freeze({
   vega: 'option_usd_per_volatility_percentage_point',
   rho: 'option_usd_per_interest_rate_percentage_point',
 })
+export const ALPACA_FEATURE_SOURCE = Object.freeze({
+  provider: 'alpaca',
+  licenseId: 'alpaca-basic-indicative',
+  url: 'https://data.alpaca.markets/v2/stocks/bars',
+})
 
 const symbolPattern = /^[A-Z][A-Z0-9.-]{0,14}$/
 const datePattern = /^\d{4}-\d{2}-\d{2}$/
@@ -153,6 +158,8 @@ function normalizeUnderlying(security, raw, fetchedAt, maxAgeMs) {
     dailyBar,
     previousDailyBar,
     fetchedAt,
+    availableAt: fetchedAt,
+    source: { ...ALPACA_FEATURE_SOURCE, url: 'https://data.alpaca.markets/v2/stocks/snapshots' },
     quoteFresh,
     pricingReady: quoteFresh,
     missing,
@@ -314,7 +321,7 @@ export function createAlpacaOptionsAdapter({
   function requestUrl(base, path, params) {
     const url = new URL(path, base)
     const allowed = base.origin === dataBase.origin
-      ? /^\/v2\/stocks\/snapshots$/.test(path) || /^\/v1beta1\/options\/snapshots\/[A-Z][A-Z0-9.-]{0,14}$/.test(path)
+      ? /^\/v2\/stocks\/(?:snapshots|bars)$/.test(path) || /^\/v1beta1\/options\/snapshots\/[A-Z][A-Z0-9.-]{0,14}$/.test(path)
       : base.origin === tradingBase.origin && path === '/v2/options/contracts'
     if (!allowed || url.origin !== base.origin || url.pathname !== path) throw new Error('Untrusted Alpaca request path')
     for (const [key, value] of Object.entries(params || {})) if (value !== null && value !== undefined && value !== '') url.searchParams.set(key, String(value))
@@ -437,6 +444,76 @@ export function createAlpacaOptionsAdapter({
     }
   }
 
+  async function stockBars(securities, { start, end, deadline } = {}) {
+    const requested = securities.map((security) => ({ ...security, ticker: normalizedSymbol(security.ticker) }))
+    if (!requested.length || requested.length > 100) throw new Error('Alpaca stock bars request requires 1-100 securities')
+    if (!validDate(start) || !validDate(end) || start > end) throw new Error('Alpaca stock bars require a bounded date range')
+    const run = context(deadline)
+    const byTicker = new Map(requested.map((security) => [security.ticker, security]))
+    const seen = new Set()
+    const observations = []
+    let token = null
+    let pages = 0
+    let failure = null
+    try {
+      do {
+        if (pages >= maxPages) throw new AlpacaOptionsDataError('page_budget', { retryable: true })
+        const response = await requestJson(run, dataBase, '/v2/stocks/bars', {
+          symbols: requested.map((security) => security.ticker).join(','),
+          timeframe: '1Day', start, end, adjustment: 'all', feed: ALPACA_FEEDS.stock.name, limit: 10000, page_token: token,
+        })
+        if (Object.hasOwn(response.payload, 'next_url') || !response.payload.bars || typeof response.payload.bars !== 'object' || Array.isArray(response.payload.bars)) {
+          throw new AlpacaOptionsDataError('corrupt_payload')
+        }
+        for (const [ticker, bars] of Object.entries(response.payload.bars)) {
+          const security = byTicker.get(ticker)
+          if (!security || !Array.isArray(bars)) throw new AlpacaOptionsDataError('corrupt_payload')
+          for (const raw of bars) {
+            const marketAt = requiredTimestamp(raw.t, 'bar.marketAt')
+            const barDate = marketAt.slice(0, 10)
+            const identity = `${security.securityId}:${barDate}`
+            if (seen.has(identity)) throw new AlpacaOptionsDataError('duplicate_page_item')
+            seen.add(identity)
+            observations.push({
+              schemaVersion: 'alpaca-stock-bar-feature-v1',
+              adapterVersion: ALPACA_ADAPTER_VERSION,
+              securityId: security.securityId,
+              issuerId: security.issuerId,
+              ticker,
+              date: barDate,
+              open: number(raw.o, 'bar.open'),
+              high: number(raw.h, 'bar.high'),
+              low: number(raw.l, 'bar.low'),
+              close: number(raw.c, 'bar.close'),
+              volume: number(raw.v, 'bar.volume', { integer: true, nonnegative: true }),
+              marketAt,
+              availableAt: response.fetchedAt,
+              source: ALPACA_FEATURE_SOURCE,
+              rawReferenceHash: digest(raw),
+            })
+          }
+        }
+        pages += 1
+        token = pageToken(response.payload.next_page_token)
+      } while (token)
+    } catch (error) {
+      failure = safeFailure(error)
+    }
+    const represented = new Set(observations.map((item) => item.securityId))
+    const missing = requested.filter((security) => !represented.has(security.securityId)).map((security) => ({ ticker: security.ticker, reason: failure?.code || 'provider_bars_absent' }))
+    return {
+      schemaVersion: 'alpaca-stock-bars-batch-v1',
+      adapterVersion: ALPACA_ADAPTER_VERSION,
+      complete: !failure && !token,
+      observations,
+      missing,
+      failure,
+      pages,
+      requestCount: run.used,
+      diagnostics: run.diagnostics,
+    }
+  }
+
   async function optionChain({ security, expirationDateGte, expirationDateLte, strikePriceGte, strikePriceLte, type, rootSymbol, deadline } = {}) {
     if (!security?.securityId || !security?.issuerId) throw new Error('A resolved options security is required')
     const ticker = normalizedSymbol(security.ticker)
@@ -526,5 +603,5 @@ export function createAlpacaOptionsAdapter({
     }
   }
 
-  return { underlyingSnapshots, optionChain }
+  return { underlyingSnapshots, stockBars, optionChain }
 }
