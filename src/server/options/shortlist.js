@@ -1,0 +1,108 @@
+import { digest } from '../research/archive.js'
+
+export const OPTIONS_SHORTLIST_POLICY_VERSION = 'options-premarket-shortlist-v1'
+export const OPTIONS_SHORTLIST_MAX_CANDIDATES = 10
+const HOLDING_DAYS = 3 // fixed primary horizon (epic #201 section 10)
+
+function round(value, digits = 3) {
+  return value == null ? null : Number(value.toFixed(digits))
+}
+
+// Clipped linear ramp: 0 points at or below `zero`, `max` points at or above
+// `full`, linear between. Matches the epic's "clipped linear ramps" v0 policy.
+function ramp(value, { zero, full, max }) {
+  if (value == null) return 0
+  if (value <= zero) return 0
+  if (value >= full) return max
+  return round(((value - zero) / (full - zero)) * max)
+}
+
+function underlyingSetupScore(record, direction) {
+  const signed = record.directional[direction]
+  const relStrengthPoints = ramp(signed.relativeStrength20dPct, { zero: 0, full: 10, max: 10 })
+  const regimeScore = record.regime?.score ?? null
+  // A constructive tape (score high) supports calls; a defensive/stand-down
+  // tape (score low) supports puts. Symmetric, versioned v0 policy.
+  const regimeAgreement = regimeScore == null ? 0
+    : direction === 'call' ? ramp(regimeScore, { zero: 4, full: 8, max: 5 })
+    : ramp(10 - regimeScore, { zero: 4, full: 8, max: 5 })
+  return {
+    component: 'underlyingSetup', max: 15, points: round(relStrengthPoints + regimeAgreement),
+    evidence: [
+      { feature: 'relativeStrength20dPct', raw: signed.relativeStrength20dPct, points: relStrengthPoints },
+      { feature: 'regimeScore', raw: regimeScore, points: regimeAgreement },
+    ],
+  }
+}
+
+function technicalConfirmationScore(record, direction) {
+  const signed = record.directional[direction]
+  const trendPoints = ramp(signed.return5dPct, { zero: 0, full: 5, max: 5 })
+  const distance = record.technicals.distanceFromSma20Pct
+  const signedDistance = distance == null ? null : direction === 'call' ? distance : -distance
+  const breakoutPoints = ramp(signedDistance, { zero: 0, full: 5, max: 5 })
+  return {
+    component: 'technicalConfirmation', max: 10, points: round(trendPoints + breakoutPoints),
+    evidence: [
+      { feature: 'return5dPct', raw: signed.return5dPct, points: trendPoints },
+      { feature: 'distanceFromSma20Pct', raw: signedDistance, points: breakoutPoints },
+    ],
+  }
+}
+
+// #206's evaluateNonEventHorizon only ever confirms "no event" (eligible) or
+// "unknown coverage" (unknown) in the current live setup — neither earns
+// points under the epic's own "no event = 0" rule. A known event excludes
+// the security entirely, one level up in buildOptionsShortlist.
+function catalystQualityScore(record) {
+  const state = record.nonEventHorizon.state
+  return { component: 'catalystQuality', max: 10, points: 0, coverage: state, evidence: [{ feature: 'nonEventHorizon.state', raw: state, points: 0 }] }
+}
+
+export function scoreOptionsDirection(record, direction) {
+  if (!['call', 'put'].includes(direction)) throw new Error('direction must be call or put')
+  const components = [underlyingSetupScore(record, direction), technicalConfirmationScore(record, direction), catalystQualityScore(record)]
+  return { securityId: record.security.securityId, ticker: record.security.ticker, direction, max: 35,
+    total: round(components.reduce((sum, c) => sum + c.points, 0)), components }
+}
+
+export function buildOptionsShortlist({ snapshot, watchlist, maxCandidates = OPTIONS_SHORTLIST_MAX_CANDIDATES, policyVersion = OPTIONS_SHORTLIST_POLICY_VERSION } = {}) {
+  if (snapshot?.schemaVersion !== 'options-feature-snapshot-v1' || !snapshot.snapshotId) throw new Error('Shortlist requires a completed feature snapshot')
+  if (!Array.isArray(watchlist?.securities) || !watchlist.securities.length) throw new Error('Shortlist requires a watchlist snapshot')
+  if (!Number.isInteger(maxCandidates) || maxCandidates < 1) throw new Error('maxCandidates must be a positive integer')
+
+  const bySecurityId = new Map(snapshot.securities.map((record) => [record.security.securityId, record]))
+  const scored = []
+  const rejected = []
+
+  for (const security of watchlist.securities) {
+    const record = bySecurityId.get(security.securityId)
+    if (!record) { rejected.push({ securityId: security.securityId, ticker: security.ticker, status: 'missing', reason: 'not_in_feature_snapshot' }); continue }
+    if (record.underlying.premarketPrice == null) { rejected.push({ securityId: security.securityId, ticker: security.ticker, status: 'unavailable', reason: 'no_premarket_price' }); continue }
+    if (record.nonEventHorizon.state === 'excluded') {
+      rejected.push({ securityId: security.securityId, ticker: security.ticker, status: 'rejected', reason: 'known_event_in_holding_window', events: record.nonEventHorizon.reasons })
+      continue
+    }
+    const call = scoreOptionsDirection(record, 'call')
+    const put = scoreOptionsDirection(record, 'put')
+    const [best, other] = call.total >= put.total ? [call, put] : [put, call]
+    scored.push({ security, record, best, other })
+  }
+
+  scored.sort((a, b) => b.best.total - a.best.total || a.security.ticker.localeCompare(b.security.ticker))
+  const shortlisted = scored.slice(0, maxCandidates)
+  for (const entry of scored.slice(maxCandidates)) {
+    rejected.push({ securityId: entry.security.securityId, ticker: entry.security.ticker, status: 'rejected', reason: 'not_top_n', direction: entry.best.direction, score: entry.best.total })
+  }
+
+  const candidates = shortlisted.map(({ security, record, best }) => ({
+    securityId: security.securityId, ticker: security.ticker, direction: best.direction,
+    score: best.total, maxScore: best.max, catalystCoverage: record.nonEventHorizon.state,
+    holdingHorizonSessions: HOLDING_DAYS, featureVersion: record.featureVersion, featureRecordId: record.recordId,
+  }))
+  const scores = scored.map(({ security, best, other }) => ({ securityId: security.securityId, ticker: security.ticker, scores: [best, other] }))
+
+  const base = { schemaVersion: 'options-shortlist-v1', policyVersion, tradingDate: snapshot.tradingDate, freezeAt: snapshot.freezeAt,
+    featureSnapshotId: snapshot.snapshotId, maxCandidates, candidates, rejected, scores }
+  return { ...base, shortlistId: digest(base) }
+}
