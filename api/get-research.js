@@ -66,5 +66,9 @@ export default async function handler(req, res) {
     const { default: runsHandler } = await import('../src/server/research/runsApi.js')
     return runsHandler(req, res)
   }
+  if (req.query?.optionsAudit === '1') {
+    const { default: optionsAuditHandler } = await import('../src/server/options/auditApi.js')
+    return optionsAuditHandler(req, res)
+  }
   return publicHandler(req, res)
 }

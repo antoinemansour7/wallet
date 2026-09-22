@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { gzipSync, gunzipSync } from 'node:zlib'
 import { createObjectStore } from './objectStore.js'
+import { EXTERNAL_RECORD_KINDS, IMMUTABLE_BATCH_KINDS } from './archiveKinds.js'
 
 export const digest = (value) => createHash('sha256').update(typeof value === 'string' || Buffer.isBuffer(value) ? value : JSON.stringify(value)).digest('hex')
 const PREFIX = 'research:archive:v1'
@@ -9,14 +10,15 @@ const RECORD_STORAGE = 'r2-json-gzip-v1'
 // inputs/runs can each be several megabytes and were the main reason the free
 // Upstash database reached its storage cap. Redis retains only small, indexed
 // pointers; createArchive transparently reads the payload from R2.
-export const EXTERNAL_RECORD_KINDS = new Set([
-  'evaluation-job-input',
-  'evaluation-input',
-  'evaluation-run',
-  'admission',
-  'facts',
-  'evidence',
-])
+export { EXTERNAL_RECORD_KINDS } from './archiveKinds.js'
+
+export class ArchiveConflictError extends Error {
+  constructor(kind, id) {
+    super(`Immutable archive conflict for ${kind}:${id}`)
+    this.name = 'ArchiveConflictError'
+    this.code = 'ARCHIVE_CONFLICT'
+  }
+}
 
 // Append-only application storage: content-addressed blobs and SET NX records,
 // with no TTL. Original bytes, revisions and indexes survive all test horizons.
@@ -49,6 +51,7 @@ export function createArchive(redis, { objectStore } = {}) {
     const result = await redis.set(key, redisValue, { nx: true })
     const stored = result ? record : await readStoredRecord(await redis.get(key))
     if (!stored) throw new Error('Archive write did not persist')
+    if (!result && IMMUTABLE_BATCH_KINDS.has(kind) && digest(stored) !== digest(record)) throw new ArchiveConflictError(kind, id)
     for (const entry of Array.isArray(index) ? index : [index]) {
       const indexName = typeof entry === 'string' ? entry : entry.name
       const indexTime = typeof entry === 'string' ? stored.availableAt ?? availableAt : entry.score
