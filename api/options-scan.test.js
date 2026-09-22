@@ -26,18 +26,31 @@ describe('options scan dispatcher', () => {
     expect(res.statusCode).toBe(400)
   })
 
-  it('dispatches through one route and does not expose the provider message ID', async () => {
-    const runStage = vi.fn(async ({ stage, requestId, execute }) => {
-      expect(stage).toBe('premarket')
-      expect(requestId).toBe('message-secret-id')
-      expect(await execute({ checkpoint: null })).toMatchObject({ status: 'incomplete', reason: 'premarket_worker_not_installed' })
+  it('still uses the truthful placeholder for the opening stage', async () => {
+    const runStage = vi.fn(async ({ stage, execute }) => {
+      expect(await execute({ checkpoint: null })).toMatchObject({ status: 'incomplete', reason: 'opening_worker_not_installed' })
       return { status: 'incomplete', stage, tradingDate: '2026-09-22', attempt: 1, auditRecordId: 'audit-reference' }
     })
     const handler = createOptionsScanHandler({ getRedis: () => ({ redis: true }), makeArchive: () => ({ archive: true }), runStage, enabled: () => true })
     const res = response()
-    await handler(request(), res)
+    await handler(request({ query: { mode: 'opening' } }), res)
     expect(res.statusCode).toBe(503)
-    expect(res.body).toEqual({ status: 'incomplete', stage: 'premarket', tradingDate: '2026-09-22', attempt: 1, reference: 'audit-reference' })
+  })
+
+  it('dispatches premarket into the real worker and does not expose the provider message ID', async () => {
+    const runPremarketStage = vi.fn(async () => ({ status: 'complete', records: [], metrics: { candidateCount: 3 } }))
+    const runStage = vi.fn(async ({ stage, requestId, execute }) => {
+      expect(stage).toBe('premarket')
+      expect(requestId).toBe('message-secret-id')
+      const outcome = await execute({ checkpoint: null })
+      expect(outcome).toMatchObject({ status: 'complete', metrics: { candidateCount: 3 } })
+      return { status: 'complete', stage, tradingDate: '2026-09-22', attempt: 1, auditRecordId: 'audit-reference' }
+    })
+    const handler = createOptionsScanHandler({ getRedis: () => ({ redis: true }), makeArchive: () => ({ archive: true }), runStage, enabled: () => true, runPremarketStage })
+    const res = response()
+    await handler(request(), res)
+    expect(res.statusCode).toBe(200)
+    expect(runPremarketStage).toHaveBeenCalledOnce()
     expect(JSON.stringify(res.body)).not.toContain('message-secret-id')
   })
 
