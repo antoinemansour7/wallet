@@ -1,4 +1,5 @@
 import { AwsClient } from 'aws4fetch'
+import { isExternalRecordKey } from './archiveKinds.js'
 
 // Private R2 Standard bucket. Store gzip as an object format, not HTTP content
 // encoding: fetch must return the exact compressed bytes for checksum validation.
@@ -16,7 +17,7 @@ export function createObjectStore({
   const signer = new AwsClient({ accessKeyId, secretAccessKey, service: 's3', region: 'auto' })
   async function request(key, options = {}) {
     const document = /^research\/documents\/v1\/[a-f0-9]{64}\.gz$/.test(key)
-    const record = /^research\/records\/v1\/(facts|evidence|admission|evaluation-job-input|evaluation-input|evaluation-run)\/[a-f0-9]{64}\.json\.gz$/.test(key)
+    const record = isExternalRecordKey(key)
     if (!document && !record) throw new Error('Invalid archive object key')
     let lastError
     for (let attempt = 0; attempt < 3; attempt += 1) {
