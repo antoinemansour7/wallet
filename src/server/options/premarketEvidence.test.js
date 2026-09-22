@@ -82,4 +82,77 @@ describe('runOptionsPremarketStage', () => {
     })
     expect(result.metrics.secCompletedCount).toBe(2)
   })
+
+  it('threads the market regime into every security\'s score, not a single observation matching nothing', async () => {
+    const archive = { put: vi.fn(async (kind, id, record) => record) }
+    const result = await runOptionsPremarketStage({
+      window, deadlineAt: window.deadlineAt, checkpoint: null, saveCheckpoint: vi.fn(), archive,
+      createAlpaca: stubAlpaca(),
+      fetchRegime: async () => ({ asOf: '2026-09-22', score: 9, label: 'constructive' }),
+      loadMaster: async () => ({ resolve: () => [] }),
+      createSec: () => ({ request: vi.fn() }),
+      now: () => '2026-09-22T13:10:00.000Z',
+    })
+    const scoreRecord = result.records.find((r) => r.recordType === 'score')
+    const regimeEvidence = scoreRecord.payload.scores
+      .flatMap((entry) => entry.scores)
+      .flatMap((score) => score.components)
+      .filter((component) => component.component === 'underlyingSetup')
+      .flatMap((component) => component.evidence)
+      .find((item) => item.feature === 'regimeScore')
+    expect(regimeEvidence.raw).toBe(9)
+    expect(regimeEvidence.points).toBeGreaterThan(0)
+  })
+
+  it('excludes a security for a catalyst 4 calendar days out, wide enough to cover 3 trading sessions across a weekend', async () => {
+    const archive = { put: vi.fn(async (kind, id, record) => record) }
+    const sandisk = OPTIONS_WATCHLIST_SNAPSHOT.securities.find((s) => s.ticker === 'SNDK')
+    const gatherSec = vi.fn(async () => ({
+      secItems: [],
+      catalystItems: [{
+        eventId: 'test-catalyst-1', issuerId: sandisk.issuerId, ticker: sandisk.ticker, eventDate: '2026-09-26',
+        kind: 'sec_8k', label: '8-K filing', publicAt: '2026-09-22T12:00:00.000Z', availableAt: '2026-09-22T13:10:00.000Z',
+        source: { provider: 'sec', licenseId: 'sec-edgar-public', url: 'https://data.sec.gov/submissions/CIK0000320193.json' },
+      }],
+      completed: [],
+    }))
+    const result = await runOptionsPremarketStage({
+      window, deadlineAt: window.deadlineAt, checkpoint: null, saveCheckpoint: vi.fn(), archive,
+      createAlpaca: stubAlpaca(), fetchRegime: async () => null, loadMaster: async () => ({ resolve: () => [] }),
+      createSec: () => ({ request: vi.fn() }), gatherSec,
+    })
+    const decision = result.records.find((r) => r.recordType === 'decision')
+    expect(decision.payload.rejected.find((r) => r.ticker === 'SNDK')).toMatchObject({ status: 'rejected', reason: 'known_event_in_holding_window' })
+  })
+
+  it('keeps successfully fetched underlying prices when the separate bars fetch fails', async () => {
+    const archive = { put: vi.fn(async (kind, id, record) => record) }
+    const createAlpaca = () => ({
+      underlyingSnapshots: vi.fn(async (securities) => alpacaSnapshotFor(securities)),
+      stockBars: vi.fn(async () => { throw new Error('bars endpoint rate limited') }),
+    })
+    const result = await runOptionsPremarketStage({
+      window, deadlineAt: window.deadlineAt, checkpoint: null, saveCheckpoint: vi.fn(), archive,
+      createAlpaca, fetchRegime: async () => null, loadMaster: async () => ({ resolve: () => [] }),
+      createSec: () => ({ request: vi.fn() }),
+    })
+    const decision = result.records.find((r) => r.recordType === 'decision')
+    const accounted = [...decision.payload.candidates, ...decision.payload.rejected]
+    expect(accounted.some((r) => r.reason === 'no_premarket_price')).toBe(false)
+    expect(result.metrics.underlyingAvailable).toBe(true)
+    expect(result.metrics.barsAvailable).toBe(false)
+  })
+
+  it('reports sec coverage as unavailable, not unknown, when the security master has nothing resolvable', async () => {
+    const archive = { put: vi.fn(async (kind, id, record) => record) }
+    const result = await runOptionsPremarketStage({
+      window, deadlineAt: window.deadlineAt, checkpoint: null, saveCheckpoint: vi.fn(), archive,
+      createAlpaca: stubAlpaca(), fetchRegime: async () => null,
+      loadMaster: async () => ({ resolve: () => [] }), // unresolved master — Review Focus item 5
+      createSec: () => ({ request: vi.fn() }),
+    })
+    const evidence = result.records.find((r) => r.recordType === 'evidence')
+    const coverages = evidence.payload.securities.map((record) => record.coverage.sec.status)
+    expect(coverages.every((status) => status === 'unavailable')).toBe(true)
+  })
 })

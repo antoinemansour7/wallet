@@ -35,6 +35,22 @@ describe('gatherOptionsSecEvidence', () => {
     const result = await gatherOptionsSecEvidence({ securityMaster: secMaster, securities: [security], freezeAt: '2026-09-22T13:20:00.000Z', client, deadline: Date.now() + 60000 })
     expect(result.secItems).toHaveLength(0)
     expect(client.request).not.toHaveBeenCalled()
+    expect(result.coverage[security.securityId]).toMatchObject({ status: 'unavailable', reason: 'sec_identity_unresolved' })
+  })
+
+  it('reports complete coverage for a successfully checked issuer even with zero filings, distinct from never having checked', async () => {
+    const secMaster = master({ EX: [{ issuerId: 'cik:0000320193' }] })
+    const client = { request: vi.fn(async () => ({ filings: { recent: { accessionNumber: [], form: [], acceptanceDateTime: [], filingDate: [], reportDate: [], primaryDocument: [], items: [] } } })) }
+    const result = await gatherOptionsSecEvidence({ securityMaster: secMaster, securities: [security], freezeAt: '2026-09-22T13:20:00.000Z', client, deadline: Date.now() + 60000 })
+    expect(result.secItems).toHaveLength(0)
+    expect(result.coverage[security.securityId]).toEqual({ status: 'complete' })
+  })
+
+  it('marks coverage unavailable with a reason when the per-issuer fetch itself fails', async () => {
+    const secMaster = master({ EX: [{ issuerId: 'cik:0000320193' }] })
+    const client = { request: vi.fn(async () => { throw new Error('EDGAR request failed (503)') }) }
+    const result = await gatherOptionsSecEvidence({ securityMaster: secMaster, securities: [security], freezeAt: '2026-09-22T13:20:00.000Z', client, deadline: Date.now() + 60000 })
+    expect(result.coverage[security.securityId]).toMatchObject({ status: 'unavailable', reason: 'sec_request_failed' })
   })
 
   it('skips an issuer already completed by a prior checkpointed attempt', async () => {

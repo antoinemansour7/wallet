@@ -42,13 +42,27 @@ export async function gatherOptionsSecEvidence({
   // instead of being delegated to it.
   const plan = planCurrentDaySecRefresh({ securities, freezeAt, completed: [], securityMaster })
   const pending = plan.requests.filter((request) => !completed.includes(request.secIssuerId))
+  const alreadyDone = plan.requests.filter((request) => completed.includes(request.secIssuerId))
   const since = new Date(Date.parse(freezeAt) - sinceDays * DAY).toISOString()
   const secItems = []
   const catalystItems = []
   const newlyCompleted = []
+  // planCurrentDaySecRefresh's requests carry issuerId/ticker, not
+  // securityId — resolve it from the watchlist so coverage is keyed the
+  // same way createOptionsFeatureSnapshot's `securities` are.
+  const securityIdByTicker = new Map(securities.map((security) => [security.ticker, security.securityId]))
+  // "checked this issuer, found nothing" must read differently from "never
+  // checked it at all" — the caller folds this into per-feed coverage so
+  // evaluateNonEventHorizon can eventually reach 'eligible', not just
+  // perpetually 'unknown'. A ticker with no entry here (time-budget
+  // truncated before it was attempted) is left for the caller's default.
+  const coverage = {}
+  for (const item of plan.unresolved) coverage[item.securityId] = { status: 'unavailable', reason: item.reason }
+  for (const request of alreadyDone) coverage[securityIdByTicker.get(request.ticker)] = { status: 'complete' }
 
   await runBounded(pending, Math.max(1, maxConcurrency), async (request) => {
     if (deadline != null && Date.now() + 5000 >= deadline) return
+    const securityId = securityIdByTicker.get(request.ticker)
     try {
       const rows = await fetch(client, request.secIssuerId)
       const fetchedAt = now()
@@ -59,8 +73,12 @@ export async function gatherOptionsSecEvidence({
         if (catalystItem) catalystItems.push(catalystItem)
       }
       newlyCompleted.push(request.secIssuerId)
-    } catch { /* this issuer's coverage stays unavailable; others are unaffected */ }
+      coverage[securityId] = { status: 'complete' }
+    } catch (error) {
+      coverage[securityId] = { status: 'unavailable', reason: 'sec_request_failed' }
+      console.error(JSON.stringify({ service: 'options-premarket', stage: 'sec-issuer', ticker: request.ticker, message: String(error?.message || error) }))
+    }
   })
 
-  return { secItems, catalystItems, completed: [...new Set([...completed, ...newlyCompleted])] }
+  return { secItems, catalystItems, completed: [...new Set([...completed, ...newlyCompleted])], coverage }
 }
