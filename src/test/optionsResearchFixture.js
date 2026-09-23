@@ -21,6 +21,7 @@ export function optionsResearchFixture() {
   const contracts = ['call', 'put'].map((type) => ({
     rawId: `raw-${type}`, contractId: `osi:EX261022${type === 'call' ? 'C00200000' : 'P00160000'}`,
     osiSymbol: `EX261022${type === 'call' ? 'C00200000' : 'P00160000'}`, type,
+    securityId: security.securityId, issuerId: security.issuerId, underlyingTicker: security.ticker,
     strikePrice: type === 'call' ? 200 : 160, expirationDate: '2026-10-22', dte: 30, cohort: 'primary',
     quote: { bid: 5.45, ask: 5.55, bidSize: 20, askSize: 20, marketAt: quoteAt, ageMs: 2000, semantics: { name: 'indicative', label: 'modified indicative quotes', live: false } },
     openInterest: 1200, openInterestDate: '2026-09-21', volume: { value: 40, session: 'rth', sessionDate: tradingDate }, previousVolume: 800,

@@ -22,6 +22,7 @@ export const ALPACA_FEATURE_SOURCE = Object.freeze({
 })
 
 const symbolPattern = /^[A-Z][A-Z0-9.-]{0,14}$/
+const osiSymbolPattern = /^[A-Z][A-Z0-9.]{0,5}\d{6}[CP]\d{8}$/
 const datePattern = /^\d{4}-\d{2}-\d{2}$/
 const timestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/
 const pageTokenPattern = /^[A-Za-z0-9._~+/=-]{1,2048}$/
@@ -321,7 +322,7 @@ export function createAlpacaOptionsAdapter({
   function requestUrl(base, path, params) {
     const url = new URL(path, base)
     const allowed = base.origin === dataBase.origin
-      ? /^\/v2\/stocks\/(?:snapshots|bars)$/.test(path) || /^\/v1beta1\/options\/snapshots\/[A-Z][A-Z0-9.-]{0,14}$/.test(path)
+      ? /^\/v2\/stocks\/(?:snapshots|bars)$/.test(path) || /^\/v1beta1\/options\/snapshots(?:\/[A-Z][A-Z0-9.-]{0,14})?$/.test(path)
       : base.origin === tradingBase.origin && path === '/v2/options/contracts'
     if (!allowed || url.origin !== base.origin || url.pathname !== path) throw new Error('Untrusted Alpaca request path')
     for (const [key, value] of Object.entries(params || {})) if (value !== null && value !== undefined && value !== '') url.searchParams.set(key, String(value))
@@ -603,5 +604,50 @@ export function createAlpacaOptionsAdapter({
     }
   }
 
-  return { underlyingSnapshots, stockBars, optionChain }
+  // Forward outcome capture reads known contracts, not a chain: one request
+  // covers every contract due at a scheduled instant. A contract that is
+  // absent or fails normalization stays explicit instead of failing the batch.
+  async function contractSnapshots(symbols, { deadline } = {}) {
+    const requested = [...new Set((symbols || []).map((value) => String(value || '').trim().toUpperCase()))]
+    if (!requested.length || requested.length > 100) throw new Error('Alpaca option snapshot request requires 1-100 contract symbols')
+    if (requested.some((symbol) => !osiSymbolPattern.test(symbol))) throw new Error('Invalid OSI option symbol')
+    const run = context(deadline)
+    const pages = await collectPages(run, {
+      base: dataBase,
+      path: '/v1beta1/options/snapshots',
+      params: { symbols: requested.join(','), feed: ALPACA_FEEDS.optionQuote.name, limit: 100 },
+      dataKey: 'snapshots',
+      mapping: true,
+    })
+    const observations = [], missing = []
+    for (const symbol of requested) {
+      const entry = pages.entries.get(symbol)
+      if (!entry) { missing.push({ symbol, reason: pages.failure?.code || 'provider_snapshot_absent' }); continue }
+      try {
+        const fieldsMissing = []
+        const raw = entry.raw
+        const quote = normalizeQuote(raw?.latestQuote, 'quote', entry.fetchedAt, ALPACA_FEEDS.optionQuote, fieldsMissing)
+        const dailyBar = normalizeBar(raw?.dailyBar, 'dailyBar', entry.fetchedAt, fieldsMissing, 'rth')
+        const impliedVolatility = raw?.impliedVolatility == null
+          ? missingValue(fieldsMissing, 'impliedVolatility', 'provider_analytics_unavailable')
+          : number(raw.impliedVolatility, 'impliedVolatility', { nonnegative: true })
+        observations.push({ symbol, quote, impliedVolatility, volume: dailyBar?.volume ?? null,
+          fetchedAt: entry.fetchedAt, missing: fieldsMissing, rawReferenceHash: digest(raw) })
+      } catch (error) {
+        missing.push({ symbol, reason: safeFailure(error).code })
+      }
+    }
+    return {
+      schemaVersion: 'alpaca-option-snapshot-batch-v1',
+      adapterVersion: ALPACA_ADAPTER_VERSION,
+      complete: pages.complete && missing.length === 0,
+      observations,
+      missing,
+      failure: pages.failure,
+      requestCount: run.used,
+      diagnostics: run.diagnostics,
+    }
+  }
+
+  return { underlyingSnapshots, stockBars, optionChain, contractSnapshots }
 }

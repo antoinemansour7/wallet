@@ -5,6 +5,8 @@ import { runOptionsPremarketStage as defaultRunPremarketStage } from '../src/ser
 import { runOptionsOpeningStage as defaultRunOpeningStage } from '../src/server/options/openingEvidence.js'
 import { archiveOptionsAuditRecord, commitOptionsScan } from '../src/server/options/auditStore.js'
 import { instrumentRedisCommandCount } from '../src/server/options/operations.js'
+import { runOptionsForwardCaptureTick } from '../src/server/options/forwardCapture.js'
+import { createAlpacaOptionsAdapter } from '../src/server/options/alpaca.js'
 
 function authorized(req) {
   return Boolean(process.env.CRON_SECRET) && req.headers.authorization === `Bearer ${process.env.CRON_SECRET}`
@@ -12,6 +14,14 @@ function authorized(req) {
 
 function redisFromEnv() {
   return process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN ? Redis.fromEnv() : null
+}
+
+// Outcome capture must be able to finish a cohort's +10-session tail after the
+// scanner itself is switched off, so it has its own flag that defaults to the
+// scanner's. The Redis kill switch still stops both.
+function forwardCaptureEnabled() {
+  const explicit = process.env.OPTIONS_FORWARD_CAPTURE_ENABLED
+  return explicit ? explicit === 'true' : process.env.OPTIONS_SCANNER_ENABLED === 'true'
 }
 
 function requestId(req) {
@@ -27,12 +37,32 @@ export function createOptionsScanHandler({
   archiveRecord = archiveOptionsAuditRecord,
   commitScan = commitOptionsScan,
   enabled = () => process.env.OPTIONS_SCANNER_ENABLED === 'true',
+  captureEnabled = forwardCaptureEnabled,
+  runObserveTick = runOptionsForwardCaptureTick,
+  makeAdapter = () => createAlpacaOptionsAdapter(),
 } = {}) {
   return async function optionsScanHandler(req, res) {
     if (!['GET', 'POST'].includes(req.method)) return res.status(405).json({ error: 'Method not allowed' })
     if (!authorized(req)) return res.status(401).json({ error: 'Unauthorized' })
     const stage = req.query?.mode
-    if (!['premarket', 'opening'].includes(stage)) return res.status(400).json({ error: 'Invalid options scan mode' })
+    if (!['premarket', 'opening', 'observe'].includes(stage)) return res.status(400).json({ error: 'Invalid options scan mode' })
+    if (stage === 'observe') {
+      // Per-minute outcome capture is not a once-a-day stage: it has no window,
+      // deadline or completion record, so it does not go through runStage.
+      const reference = digest([stage, requestId(req), Date.now()]).slice(0, 16)
+      try {
+        const enabledNow = captureEnabled()
+        const redis = getRedis()
+        const result = await runObserveTick({ redis, archive: redis ? makeArchive(redis) : null, adapter: enabledNow ? makeAdapter() : null, enabled: enabledNow })
+        return res.status(result.status === 'partial' ? 503 : 200).json({
+          status: result.status, stage, tradingDate: result.tradingDate,
+          instants: result.instants?.length ?? 0, failed: result.failed?.length ?? 0,
+        })
+      } catch {
+        console.error(JSON.stringify({ service: 'options-forward-capture', category: 'capture_failed', reference }))
+        return res.status(503).json({ error: 'Options outcome capture is unavailable.', category: 'capture_failed', reference })
+      }
+    }
     const rawRedis = getRedis()
     // Metrics only, never a behavior change: every Redis command the whole
     // stage attempt issues -- the scheduler's own lease/checkpoint calls and

@@ -7,6 +7,7 @@ import { optionsPublicationSummary } from './publication.js'
 import { refreshOptionsContractDetail } from './detailRefresh.js'
 import { buildOptionsOperationsReport } from './operations.js'
 import { buildOptionsResearchView } from './researchView.js'
+import { buildOptionsShadowView } from './shadowView.js'
 
 function unavailable(res, error) {
   const referenceId = `options-${randomUUID()}`
@@ -22,6 +23,7 @@ export function createOptionsAuditHandler({
   refreshDetail = refreshOptionsContractDetail,
   buildReport = buildOptionsOperationsReport,
   buildResearch = buildOptionsResearchView,
+  buildShadow = buildOptionsShadowView,
   now = Date.now,
 } = {}) {
   return async function optionsAuditHandler(req, res) {
@@ -35,6 +37,8 @@ export function createOptionsAuditHandler({
       return unavailable(res, new Error('storage_not_configured'))
     }
 
+    // The shadow-test dashboard is read-only: no refresh or other write goes through it.
+    if (req.query?.view === 'shadow' && req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
     const type = req.query?.recordType
     const id = req.query?.recordId
     if ((type && !id) || (!type && id)) return res.status(400).json({ error: 'recordType and recordId must be provided together' })
@@ -69,6 +73,9 @@ export function createOptionsAuditHandler({
       if (req.query?.view === 'operations') {
         const operations = await buildReport({ archive, redis, latestManifest, now })
         return res.status(200).json({ operations })
+      }
+      if (req.query?.view === 'shadow') {
+        return res.status(200).json({ shadow: await buildShadow({ archive, readRecord, now }) })
       }
       const manifest = await resolveManifest()
       if (manifestId && !manifest) return res.status(404).json({ error: 'Morning record is unavailable' })

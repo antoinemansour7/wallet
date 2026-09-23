@@ -8,6 +8,8 @@ import react from '@vitejs/plugin-react'
 import { chromium } from 'playwright'
 import { optionsResearchFixture } from '../src/test/optionsResearchFixture.js'
 import { buildOptionsResearchView } from '../src/server/options/researchView.js'
+import { optionsShadowFixture } from '../src/test/optionsShadowFixture.js'
+import { buildOptionsShadowView } from '../src/server/options/shadowView.js'
 
 const output = await mkdtemp(resolve(tmpdir(), 'options-ui-review-'))
 const mockAuth = resolve(output, 'auth.js')
@@ -15,10 +17,11 @@ await writeFile(mockAuth, `const user = { uid: 'review-owner', getIdToken: async
 const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1" /></head><body><div id="root"></div><script type="module">
 import React from 'react'; import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import Options from '/src/pages/Options.jsx'; import Operations from '/src/pages/OptionsOperations.jsx'; import Navbar from '/src/components/Navbar.jsx'; import '/src/index.css';
+import Options from '/src/pages/Options.jsx'; import Operations from '/src/pages/OptionsOperations.jsx'; import Shadow from '/src/pages/OptionsShadow.jsx'; import Navbar from '/src/components/Navbar.jsx'; import '/src/index.css';
 createRoot(document.getElementById('root')).render(React.createElement(BrowserRouter, null, React.createElement(Navbar), React.createElement('main', {className: 'pb-20 lg:pb-0'}, React.createElement(Routes, null,
 React.createElement(Route, {path: '/options', element: React.createElement(Options)}),
 React.createElement(Route, {path: '/options/operations', element: React.createElement(Operations)}),
+React.createElement(Route, {path: '/options/testing', element: React.createElement(Shadow)}),
 React.createElement(Route, {path: '/portfolio', element: React.createElement('p', null, 'Portfolio destination')})))));
 </script></body></html>`
 const server = await createServer({ configFile: false, root: process.cwd(), logLevel: 'error',
@@ -38,6 +41,9 @@ try {
   const now = () => Date.parse('2026-09-22T13:32:21Z')
   const research = await buildOptionsResearchView({ ...fixture, now })
   const details = Object.fromEntries(await Promise.all(fixture.contracts.map(async (contract) => [contract.contractId, await buildOptionsResearchView({ ...fixture, now, contractId: contract.contractId })])))
+  const seeded = await optionsShadowFixture()
+  const shadow = await buildOptionsShadowView({ archive: seeded.archive, now: () => Date.parse('2026-09-28T15:00:00Z') })
+  let shadowState = 'running'
   browser = await chromium.launch({ headless: true })
   const page = await browser.newPage()
   const errors = []
@@ -51,6 +57,7 @@ try {
     else if (url.searchParams.has('owner')) body = { owner: true }
     else if (failReload) { status = 503; body = { error: 'Raw Redis provider error', referenceId: 'options-test-reference' } }
     else if (route.request().method() === 'POST') body = { detail: { refresh: { status: 'rejected', availableAt: '2026-09-22T14:00:00Z' } } }
+    else if (url.searchParams.get('view') === 'shadow') body = { shadow: shadowState === 'not-started' ? { ...shadow, window: null, days: [], rows: [] } : shadow }
     else if (url.searchParams.get('view') === 'operations') body = { operations: { status: 'ok', checkedAt: new Date(now()).toISOString(), stageTimings: [{ metrics: { provider429Count: 2 } }] } }
     else if (url.searchParams.has('contractId')) body = { research: details[url.searchParams.get('contractId')] }
     else body = { research: { ...research, summary: { ...research.summary, state },
@@ -109,11 +116,32 @@ try {
   await page.goto(`${base}/options/operations`, { waitUntil: 'networkidle' })
   await page.getByRole('heading', { name: 'Options operations' }).waitFor()
   await screenshot('operations')
+  for (const [width, height] of [[1440, 1000], [768, 1024], [390, 844], [320, 760]]) {
+    await page.setViewportSize({ width, height })
+    await page.goto(`${base}/options/testing`, { waitUntil: 'networkidle' })
+    await page.getByRole('article').first().waitFor()
+    await screenshot(`shadow-${width}`)
+  }
+  const pick = page.getByRole('article').first()
+  const checkpoints = pick.locator('summary', { hasText: 'Checkpoints' })
+  await checkpoints.focus(); await page.keyboard.press('Enter')
+  await pick.getByRole('region', { name: 'EX checkpoints' }).waitFor()
+  await screenshot('shadow-320-checkpoints')
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.evaluate(() => document.documentElement.classList.add('dark'))
+  await screenshot('shadow-desktop-dark')
+  await page.evaluate(() => document.documentElement.classList.remove('dark'))
+  assert.equal(await page.locator('.options-workspace').getByRole('button').filter({ hasNotText: 'Reload' }).count(), 0)
+  shadowState = 'not-started'
+  await page.goto(`${base}/options/testing`, { waitUntil: 'networkidle' })
+  await page.getByRole('heading', { name: 'The shadow test has not started' }).waitFor()
+  await screenshot('shadow-not-started')
   deny = true
-  for (const path of ['/options', '/options/operations']) {
+  for (const path of ['/options', '/options/operations', '/options/testing']) {
     await page.goto(`${base}${path}`, { waitUntil: 'networkidle' })
     await page.getByText('Portfolio destination').waitFor()
     assert.equal(await page.getByRole('heading', { name: 'Morning opportunities' }).count(), 0)
+    assert.equal(await page.getByRole('heading', { name: 'Shadow test' }).count(), 0)
   }
   assert.deepEqual(errors, [])
   console.log(JSON.stringify({ output, result: 'passed', widths: [1440, 768, 390, 320], states: 8, keyboard: 'Enter/Space disclosures; native selects', errors }))

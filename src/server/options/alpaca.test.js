@@ -218,3 +218,58 @@ describe('Alpaca free options-data adapter', () => {
     expect(() => adapter(vi.fn(), { tradingBaseUrl: 'https://paper.alpaca.test/v2' })).toThrow('HTTPS origin')
   })
 })
+
+describe('batched contract snapshots for forward outcome capture', () => {
+  const quoteAt = '2026-09-22T15:59:39.000Z'
+  const snapshot = (bid, ask) => ({
+    latestQuote: { t: quoteAt, bp: bid, ap: ask, bs: 12, as: 9, bx: 'N', ax: 'N', c: 'A' },
+    dailyBar: { t: '2026-09-22T04:00:00Z', o: 5, h: 6, l: 4.5, c: 5.5, v: 321, n: 40, vw: 5.4 },
+    impliedVolatility: 0.61, greeks: { delta: 0.3 },
+  })
+
+  it('fetches many contracts in one indicative request and normalizes quote, IV and volume', async () => {
+    const fetchImpl = vi.fn(async (input) => {
+      const url = new URL(input)
+      expect(url.pathname).toBe('/v1beta1/options/snapshots')
+      expect(url.searchParams.get('symbols')).toBe('NVDA261022C00200000,NVDA261022P00160000')
+      expect(url.searchParams.get('feed')).toBe('indicative')
+      return response({ snapshots: { NVDA261022C00200000: snapshot(5.4, 5.6), NVDA261022P00160000: snapshot(1.1, 1.2) }, next_page_token: null })
+    })
+    const result = await adapter(fetchImpl).contractSnapshots(['NVDA261022C00200000', 'nvda261022p00160000', 'NVDA261022C00200000'], { deadline: '2026-09-22T16:00:00.000Z' })
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(result).toMatchObject({ schemaVersion: 'alpaca-option-snapshot-batch-v1', complete: true, missing: [], failure: null, requestCount: 1 })
+    expect(result.observations).toHaveLength(2)
+    expect(result.observations[0]).toMatchObject({
+      symbol: 'NVDA261022C00200000', impliedVolatility: 0.61, volume: 321, fetchedAt: now,
+      quote: { bid: 5.4, ask: 5.6, bidSize: 12, askSize: 9, marketAt: quoteAt, semantics: ALPACA_FEEDS.optionQuote },
+    })
+    expect(result.observations[0].rawReferenceHash).toMatch(/^[a-f0-9]{64}$/)
+  })
+
+  it('keeps an absent or corrupt contract explicit without dropping the rest of the batch', async () => {
+    const fetchImpl = vi.fn(async () => response({ snapshots: { NVDA261022C00200000: { latestQuote: { t: 'not-a-time', bp: 1, ap: 2, bs: 1, as: 1 } }, NVDA261022P00160000: snapshot(1.1, 1.2) } }))
+    const result = await adapter(fetchImpl).contractSnapshots(['NVDA261022C00200000', 'NVDA261022P00160000', 'NVDA261022P00150000'])
+    expect(result.complete).toBe(false)
+    expect(result.observations.map((item) => item.symbol)).toEqual(['NVDA261022P00160000'])
+    expect(result.missing).toEqual([
+      { symbol: 'NVDA261022C00200000', reason: 'corrupt_payload' },
+      { symbol: 'NVDA261022P00150000', reason: 'provider_snapshot_absent' },
+    ])
+  })
+
+  it('reports a provider failure as missing contracts with a sanitized reason', async () => {
+    const result = await adapter(vi.fn(async () => response({ message: 'secret detail' }, 403))).contractSnapshots(['NVDA261022C00200000'])
+    expect(result.failure).toEqual({ code: 'missing_entitlement', status: 403, retryable: false })
+    expect(result.missing).toEqual([{ symbol: 'NVDA261022C00200000', reason: 'missing_entitlement' }])
+    expect(JSON.stringify(result)).not.toContain('secret detail')
+  })
+
+  it('rejects malformed symbols and oversized batches before any request', async () => {
+    const fetchImpl = vi.fn()
+    await expect(adapter(fetchImpl).contractSnapshots(['NVDA'])).rejects.toThrow('OSI')
+    await expect(adapter(fetchImpl).contractSnapshots([])).rejects.toThrow('1-100')
+    await expect(adapter(fetchImpl).contractSnapshots(Array.from({ length: 101 }, (_, i) => `NVDA261022C${String(i).padStart(8, '0')}`))).rejects.toThrow('1-100')
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+})

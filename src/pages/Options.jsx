@@ -57,7 +57,8 @@ function Workspace({ user }) {
   const candidates = (data?.candidates || []).filter((row) => filter === 'all' || row.direction === filter)
   return <div className="wallai-system options-workspace">
     <header className="options-header"><div><span className="options-label">Private research · Options</span><h1>Morning opportunities</h1>
-      <p>Compare the morning record. Explore the assumptions.</p></div><Link to="/options/operations">Operations ↗</Link></header>
+      <p>Compare the morning record. Explore the assumptions.</p></div>
+      <nav aria-label="Options pages"><Link to="/options/testing">Shadow test ↗</Link><Link to="/options/operations">Operations ↗</Link></nav></header>
     <div className="options-status" aria-live="polite"><span className="options-badge">{stateLabel(currentState)}</span>
       {morning && <>{currentState !== morning.observationMode && <span>Observation: {stateLabel(morning.observationMode)}</span>}<span>{words(morning.completeness)} coverage</span></>}
       {data?.evidenceStatus === 'partial' && <span>Partial archived detail</span>}

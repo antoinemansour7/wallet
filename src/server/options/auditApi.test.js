@@ -30,6 +30,7 @@ describe('owner-only options audit API', () => {
     { method: 'GET', query: { view: 'research' } },
     { method: 'GET', query: { view: 'research', manifestId: 'f'.repeat(64), contractId: 'osi:EX' } },
     { method: 'GET', query: { view: 'operations' } },
+    { method: 'GET', query: { view: 'shadow' } },
     { method: 'GET', query: { recordType: 'scenario', recordId: 'a'.repeat(64) } },
     { method: 'POST', body: { manifestId: 'f'.repeat(64), contractId: 'osi:EX' } },
   ])('enforces ownership on direct research, detail, lineage, operations and refresh requests: %j', async (overrides) => {
@@ -171,6 +172,30 @@ describe('owner-only options audit API', () => {
     await local(request({ query: { view: 'operations' } }), res)
     expect(res.status).toHaveBeenCalledWith(503)
     expect(JSON.stringify(body(res))).not.toContain('secret-provider-detail')
+  })
+
+  it('serves the read-only shadow-test dashboard on ?view=shadow without resolving a morning', async () => {
+    const buildShadow = vi.fn(async () => ({ policyVersion: 'options-shadow-dashboard-v1', rows: [] }))
+    const latestManifest = vi.fn()
+    const local = createOptionsAuditHandler({
+      authorize: vi.fn(async () => ({ uid: 'owner' })), redisFromEnv: () => ({ fixture: 'redis' }), makeArchive: () => ({ fixture: 'archive' }),
+      latestManifest, readRecord: vi.fn(), buildShadow, now: () => Date.parse('2026-09-22T14:00:00.000Z'),
+    })
+    const res = response()
+    await local(request({ query: { view: 'shadow' } }), res)
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(body(res)).toEqual({ shadow: { policyVersion: 'options-shadow-dashboard-v1', rows: [] } })
+    expect(buildShadow).toHaveBeenCalledWith(expect.objectContaining({ archive: { fixture: 'archive' } }))
+    expect(latestManifest).not.toHaveBeenCalled()
+  })
+
+  it('refuses to change anything through the shadow view', async () => {
+    const buildShadow = vi.fn()
+    const local = createOptionsAuditHandler({ authorize: vi.fn(async () => ({ uid: 'owner' })), redisFromEnv: () => ({}), makeArchive: () => ({}), buildShadow, refreshDetail: vi.fn() })
+    const res = response()
+    await local(request({ method: 'POST', query: { view: 'shadow' }, body: {} }), res)
+    expect(res.status).toHaveBeenCalledWith(405)
+    expect(buildShadow).not.toHaveBeenCalled()
   })
 
   it('returns a fresh owner summary that becomes stale without rewriting storage', async () => {
