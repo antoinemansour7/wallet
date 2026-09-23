@@ -6,6 +6,7 @@ import { latestOptionsManifest, optionsAuditRecord } from './auditStore.js'
 import { optionsPublicationSummary } from './publication.js'
 import { refreshOptionsContractDetail } from './detailRefresh.js'
 import { buildOptionsOperationsReport } from './operations.js'
+import { buildOptionsResearchView } from './researchView.js'
 
 function unavailable(res, error) {
   const referenceId = `options-${randomUUID()}`
@@ -20,6 +21,7 @@ export function createOptionsAuditHandler({
   readRecord = optionsAuditRecord,
   refreshDetail = refreshOptionsContractDetail,
   buildReport = buildOptionsOperationsReport,
+  buildResearch = buildOptionsResearchView,
   now = Date.now,
 } = {}) {
   return async function optionsAuditHandler(req, res) {
@@ -40,10 +42,17 @@ export function createOptionsAuditHandler({
     try {
       const redis = redisFromEnv()
       const archive = makeArchive(redis)
+      // Deep links and refreshes stay pinned to the morning the owner opened,
+      // even if another publication has since advanced the latest pointer.
+      const manifestId = req.body?.manifestId || req.query?.manifestId
+      if (manifestId && (typeof manifestId !== 'string' || !/^[a-f0-9]{64}$/.test(manifestId))) {
+        return res.status(400).json({ error: 'Invalid morning reference' })
+      }
+      const resolveManifest = () => manifestId ? archive.get('options-manifest', manifestId) : latestManifest(archive, redis)
       if (req.method === 'POST') {
         const contractId = req.body?.contractId || req.query?.contractId
         if (typeof contractId !== 'string' || !contractId) return res.status(400).json({ error: 'contractId is required' })
-        const manifest = await latestManifest(archive, redis)
+        const manifest = await resolveManifest()
         if (!manifest) return res.status(404).json({ error: 'No published options scan is available' })
         return res.status(200).json({ detail: await refreshDetail({ archive, manifest, contractId, now }) })
       }
@@ -61,7 +70,13 @@ export function createOptionsAuditHandler({
         const operations = await buildReport({ archive, redis, latestManifest, now })
         return res.status(200).json({ operations })
       }
-      const manifest = await latestManifest(archive, redis)
+      const manifest = await resolveManifest()
+      if (manifestId && !manifest) return res.status(404).json({ error: 'Morning record is unavailable' })
+      if (req.query?.view === 'research') {
+        const research = await buildResearch({ archive, manifest, contractId: req.query?.contractId, readRecord, now })
+        if (!research) return res.status(404).json({ error: 'Morning candidate not found' })
+        return res.status(200).json({ research })
+      }
       return res.status(200).json({ summary: optionsPublicationSummary(manifest, now()) })
     } catch (error) {
       return unavailable(res, error)

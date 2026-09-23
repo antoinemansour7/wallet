@@ -13,7 +13,9 @@ function findNulls(value, path = 'payload', found = []) {
 }
 
 async function morningContract(archive, manifest, contractId, readRecord) {
-  for (const reference of manifest.records.filter((item) => item.type === 'chain')) {
+  const selected = manifest.publication?.selected?.find((item) => item.contractId === contractId)
+  const finalChainId = selected?.revalidation?.chainRecordId
+  for (const reference of manifest.records.filter((item) => item.type === 'chain' && (!finalChainId || item.id === finalChainId))) {
     const record = await readRecord(archive, 'chain', reference.id)
     const contract = record?.payload?.contracts?.find((item) => item.contractId === contractId)
     if (contract) return { record, contract }

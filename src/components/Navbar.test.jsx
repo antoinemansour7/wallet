@@ -30,6 +30,7 @@ describe('account menu owner-only research links', () => {
     expect(items.findIndex((t) => /Research evaluation/.test(t))).toBeLessThan(signOutIndex)
     expect(screen.getByRole('menuitem', { name: /Research logs/ })).toHaveAttribute('href', '/research/logs')
     expect(screen.getByRole('menuitem', { name: /Research evaluation/ })).toHaveAttribute('href', '/research/evaluation')
+    expect(screen.getByRole('menuitem', { name: 'Options' })).toHaveAttribute('href', '/options')
   })
 
   it('shows nothing research-related to a regular signed-in user', () => {
@@ -38,5 +39,6 @@ describe('account menu owner-only research links', () => {
 
     expect(screen.queryByText(/Research logs/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Research evaluation/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Options' })).not.toBeInTheDocument()
   })
 })
