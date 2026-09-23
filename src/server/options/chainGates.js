@@ -103,6 +103,9 @@ function flattenContract(contract, evaluation) {
     quote: contract.quote,
     trade: contract.trade,
     volume: contract.volume,
+    // Carried forward because the volume gate can be cleared on prior-session
+    // volume alone, and scoring (#211) charges a penalty for exactly that.
+    previousVolume: contract.previousDailyBar?.volume ?? null,
     analytics: contract.analytics,
     fetchedAt: contract.fetchedAt,
     rawReferenceHash: contract.rawReferenceHash,

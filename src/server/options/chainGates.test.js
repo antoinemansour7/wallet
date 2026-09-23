@@ -107,6 +107,12 @@ describe('buildOptionsChain', () => {
     expect(chain.underlying).toMatchObject({ securityId: security.securityId, direction: 'call' })
   })
 
+  it('carries prior-session volume into accepted contracts for downstream scoring', () => {
+    const observation = { underlying: underlying(), contracts: [contract({ todayVolume: 0, priorVolume: 150 })], rejected: [] }
+    const chain = buildOptionsChain({ security, direction: 'call', tradingDate: TRADING_DATE, optionChainObservation: observation })
+    expect(chain.contracts[0]).toMatchObject({ previousVolume: 150 })
+  })
+
   it('is deterministic given identical inputs', () => {
     const observation = { underlying: underlying(), contracts: [contract()], rejected: [] }
     const first = buildOptionsChain({ security, direction: 'call', tradingDate: TRADING_DATE, optionChainObservation: observation })
