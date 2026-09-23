@@ -11,6 +11,8 @@ export const OPTIONS_RECORD_TYPES = Object.freeze({
   score: Object.freeze({ kind: 'options-score', schema: 'options-score-v1', requiredPayload: ['scores'] }),
   scenario: Object.freeze({ kind: 'options-scenario', schema: 'options-scenario-v1', requiredPayload: ['scenarios'] }),
   outcome: Object.freeze({ kind: 'options-outcome', schema: 'options-outcome-v1', requiredPayload: ['outcomes'] }),
+  observation: Object.freeze({ kind: 'options-observation', schema: 'options-observation-v1', requiredPayload: ['request', 'observations'] }),
+  coverage: Object.freeze({ kind: 'options-coverage', schema: 'options-coverage-v1', requiredPayload: ['ticker', 'tradingDate', 'fields'] }),
   policy: Object.freeze({ kind: 'options-policy', schema: 'options-policy-v1', requiredPayload: ['policy'] }),
   diagnostic: Object.freeze({ kind: 'options-diagnostic', schema: 'options-diagnostic-v1', requiredPayload: ['category', 'message'] }),
 })
@@ -118,6 +120,25 @@ function validatePayload(type, payload) {
     }
     for (const rejection of payload.rejected) if (!rejection.rawId || !rejection.reason) throw new Error('chain rejections require rawId and reason')
     if (!payload.prefilter?.manifestHash || !sha256Pattern.test(payload.prefilter.manifestHash)) throw new Error('chain prefilter requires a manifest hash')
+  }
+  if (type === 'observation') {
+    if (!Array.isArray(payload.observations)) throw new Error('observation payload requires an observations array')
+    if (!sha256Pattern.test(payload.request?.parametersHash || '') || !sha256Pattern.test(payload.request?.bodyChecksum || '')) {
+      throw new Error('observation request requires parameters and body checksums')
+    }
+    if (payload.observationCount !== payload.observations.length || payload.normalizedChecksum !== digest(payload.observations)) {
+      throw new Error('observation payload count or normalized checksum is inconsistent')
+    }
+  }
+  if (type === 'coverage') {
+    if (!payload.securityId || !payload.issuerId || !/^\d{4}-\d{2}-\d{2}$/.test(payload.tradingDate || '') || !Array.isArray(payload.fields) || !payload.fields.length) {
+      throw new Error('coverage payload requires dated issuer-bound fields')
+    }
+    const paths = payload.fields.map((field) => field?.path)
+    if (paths.some((path) => !path) || new Set(paths).size !== paths.length) throw new Error('coverage field paths must be unique')
+    if (payload.fields.some((field) => !['observed', 'reconstructed', 'missing'].includes(field.status) || typeof field.replayEligible !== 'boolean')) {
+      throw new Error('coverage fields require an explicit state and replay eligibility')
+    }
   }
 }
 

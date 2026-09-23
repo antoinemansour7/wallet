@@ -4,7 +4,7 @@ Story #204 adds the durable evidence boundary for the options scanner. It does n
 
 ## Audit envelopes
 
-`src/server/options/audit.js` defines separate, versioned records for scan state, source evidence, option chains, decisions, scores, scenarios, outcomes, policies and diagnostics. Every record includes:
+`src/server/options/audit.js` defines separate, versioned records for scan state, source evidence, option chains, decisions, scores, scenarios, outcomes, source observations, field coverage, policies and diagnostics. Every record includes:
 
 - a content-derived record ID and byte count;
 - the scan ID and record-specific schema version;
