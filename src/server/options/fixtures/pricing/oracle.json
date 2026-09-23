@@ -1,0 +1,598 @@
+{
+  "version": "options-pricing-oracle-quantlib-1.43-v1",
+  "generatedOn": "2026-09-22",
+  "generator": "scripts/options-pricing-oracle.py",
+  "oracle": {
+    "library": "QuantLib",
+    "libraryVersion": "1.43",
+    "engines": {
+      "analytic": "AnalyticEuropeanEngine (closed-form Black-Scholes-Merton)",
+      "fd": "FdBlackScholesVanillaEngine, CashDividendModel.Spot, tGrid=4000 xGrid=4000 damping=2"
+    },
+    "url": "https://github.com/lballabio/QuantLib/blob/master/ql/pricingengines/vanilla/fdblackscholesvanillaengine.hpp"
+  },
+  "conventions": {
+    "dayCount": "Actual/365 fixed; daysToExpiry/365 is the year fraction",
+    "rates": "continuously compounded",
+    "dividendYield": "continuous carry: continuous dividend yield plus borrow assumption",
+    "dividends": "discrete cash amounts at integer ex-dividend day offsets",
+    "units": "per share; vega per 1.00 volatility point; theta per calendar day; rho per 1.00 percentage point of rate"
+  },
+  "cases": [
+    {
+      "id": "epic-illustration-entry",
+      "note": "Epic #201 section 4 illustration: expected ~$5.50 entry premium.",
+      "inputs": {
+        "type": "call",
+        "exercise": "european",
+        "spot": 180.0,
+        "strike": 200.0,
+        "daysToExpiry": 30,
+        "volatility": 0.597554,
+        "riskFreeRate": 0.04,
+        "dividendYield": 0.0,
+        "dividends": []
+      },
+      "expected": {
+        "price": 5.500005,
+        "delta": 0.304967,
+        "gamma": 0.011359,
+        "vega": 0.18075,
+        "theta": -0.185427,
+        "rho": 0.040598
+      },
+      "priceEngine": "analytic-european",
+      "greeksEngine": "analytic-european",
+      "oracleConvergenceDelta": 0.0
+    },
+    {
+      "id": "epic-illustration-up-3-days",
+      "note": "S=$189 after 3 calendar days, unchanged IV: expected ~$8.05, still OTM.",
+      "inputs": {
+        "type": "call",
+        "exercise": "european",
+        "spot": 189.0,
+        "strike": 200.0,
+        "daysToExpiry": 27,
+        "volatility": 0.597554,
+        "riskFreeRate": 0.04,
+        "dividendYield": 0.0,
+        "dividends": []
+      },
+      "expected": {
+        "price": 8.049738,
+        "delta": 0.401831,
+        "gamma": 0.012593,
+        "vega": 0.198832,
+        "theta": -0.227464,
+        "rho": 0.050225
+      },
+      "priceEngine": "analytic-european",
+      "greeksEngine": "analytic-european",
+      "oracleConvergenceDelta": 0.0
+    },
+    {
+      "id": "epic-illustration-up-3-days-iv-down-10pct",
+      "note": "Relative IV -10% is 53.78%, not 49.76%: expected ~$6.87.",
+      "inputs": {
+        "type": "call",
+        "exercise": "european",
+        "spot": 189.0,
+        "strike": 200.0,
+        "daysToExpiry": 27,
+        "volatility": 0.5377986,
+        "riskFreeRate": 0.04,
+        "dividendYield": 0.0,
+        "dividends": []
+      },
+      "expected": {
+        "price": 6.868386,
+        "delta": 0.384612,
+        "gamma": 0.013823,
+        "vega": 0.196434,
+        "theta": -0.202846,
+        "rho": 0.048691
+      },
+      "priceEngine": "analytic-european",
+      "greeksEngine": "analytic-european",
+      "oracleConvergenceDelta": 0.0
+    },
+    {
+      "id": "epic-illustration-up-3-days-iv-up-10pct",
+      "note": "Relative IV +10% is 65.73%: expected ~$9.24.",
+      "inputs": {
+        "type": "call",
+        "exercise": "european",
+        "spot": 189.0,
+        "strike": 200.0,
+        "daysToExpiry": 27,
+        "volatility": 0.6573094,
+        "riskFreeRate": 0.04,
+        "dividendYield": 0.0,
+        "dividends": []
+      },
+      "expected": {
+        "price": 9.243353,
+        "delta": 0.41664,
+        "gamma": 0.011548,
+        "vega": 0.200579,
+        "theta": -0.25177,
+        "rho": 0.051412
+      },
+      "priceEngine": "analytic-european",
+      "greeksEngine": "analytic-european",
+      "oracleConvergenceDelta": 0.0
+    },
+    {
+      "id": "epic-illustration-unchanged-3-days",
+      "note": "Stock unchanged for 3 calendar days: time-only decay, expected ~$4.94.",
+      "inputs": {
+        "type": "call",
+        "exercise": "european",
+        "spot": 180.0,
+        "strike": 200.0,
+        "daysToExpiry": 27,
+        "volatility": 0.597554,
+        "riskFreeRate": 0.04,
+        "dividendYield": 0.0,
+        "dividends": []
+      },
+      "expected": {
+        "price": 4.935279,
+        "delta": 0.291566,
+        "gamma": 0.011731,
+        "vega": 0.168002,
+        "theta": -0.191118,
+        "rho": 0.035171
+      },
+      "priceEngine": "analytic-european",
+      "greeksEngine": "analytic-european",
+      "oracleConvergenceDelta": 0.0
+    },
+    {
+      "id": "bs-european-call-atm",
+      "note": "Closed-form ATM call reference.",
+      "inputs": {
+        "type": "call",
+        "exercise": "european",
+        "spot": 100.0,
+        "strike": 100.0,
+        "daysToExpiry": 30,
+        "volatility": 0.3,
+        "riskFreeRate": 0.05,
+        "dividendYield": 0.0,
+        "dividends": []
+      },
+      "expected": {
+        "price": 3.632067,
+        "delta": 0.536168,
+        "gamma": 0.046194,
+        "vega": 0.113903,
+        "theta": -0.063799,
+        "rho": 0.041083
+      },
+      "priceEngine": "analytic-european",
+      "greeksEngine": "analytic-european",
+      "oracleConvergenceDelta": 0.0
+    },
+    {
+      "id": "bs-european-put-atm",
+      "note": "Closed-form ATM put reference (put-call parity anchor).",
+      "inputs": {
+        "type": "put",
+        "exercise": "european",
+        "spot": 100.0,
+        "strike": 100.0,
+        "daysToExpiry": 30,
+        "volatility": 0.3,
+        "riskFreeRate": 0.05,
+        "dividendYield": 0.0,
+        "dividends": []
+      },
+      "expected": {
+        "price": 3.221952,
+        "delta": -0.463832,
+        "gamma": 0.046194,
+        "vega": 0.113903,
+        "theta": -0.050156,
+        "rho": -0.040771
+      },
+      "priceEngine": "analytic-european",
+      "greeksEngine": "analytic-european",
+      "oracleConvergenceDelta": 0.0
+    },
+    {
+      "id": "bs-european-call-otm-low-vol",
+      "note": "Far OTM, low vol: small premium, tolerance floor dominates.",
+      "inputs": {
+        "type": "call",
+        "exercise": "european",
+        "spot": 100.0,
+        "strike": 120.0,
+        "daysToExpiry": 45,
+        "volatility": 0.18,
+        "riskFreeRate": 0.04,
+        "dividendYield": 0.0,
+        "dividends": []
+      },
+      "expected": {
+        "price": 0.005137,
+        "delta": 0.002759,
+        "gamma": 0.001342,
+        "vega": 0.002979,
+        "theta": -0.000625,
+        "rho": 0.000334
+      },
+      "priceEngine": "analytic-european",
+      "greeksEngine": "analytic-european",
+      "oracleConvergenceDelta": 0.0
+    },
+    {
+      "id": "bs-european-put-itm-high-vol",
+      "note": "Deep ITM, high vol.",
+      "inputs": {
+        "type": "put",
+        "exercise": "european",
+        "spot": 100.0,
+        "strike": 125.0,
+        "daysToExpiry": 60,
+        "volatility": 0.75,
+        "riskFreeRate": 0.04,
+        "dividendYield": 0.0,
+        "dividends": []
+      },
+      "expected": {
+        "price": 28.892058,
+        "delta": -0.712316,
+        "gamma": 0.011215,
+        "vega": 0.138262,
+        "theta": -0.075441,
+        "rho": -0.164587
+      },
+      "priceEngine": "analytic-european",
+      "greeksEngine": "analytic-european",
+      "oracleConvergenceDelta": 0.0
+    },
+    {
+      "id": "american-call-no-dividend-equals-european",
+      "note": "No dividend: American call value equals the European value.",
+      "inputs": {
+        "type": "call",
+        "exercise": "american",
+        "spot": 100.0,
+        "strike": 105.0,
+        "daysToExpiry": 40,
+        "volatility": 0.35,
+        "riskFreeRate": 0.05,
+        "dividendYield": 0.0,
+        "dividends": []
+      },
+      "expected": {
+        "price": 2.834563,
+        "delta": 0.37605,
+        "gamma": 0.032756,
+        "vega": 0.12564,
+        "theta": -0.059731,
+        "rho": 0.038105
+      },
+      "priceEngine": "finite-difference",
+      "greeksEngine": "analytic-european",
+      "oracleConvergenceDelta": 1.92e-06
+    },
+    {
+      "id": "american-put-atm",
+      "note": "American put, ATM, early-exercise premium present.",
+      "inputs": {
+        "type": "put",
+        "exercise": "american",
+        "spot": 100.0,
+        "strike": 100.0,
+        "daysToExpiry": 45,
+        "volatility": 0.3,
+        "riskFreeRate": 0.05,
+        "dividendYield": 0.0,
+        "dividends": []
+      },
+      "expected": {
+        "price": 3.932118,
+        "delta": -0.46293,
+        "gamma": 0.038654,
+        "vega": 0.138993,
+        "theta": -0.041033,
+        "rho": -0.050012
+      },
+      "priceEngine": "finite-difference",
+      "greeksEngine": "finite-difference",
+      "oracleConvergenceDelta": 2.764e-05
+    },
+    {
+      "id": "american-put-itm-high-rate",
+      "note": "Deep ITM at a high rate: large early-exercise premium.",
+      "inputs": {
+        "type": "put",
+        "exercise": "american",
+        "spot": 90.0,
+        "strike": 110.0,
+        "daysToExpiry": 60,
+        "volatility": 0.25,
+        "riskFreeRate": 0.08,
+        "dividendYield": 0.0,
+        "dividends": []
+      },
+      "expected": {
+        "price": 20.0,
+        "delta": -1.0,
+        "gamma": 0.0,
+        "vega": 0.0,
+        "theta": 0.0,
+        "rho": -0.0
+      },
+      "priceEngine": "finite-difference",
+      "greeksEngine": "finite-difference",
+      "oracleConvergenceDelta": 0.0
+    },
+    {
+      "id": "american-put-otm-short-dated",
+      "note": "Short-dated OTM put: convexity and fast decay.",
+      "inputs": {
+        "type": "put",
+        "exercise": "american",
+        "spot": 100.0,
+        "strike": 92.0,
+        "daysToExpiry": 10,
+        "volatility": 0.45,
+        "riskFreeRate": 0.04,
+        "dividendYield": 0.0,
+        "dividends": []
+      },
+      "expected": {
+        "price": 0.458143,
+        "delta": -0.1209,
+        "gamma": 0.027021,
+        "vega": 0.033281,
+        "theta": -0.073076,
+        "rho": -0.003263
+      },
+      "priceEngine": "finite-difference",
+      "greeksEngine": "finite-difference",
+      "oracleConvergenceDelta": 2.19e-06
+    },
+    {
+      "id": "american-call-one-discrete-dividend",
+      "note": "ITM call over a $2.00 ex-dividend at day 20: early exercise can bind.",
+      "inputs": {
+        "type": "call",
+        "exercise": "american",
+        "spot": 100.0,
+        "strike": 95.0,
+        "daysToExpiry": 40,
+        "volatility": 0.25,
+        "riskFreeRate": 0.05,
+        "dividendYield": 0.0,
+        "dividends": [
+          {
+            "daysFromNow": 20,
+            "amount": 2.0
+          }
+        ]
+      },
+      "expected": {
+        "price": 6.039475,
+        "delta": 0.790359,
+        "gamma": 0.044265,
+        "vega": 0.085369,
+        "theta": -0.048166,
+        "rho": 0.045837
+      },
+      "priceEngine": "finite-difference",
+      "greeksEngine": "finite-difference",
+      "oracleConvergenceDelta": 4.2e-07
+    },
+    {
+      "id": "american-call-large-dividend-before-expiry",
+      "note": "Large late dividend: exercise just before the ex-date is clearly optimal.",
+      "inputs": {
+        "type": "call",
+        "exercise": "american",
+        "spot": 100.0,
+        "strike": 90.0,
+        "daysToExpiry": 30,
+        "volatility": 0.2,
+        "riskFreeRate": 0.03,
+        "dividendYield": 0.0,
+        "dividends": [
+          {
+            "daysFromNow": 25,
+            "amount": 4.0
+          }
+        ]
+      },
+      "expected": {
+        "price": 10.221442,
+        "delta": 0.981109,
+        "gamma": 0.008809,
+        "vega": 0.01212,
+        "theta": -0.011912,
+        "rho": 0.0602
+      },
+      "priceEngine": "finite-difference",
+      "greeksEngine": "finite-difference",
+      "oracleConvergenceDelta": 8e-08
+    },
+    {
+      "id": "american-put-with-discrete-dividend",
+      "note": "A dividend raises a put's value and delays early exercise.",
+      "inputs": {
+        "type": "put",
+        "exercise": "american",
+        "spot": 100.0,
+        "strike": 105.0,
+        "daysToExpiry": 50,
+        "volatility": 0.3,
+        "riskFreeRate": 0.04,
+        "dividendYield": 0.0,
+        "dividends": [
+          {
+            "daysFromNow": 15,
+            "amount": 1.5
+          }
+        ]
+      },
+      "expected": {
+        "price": 8.175687,
+        "delta": -0.692197,
+        "gamma": 0.033663,
+        "vega": 0.127881,
+        "theta": -0.033166,
+        "rho": -0.073194
+      },
+      "priceEngine": "finite-difference",
+      "greeksEngine": "finite-difference",
+      "oracleConvergenceDelta": 2.99e-05
+    },
+    {
+      "id": "american-put-two-discrete-dividends",
+      "note": "Two ex-dates inside the option's life.",
+      "inputs": {
+        "type": "put",
+        "exercise": "american",
+        "spot": 50.0,
+        "strike": 55.0,
+        "daysToExpiry": 60,
+        "volatility": 0.35,
+        "riskFreeRate": 0.05,
+        "dividendYield": 0.0,
+        "dividends": [
+          {
+            "daysFromNow": 12,
+            "amount": 0.6
+          },
+          {
+            "daysFromNow": 47,
+            "amount": 0.6
+          }
+        ]
+      },
+      "expected": {
+        "price": 6.728051,
+        "delta": -0.765122,
+        "gamma": 0.044389,
+        "vega": 0.061403,
+        "theta": -0.012477,
+        "rho": -0.061204
+      },
+      "priceEngine": "finite-difference",
+      "greeksEngine": "finite-difference",
+      "oracleConvergenceDelta": 1.93e-05
+    },
+    {
+      "id": "european-call-with-discrete-dividend",
+      "note": "European with a discrete dividend: isolates the dividend jump from early exercise.",
+      "inputs": {
+        "type": "call",
+        "exercise": "european",
+        "spot": 100.0,
+        "strike": 100.0,
+        "daysToExpiry": 35,
+        "volatility": 0.28,
+        "riskFreeRate": 0.05,
+        "dividendYield": 0.0,
+        "dividends": [
+          {
+            "daysFromNow": 18,
+            "amount": 1.25
+          }
+        ]
+      },
+      "expected": {
+        "price": 3.079705,
+        "delta": 0.481805,
+        "gamma": 0.046242,
+        "vega": 0.122666,
+        "theta": -0.056191,
+        "rho": 0.042978
+      },
+      "priceEngine": "finite-difference",
+      "greeksEngine": "finite-difference",
+      "oracleConvergenceDelta": 4.17e-06
+    },
+    {
+      "id": "american-put-with-borrow-carry",
+      "note": "Hard-to-borrow name: a 6% continuous carry lowers the forward.",
+      "inputs": {
+        "type": "put",
+        "exercise": "american",
+        "spot": 100.0,
+        "strike": 100.0,
+        "daysToExpiry": 30,
+        "volatility": 0.4,
+        "riskFreeRate": 0.04,
+        "dividendYield": 0.06,
+        "dividends": []
+      },
+      "expected": {
+        "price": 4.635995,
+        "delta": -0.480474,
+        "gamma": 0.034585,
+        "vega": 0.113705,
+        "theta": -0.078577,
+        "rho": -0.043299
+      },
+      "priceEngine": "finite-difference",
+      "greeksEngine": "finite-difference",
+      "oracleConvergenceDelta": 2.75e-06
+    },
+    {
+      "id": "expiry-boundary-one-day-call",
+      "note": "One day to expiry: value is close to intrinsic.",
+      "inputs": {
+        "type": "call",
+        "exercise": "american",
+        "spot": 100.0,
+        "strike": 98.0,
+        "daysToExpiry": 1,
+        "volatility": 0.35,
+        "riskFreeRate": 0.05,
+        "dividendYield": 0.0,
+        "dividends": []
+      },
+      "expected": {
+        "price": 2.135357,
+        "delta": 0.868518,
+        "gamma": 0.116381,
+        "vega": 0.01116,
+        "theta": -0.206902,
+        "rho": 0.002321
+      },
+      "priceEngine": "finite-difference",
+      "greeksEngine": "analytic-european",
+      "oracleConvergenceDelta": 2.08e-06
+    },
+    {
+      "id": "expiry-boundary-deep-itm-put",
+      "note": "Deep ITM American put sits on its exercise boundary: value equals intrinsic.",
+      "inputs": {
+        "type": "put",
+        "exercise": "american",
+        "spot": 40.0,
+        "strike": 100.0,
+        "daysToExpiry": 20,
+        "volatility": 0.3,
+        "riskFreeRate": 0.05,
+        "dividendYield": 0.0,
+        "dividends": []
+      },
+      "expected": {
+        "price": 60.0,
+        "delta": -1.0,
+        "gamma": -0.0,
+        "vega": -0.0,
+        "theta": 0.0,
+        "rho": 0.0
+      },
+      "priceEngine": "finite-difference",
+      "greeksEngine": "finite-difference",
+      "oracleConvergenceDelta": 0.0
+    }
+  ]
+}
