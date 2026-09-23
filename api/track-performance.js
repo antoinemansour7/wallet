@@ -4,6 +4,7 @@ import { allResearchPicks } from '../src/server/research/review.js'
 import { loadFoundation } from '../src/server/research/foundation.js'
 import { createArchive } from '../src/server/research/archive.js'
 import { trackEvaluation } from '../src/server/research/evaluationPerformance.js'
+import { alpacaSipDailyBars, createGapFiller, marketGapDates } from '../src/server/research/priceGaps.js'
 
 import { Redis } from '@upstash/redis'
 import { storePickPerformance, invalidateStatsCache } from '../src/server/agents/signalHistoryTools.js'
@@ -99,10 +100,23 @@ export default async function handler(req, res) {
   const histories = await evaluationHistory(redis, startedAt)
   const historyIndex = [...new Set(histories.map((h) => h.date))]
   // One request per symbol per run, reused across dates and shadow records.
+  const yahooByTicker = new Map()
+  const yahooCandles = (ticker) => {
+    if (!yahooByTicker.has(ticker)) yahooByTicker.set(ticker, fetchRecentDailyCandles(ticker))
+    return yahooByTicker.get(ticker)
+  }
+  // A session Yahoo dropped for the benchmark itself is a provider outage, so
+  // it is filled for every symbol from a second source (see priceGaps.js).
+  const benchmarkYahoo = await yahooCandles('SPY')
+  const gaps = createGapFiller({ gapDates: marketGapDates(benchmarkYahoo, startedAt), benchmark: benchmarkYahoo, fetchBars: alpacaSipDailyBars() })
   const candlesByTicker = new Map()
   const candlesFor = (ticker) => {
-    if (!candlesByTicker.has(ticker)) candlesByTicker.set(ticker, fetchRecentDailyCandles(ticker))
+    if (!candlesByTicker.has(ticker)) candlesByTicker.set(ticker, yahooCandles(ticker).then((bars) => gaps.fill(ticker, bars)))
     return candlesByTicker.get(ticker)
+  }
+  if (gaps.gapDates.length) {
+    console.log(`[track-performance] filling provider gap sessions ${gaps.gapDates.join(', ')} from Alpaca SIP`)
+    await gaps.prefetch(['SPY', ...histories.flatMap((history) => (history?.picks ? allResearchPicks(history) : []).map((pick) => pick.ticker))].filter(Boolean))
   }
   const benchmark = await candlesFor('SPY')
 
@@ -161,7 +175,7 @@ export default async function handler(req, res) {
   } else {
     try {
       experimentTracked = await withinCronBudget(budget, 'Performance evaluation', () =>
-        trackEvaluation(createArchive(redis), { master, candlesFor, now: startedAt }))
+        trackEvaluation(createArchive(redis), { master, candlesFor, prefetch: gaps.prefetch, now: startedAt }))
     } catch (err) {
       if (err.code === 'CRON_TIME_BUDGET_EXCEEDED') deferred = true
       errors.push({ stage: 'evaluation', error: err.message })
@@ -169,6 +183,7 @@ export default async function handler(req, res) {
   }
 
   if (deferred) errors.push({ stage: 'time-budget', error: 'remaining records deferred to the next idempotent run' })
+  for (const failure of gaps.failures) errors.push({ stage: 'price-gap-fill', error: `${failure.symbols} symbols unfilled: ${failure.error}` })
 
   console.log(`[track-performance] tracked ${tracked} pick-price updates`)
 

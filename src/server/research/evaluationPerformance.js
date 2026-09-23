@@ -33,7 +33,7 @@ export function evaluateObservation(observation, { stock = [], benchmark = [], s
       entryPrice: null, exitPrice: null, grossReturn: null, netReturn: null, benchmarkReturn: null,
       excessReturn: null, sectorReturn: null, sectorExcessReturn: null, costBps: observation.costBps,
       adverseFillNetReturn: null,
-      stressReturns: Object.fromEntries(COST_SCENARIOS.map((c) => [c, null])), path: [] }
+      stressReturns: Object.fromEntries(COST_SCENARIOS.map((c) => [c, null])), path: [], filledSessions: [] }
     if (!identityAvailable) return { ...base, status: 'unavailable', reason: 'historical_security_identity_unavailable' }
     if (!Number.isFinite(earliest)) return { ...base, status: 'unavailable', reason: 'decision_time_unavailable' }
     if (!benchmark.length) return { ...base, status: 'unavailable', reason: 'exchange_calendar_unavailable' }
@@ -43,8 +43,13 @@ export function evaluateObservation(observation, { stock = [], benchmark = [], s
     base.path = calendar.slice(0, horizon).map((b) => {
       const bar = byDate.get(b.date)
       return { date: b.date, timestamp: b.timestamp, close: positive(bar?.close) ? bar.close : null,
-        returnPercent: positive(bar?.close) ? (bar.close / entry.open - 1) * 100 : null }
+        returnPercent: positive(bar?.close) ? (bar.close / entry.open - 1) * 100 : null, ...(bar?.source ? { source: bar.source } : {}) }
     })
+    // Bars another provider supplied for a session the primary source dropped.
+    base.filledSessions = calendar.slice(0, horizon).flatMap((b) => [
+      ...(byDate.get(b.date)?.source ? [{ date: b.date, series: 'stock', source: byDate.get(b.date).source }] : []),
+      ...(b.source ? [{ date: b.date, series: 'benchmark', source: b.source }] : []),
+    ])
     if (calendar.length < horizon) return base
     const exit = byDate.get(calendar[horizon - 1].date)
     // A missing intermediate session could hide a halt or a corporate action.
@@ -83,9 +88,22 @@ export async function evaluationObservations(archive, now) {
   return { runs, observations: [...new Map(rows.map((o) => [o.id, o])).values()] }
 }
 
-export async function trackEvaluation(archive, { master, candlesFor, now = Date.now() }) {
+// What an unfinished outcome is written for. Every outcome records a change of
+// status, reason, entry or exit; an accepted one also records each new session
+// of its path, which the constrained portfolio marks daily. A rejected
+// counterfactual's interim path is not reported, so rewriting it every run
+// only grew storage (15.6k records per run by 2026-09-23).
+export function outcomeFingerprint(outcome, { interimPath = false } = {}) {
+  const { status, reason, entryDate, exitDate, entryPrice } = outcome
+  return digest({ status, reason, entryDate, exitDate, entryPrice,
+    path: interimPath ? (outcome.path || []).map((point) => [point.date, point.close]) : null })
+}
+
+export async function trackEvaluation(archive, { master, candlesFor, prefetch, now = Date.now() }) {
   const { observations } = await evaluationObservations(archive, now)
   const existing = latestOutcomes(await archive.list('evaluation-outcomes', now))
+  // Announce every symbol up front so a provider-gap fill can batch requests.
+  await prefetch?.([...new Set(observations.flatMap((o) => [o.ticker, SECTOR_BENCHMARKS[o.sector]]).filter(Boolean))])
   const benchmark = await candlesFor('SPY')
   let tracked = 0
   for (const observation of observations) {
@@ -98,7 +116,10 @@ export async function trackEvaluation(archive, { master, candlesFor, now = Date.
     const sectorTicker = SECTOR_BENCHMARKS[observation.sector]
     const sector = sectorTicker ? await candlesFor(sectorTicker) : []
     for (const result of evaluateObservation(observation, { stock, benchmark, sector, identityAvailable }, now)) {
-      if (existing.get(`${observation.id}:${result.horizon}`)?.status === 'completed') continue
+      const previous = existing.get(`${observation.id}:${result.horizon}`)
+      if (previous?.status === 'completed') continue
+      const options = { interimPath: observation.status === 'accepted' }
+      if (result.status !== 'completed' && previous && outcomeFingerprint(previous, options) === outcomeFingerprint(result, options)) continue
       const id = result.status === 'completed' ? digest([observation.id, result.horizon, 'completed']) : digest(result)
       await archive.put('evaluation-outcome', id, { ...result, id }, 'evaluation-outcomes', result.availableAt)
       tracked++
