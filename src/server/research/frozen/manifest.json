@@ -1,11 +1,20 @@
 {
   "sourceCommit": "0434948",
-  "version": "frozen-existing-v1",
+  "version": "frozen-existing-v2",
+  "change": "Model calls in engine.js, contrarianAgent.js and catalystAgent.js follow the live provider (OpenAI) after Anthropic credit ran out; prompts, board, gates and post-processing are unchanged from frozen-existing-v1.",
+  "previous": {
+    "version": "frozen-existing-v1",
+    "files": {
+      "catalystAgent.js": "a1f27026ce94b4906807e10ec9c2269e5cb80e77c101709010288a079609f421",
+      "contrarianAgent.js": "02f60cb7662c7aa677cd6bf697a8427e274a7eee89375a783dbcda434bf273b5",
+      "engine.js": "1ba826bdb2b564ad7ffaf39810873d83d7edbf8f805f1fd83717328d2aac9160"
+    }
+  },
   "files": {
-    "catalystAgent.js": "a1f27026ce94b4906807e10ec9c2269e5cb80e77c101709010288a079609f421",
+    "catalystAgent.js": "4fc30520628fc2c97db00bcb2d01b57b3fe521882b894ac8c5b89cabadee9f30",
     "context.js": "9a10e4ec3e130a1bd25ce445098e9acbdecf9b01468cc5c715ac30e2045a890d",
-    "contrarianAgent.js": "02f60cb7662c7aa677cd6bf697a8427e274a7eee89375a783dbcda434bf273b5",
-    "engine.js": "1ba826bdb2b564ad7ffaf39810873d83d7edbf8f805f1fd83717328d2aac9160",
+    "contrarianAgent.js": "f981073f77d6183db7292dace67b7e18fa18637844c2481264a8f226274fdd20",
+    "engine.js": "0597b01d7455b82dcea3590f015f34b55d054148e205f8efa8a0bb83b1ca6862",
     "learning.js": "bfdd13195773747107a33eeacdf29e4941ceca41b528ee081cea3a740d3fe5fb",
     "textSafety.js": "7e421d47d9b5b347748483191b2763ca65c3bc2337e213a7e97356a1bd38b6a0"
   }

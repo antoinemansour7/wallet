@@ -1,5 +1,6 @@
 // Frozen from main 0434948 for issue #101. Change rules only in a NEW experiment version.
 import Anthropic from '@anthropic-ai/sdk'
+import { generateStructuredArray, usesOpenAIResearch } from '../openaiModel.js'
 import { safeTruncate } from './textSafety.js'
 import { extractTickersFromText } from './context.js'
 import { formatRegimeForPrompt } from './context.js'
@@ -963,8 +964,13 @@ export function postProcessCandidates(parsed, signalBoard, technicals = new Map(
 }
 
 export async function extractTickers(signals, articles, options = {}) {
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
+  // The frozen prompt, board and post-processing are unchanged; only the model
+  // call follows the live provider. Anthropic credit ran out in Sep 2026, which
+  // left this arm rejecting every candidate as baseline_unavailable, so its
+  // OpenAI decisions are recorded as a separate arm version (evaluationPolicy).
+  const useOpenAI = usesOpenAIResearch()
+  const apiKey = useOpenAI ? process.env.OPENAI_API_KEY : process.env.ANTHROPIC_API_KEY
+  if (!apiKey) throw new Error(`${useOpenAI ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY'} is not set`)
 
   const { board: signalBoard, sectorTrends, technicals, performanceBlock = '', performanceStats = null } = options.inputs
   const recentPickedTickers = new Set()
@@ -975,7 +981,6 @@ export async function extractTickers(signals, articles, options = {}) {
   // loop on top candidates that never make the final cut)
   options.onBoard?.(candidateSignalBoard)
 
-  const client = new Anthropic({ apiKey })
   const userContent = buildTickerUserMessage(signals, articles, candidateSignalBoard, sectorTrends, technicals, options.regime)
 
   // Inject performance feedback into the system prompt
@@ -983,6 +988,27 @@ export async function extractTickers(signals, articles, options = {}) {
     ? `${TICKER_SYSTEM_PROMPT}\n\n${performanceBlock}`
     : TICKER_SYSTEM_PROMPT
 
+  if (useOpenAI) {
+    const parsed = await generateStructuredArray({
+      name: 'short_horizon_stock_ranking',
+      description: 'Up to five evidence-ranked stocks for the next three to five trading sessions.',
+      instructions: systemPrompt,
+      input: userContent,
+      maxOutputTokens: 6000,
+      reasoningEffort: 'low',
+      itemSchema: {
+        type: 'object',
+        properties: { ticker: { type: 'string' }, conviction: { type: 'number', minimum: 1, maximum: 10 }, reason: { type: 'string' } },
+        required: ['ticker', 'conviction', 'reason'],
+        additionalProperties: false,
+      },
+      requestOptions: options.requestOptions,
+    })
+    options.onReview?.({ parsed, systemPrompt, userContent })
+    return postProcessCandidates(parsed, candidateSignalBoard, technicals, { recentPickedTickers, performanceStats })
+  }
+
+  const client = new Anthropic({ apiKey })
   const messages = [{ role: 'user', content: userContent }]
 
   let parsed

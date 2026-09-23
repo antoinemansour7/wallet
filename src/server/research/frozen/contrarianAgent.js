@@ -7,6 +7,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import Exa from 'exa-js'
 import { safeTruncate } from './textSafety.js'
+import { generateStructuredArray, usesOpenAIResearch } from '../openaiModel.js'
 
 const CLAUDE_MODEL = 'claude-sonnet-5'
 
@@ -36,11 +37,12 @@ Rules:
 - Be honest — if a pick genuinely has low risk, give it a low riskScore. Don't force bearishness.`
 
 export async function runContrarianAgent(picks, technicals = new Map()) {
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
+  // Same prompt and parsing as the frozen snapshot; only the model follows the
+  // live provider (frozen-existing-v2, see evaluationPolicy).
+  const useOpenAI = usesOpenAIResearch()
+  const apiKey = useOpenAI ? process.env.OPENAI_API_KEY : process.env.ANTHROPIC_API_KEY
+  if (!apiKey) throw new Error(`${useOpenAI ? 'OPENAI' : 'ANTHROPIC'}_API_KEY is not set`)
   if (!picks || picks.length === 0) return []
-
-  const client = new Anthropic({ apiKey })
 
   // ─── Exa: search for bearish/negative news on each ticker ─────────────────
   let bearishContext = ''
@@ -105,23 +107,41 @@ export async function runContrarianAgent(picks, technicals = new Map()) {
 
   const userMessage = `Stress-test these bullish picks. Find the strongest bear case for each:\n\n${pickDetails}${bearishContext}`
 
-  const response = await client.messages.create({
-    model: CLAUDE_MODEL,
-    // Sonnet 5 answers the same prompt at noticeably greater length than
-    // 4.6 did, and these budgets were sized for 4.6. Verified in production:
-    // this call stopped mid-string at exactly its old ceiling and the whole
-    // response was discarded as malformed JSON.
-    max_tokens: 4000,
-    stream: false,
-    system: CONTRARIAN_SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: userMessage }],
-  })
-
-  const textBlock = (response.content || []).find((b) => b.type === 'text')
-  const raw = (textBlock?.text ?? '').trim()
-    .replace(/^```json\s*/i, '')
-    .replace(/^```\s*/i, '')
-    .replace(/\s*```$/, '')
+  let raw
+  if (useOpenAI) {
+    raw = JSON.stringify(await generateStructuredArray({
+      name: 'contrarian_reviews',
+      description: 'Risk reviews for every supplied bullish equity pick.',
+      itemSchema: {
+        type: 'object',
+        properties: { ticker: { type: 'string' }, bearCase: { type: 'string' }, riskScore: { type: 'number', minimum: 1, maximum: 10 } },
+        required: ['ticker', 'bearCase', 'riskScore'],
+        additionalProperties: false,
+      },
+      instructions: CONTRARIAN_SYSTEM_PROMPT,
+      input: userMessage,
+      maxOutputTokens: 3000,
+      reasoningEffort: 'low',
+    }))
+  } else {
+    const client = new Anthropic({ apiKey })
+    const response = await client.messages.create({
+      model: CLAUDE_MODEL,
+      // Sonnet 5 answers the same prompt at noticeably greater length than
+      // 4.6 did, and these budgets were sized for 4.6. Verified in production:
+      // this call stopped mid-string at exactly its old ceiling and the whole
+      // response was discarded as malformed JSON.
+      max_tokens: 4000,
+      stream: false,
+      system: CONTRARIAN_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userMessage }],
+    })
+    const textBlock = (response.content || []).find((b) => b.type === 'text')
+    raw = (textBlock?.text ?? '').trim()
+      .replace(/^```json\s*/i, '')
+      .replace(/^```\s*/i, '')
+      .replace(/\s*```$/, '')
+  }
 
   try {
     const parsed = JSON.parse(raw)
