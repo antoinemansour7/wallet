@@ -18,7 +18,8 @@
     "options:schedule": "node scripts/options-qstash-schedule.mjs",
     "research:e2e:live": "node scripts/research-catalyst-smoke.mjs",
     "research:priority:compare": "node scripts/research-priority-comparison.mjs",
-    "options:evaluate": "node scripts/options-evaluate.mjs"
+    "options:evaluate": "node scripts/options-evaluate.mjs",
+    "options:ui:review": "node scripts/options-ui-review.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",

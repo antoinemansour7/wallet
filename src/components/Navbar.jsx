@@ -145,6 +145,15 @@ function AccountMenu({ user, onSignOut, isResearchOwner }) {
           {isResearchOwner && (
             <>
               <Link
+                to="/options"
+                role="menuitem"
+                onClick={() => setOpen(false)}
+                className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] text-ink/60 transition-colors hover:bg-ink/[0.05] hover:text-ink focus-visible:outline-none focus-visible:bg-ink/[0.05]"
+              >
+                <ResearchIcon />
+                Options
+              </Link>
+              <Link
                 to="/research/logs"
                 role="menuitem"
                 onClick={() => setOpen(false)}

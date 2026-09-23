@@ -37,6 +37,18 @@ function observation() {
 }
 
 describe('refreshOptionsContractDetail', () => {
+  it('rechecks the published final chain instead of the first prevalidation chain', async () => {
+    const final = { ...originalRecord, recordId: 'e'.repeat(64), payload: { ...originalRecord.payload, contracts: [{ ...originalContract, quote: { ...originalContract.quote, bid: 2.01 } }] } }
+    const readRecord = vi.fn(async (_archive, _type, id) => id === final.recordId ? final : originalRecord)
+    const result = await refreshOptionsContractDetail({ archive: {},
+      manifest: { ...manifest, records: [...manifest.records, { type: 'chain', id: final.recordId }], publication: { selected: [{ contractId: CONTRACT_ID, revalidation: { chainRecordId: final.recordId } }] } },
+      contractId: CONTRACT_ID, readRecord, archiveRecord: vi.fn(),
+      createAlpaca: () => ({ optionChain: vi.fn(async () => observation()) }), now: () => Date.parse('2026-09-22T14:00:02.000Z'),
+    })
+    expect(result.morning.recordId).toBe(final.recordId)
+    expect(result.morning.contract.quote.bid).toBe(2.01)
+    expect(readRecord).toHaveBeenCalledTimes(1)
+  })
   it('archives a separate quote revision and leaves the morning evidence untouched', async () => {
     const before = structuredClone(originalRecord)
     const archiveRecord = vi.fn(async (_archive, record) => validateOptionsAuditRecord(record))

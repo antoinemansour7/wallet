@@ -26,6 +26,46 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks() })
 
 describe('owner-only options audit API', () => {
+  it.each([
+    { method: 'GET', query: { view: 'research' } },
+    { method: 'GET', query: { view: 'research', manifestId: 'f'.repeat(64), contractId: 'osi:EX' } },
+    { method: 'GET', query: { view: 'operations' } },
+    { method: 'GET', query: { recordType: 'scenario', recordId: 'a'.repeat(64) } },
+    { method: 'POST', body: { manifestId: 'f'.repeat(64), contractId: 'osi:EX' } },
+  ])('enforces ownership on direct research, detail, lineage, operations and refresh requests: %j', async (overrides) => {
+    mocks.verifyOwner.mockResolvedValue({ status: 403, error: 'Owner access required' })
+    const res = response(); await handler(request(overrides), res)
+    expect(res.status).toHaveBeenCalledWith(403)
+    expect(mocks.redisFromEnv).not.toHaveBeenCalled()
+    expect(mocks.refresh).not.toHaveBeenCalled()
+  })
+
+  it.each(['GET', 'POST'])('pins %s research/detail requests to an immutable morning reference', async (method) => {
+    const manifest = { manifestId: 'f'.repeat(64), scanId: 'original', records: [] }
+    const archive = { get: vi.fn(async () => manifest) }
+    const buildResearch = vi.fn(async () => ({ manifestId: manifest.manifestId }))
+    const refreshDetail = vi.fn(async () => ({ morning: { manifestId: manifest.manifestId } }))
+    const local = createOptionsAuditHandler({ makeArchive: () => archive, buildResearch, refreshDetail })
+    const res = response()
+    await local(request({ method, query: { view: 'research', manifestId: manifest.manifestId }, body: { contractId: 'osi:EX' } }), res)
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(mocks.latest).not.toHaveBeenCalled()
+    expect(archive.get).toHaveBeenCalledWith('options-manifest', manifest.manifestId)
+    expect(method === 'GET' ? buildResearch : refreshDetail).toHaveBeenCalledWith(expect.objectContaining({ manifest }))
+  })
+
+  it('rejects malformed or absent morning references without falling back to latest', async () => {
+    const archive = { get: vi.fn(async () => null) }
+    const local = createOptionsAuditHandler({ makeArchive: () => archive })
+    let res = response()
+    await local(request({ query: { view: 'research', manifestId: '../other' } }), res)
+    expect(res.status).toHaveBeenCalledWith(400)
+    expect(archive.get).not.toHaveBeenCalled()
+    res = response()
+    await local(request({ query: { view: 'research', manifestId: 'f'.repeat(64) } }), res)
+    expect(res.status).toHaveBeenCalledWith(404)
+    expect(mocks.latest).not.toHaveBeenCalled()
+  })
   it('returns the latest manifest privately to the owner', async () => {
     const res = response(); await handler(request(), res)
     expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, no-store')
