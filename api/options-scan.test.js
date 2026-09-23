@@ -27,17 +27,24 @@ describe('options scan dispatcher', () => {
   })
 
   it('dispatches opening into the real worker with the redis handle attached', async () => {
-    const runOpeningStage = vi.fn(async () => ({ status: 'complete', records: [], metrics: { acceptedCount: 2 } }))
+    const records = [{ recordId: 'record' }]
+    const runOpeningStage = vi.fn(async () => ({ status: 'complete', scanId: 'scan', availableAt: '2026-09-22T13:34:00.000Z', records, metrics: { acceptedCount: 2 } }))
+    const commitScan = vi.fn(async () => ({ manifest: { manifestId: 'manifest' } }))
     const redis = { redis: true }
-    const runStage = vi.fn(async ({ stage, execute }) => {
-      expect(await execute({ checkpoint: null })).toMatchObject({ status: 'complete', metrics: { acceptedCount: 2 } })
+    const runStage = vi.fn(async ({ stage, execute, publish }) => {
+      const outcome = await execute({ checkpoint: null })
+      expect(outcome).toMatchObject({ status: 'complete', metrics: { acceptedCount: 2 } })
+      await publish(outcome, { lockKey: 'lease-key', lockToken: 'lease-token' })
       return { status: 'complete', stage, tradingDate: '2026-09-22', attempt: 1, auditRecordId: 'audit-reference' }
     })
-    const handler = createOptionsScanHandler({ getRedis: () => redis, makeArchive: () => ({ archive: true }), runStage, enabled: () => true, runOpeningStage })
+    const handler = createOptionsScanHandler({ getRedis: () => redis, makeArchive: () => ({ archive: true }), runStage, enabled: () => true, runOpeningStage, commitScan })
     const res = response()
     await handler(request({ query: { mode: 'opening' } }), res)
     expect(res.statusCode).toBe(200)
     expect(runOpeningStage).toHaveBeenCalledWith(expect.objectContaining({ redis, archive: { archive: true } }))
+    expect(commitScan).toHaveBeenCalledWith(expect.objectContaining({
+      redis, records, scanId: 'scan', lockKey: 'lease-key', lockToken: 'lease-token', requirePublication: true,
+    }))
   })
 
   it('dispatches premarket into the real worker and does not expose the provider message ID', async () => {

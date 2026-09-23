@@ -3,7 +3,7 @@ import { createArchive, digest } from '../src/server/research/archive.js'
 import { OptionsSchedulerUnavailableError, runOptionsScheduledStage } from '../src/server/options/scheduler.js'
 import { runOptionsPremarketStage as defaultRunPremarketStage } from '../src/server/options/premarketEvidence.js'
 import { runOptionsOpeningStage as defaultRunOpeningStage } from '../src/server/options/openingEvidence.js'
-import { archiveOptionsAuditRecord } from '../src/server/options/auditStore.js'
+import { archiveOptionsAuditRecord, commitOptionsScan } from '../src/server/options/auditStore.js'
 
 function authorized(req) {
   return Boolean(process.env.CRON_SECRET) && req.headers.authorization === `Bearer ${process.env.CRON_SECRET}`
@@ -23,6 +23,8 @@ export function createOptionsScanHandler({
   runStage = runOptionsScheduledStage,
   runPremarketStage = defaultRunPremarketStage,
   runOpeningStage = defaultRunOpeningStage,
+  archiveRecord = archiveOptionsAuditRecord,
+  commitScan = commitOptionsScan,
   enabled = () => process.env.OPTIONS_SCANNER_ENABLED === 'true',
 } = {}) {
   return async function optionsScanHandler(req, res) {
@@ -37,9 +39,19 @@ export function createOptionsScanHandler({
       const result = await runStage({
         redis, archive, stage, requestId: requestId(req), enabled: enabled(),
         execute: (context) => stage === 'premarket' ? runPremarketStage({ ...context, archive }) : runOpeningStage({ ...context, archive, redis }),
-        publish: async (result) => { for (const record of result.records || []) await archiveOptionsAuditRecord(archive, record) },
+        publish: async (result, lease) => {
+          if (stage === 'opening') {
+            if (!result.scanId || !result.availableAt) throw new Error('Opening result is missing publication identity')
+            return commitScan({
+              archive, redis, records: result.records, scanId: result.scanId, availableAt: result.availableAt,
+              lockKey: lease.lockKey, lockToken: lease.lockToken, requirePublication: true,
+            })
+          }
+          for (const record of result.records || []) await archiveRecord(archive, record)
+          return null
+        },
       })
-      const statusCode = result.status === 'incomplete' ? 503 : result.status === 'in_progress' ? 202 : 200
+      const statusCode = ['incomplete', 'late', 'missed'].includes(result.status) ? 503 : result.status === 'in_progress' ? 202 : 200
       return res.status(statusCode).json({
         status: result.status, stage: result.stage || stage, tradingDate: result.tradingDate,
         attempt: result.attempt, reference: result.auditRecordId || reference,
