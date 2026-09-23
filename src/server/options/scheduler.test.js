@@ -9,6 +9,7 @@ import {
   completeOptionsStage,
   optionsScheduleHealth,
   optionsStageWindow,
+  readCompletedOptionsStage,
   runBounded,
   runOptionsScheduledStage,
 } from './scheduler.js'
@@ -81,6 +82,15 @@ describe('options morning scheduler', () => {
     await expect(checkpointOptionsStage(redis, first, { cursor: 'stale', savedAt: new Date(time).toISOString() })).rejects.toMatchObject({ code: 'lease_lost' })
     await expect(completeOptionsStage(redis, first, { status: 'complete' })).rejects.toMatchObject({ code: 'lease_lost' })
     expect(await checkpointOptionsStage(redis, second, { cursor: 'page-2', savedAt: new Date(time).toISOString() })).toMatchObject({ cursor: 'page-2', fence: 2 })
+  })
+
+  it('lets another stage read a completed stage without acquiring its lease', async () => {
+    const time = Date.parse('2026-07-15T13:15:00.000Z')
+    const redis = memoryRedis(() => time)
+    expect(await readCompletedOptionsStage(redis, { tradingDate: '2026-07-15', stage: 'premarket' })).toBeNull()
+    const lease = await acquireOptionsStageLease(redis, { tradingDate: '2026-07-15', stage: 'premarket', ownerId: 'first', leaseSeconds: 60 })
+    await completeOptionsStage(redis, lease, { status: 'complete', auditRecordId: 'audit-reference' })
+    expect(await readCompletedOptionsStage(redis, { tradingDate: '2026-07-15', stage: 'premarket' })).toMatchObject({ status: 'complete', auditRecordId: 'audit-reference' })
   })
 
   it('deduplicates concurrent triggers into one logical publication', async () => {

@@ -144,6 +144,14 @@ export async function releaseOptionsStageLease(redis, lease) {
   catch { throw new OptionsSchedulerUnavailableError('lease_release_unavailable') }
 }
 
+// Read-only lookup of another stage's completion pointer -- e.g. the
+// opening stage reading premarket's, to find that stage's frozen decision.
+// Does not acquire a lease or touch fencing/checkpoint state.
+export async function readCompletedOptionsStage(redis, { tradingDate, stage, policyVersion = OPTIONS_SCHEDULE_POLICY.version } = {}) {
+  try { return parseStored(await redis.get(keys({ tradingDate, stage, policyVersion }).completion)) }
+  catch { throw new OptionsSchedulerUnavailableError('completion_read_unavailable') }
+}
+
 export async function readOptionsStageCheckpoint(redis, lease) {
   try { return parseStored(await redis.get(lease.keys.checkpoint)) }
   catch { throw new OptionsSchedulerUnavailableError('checkpoint_read_unavailable') }

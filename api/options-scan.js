@@ -2,6 +2,7 @@ import { Redis } from '@upstash/redis'
 import { createArchive, digest } from '../src/server/research/archive.js'
 import { OptionsSchedulerUnavailableError, runOptionsScheduledStage } from '../src/server/options/scheduler.js'
 import { runOptionsPremarketStage as defaultRunPremarketStage } from '../src/server/options/premarketEvidence.js'
+import { runOptionsOpeningStage as defaultRunOpeningStage } from '../src/server/options/openingEvidence.js'
 import { archiveOptionsAuditRecord } from '../src/server/options/auditStore.js'
 
 function authorized(req) {
@@ -16,18 +17,12 @@ function requestId(req) {
   return req.headers['upstash-message-id'] || req.headers['x-qstash-message-id'] || req.headers['x-vercel-id'] || req.headers['x-request-id'] || 'unidentified-dispatch'
 }
 
-// Story #209 replaces this truthful checkpoint with the opening worker.
-// Keeping the dispatcher deployable now validates the schedule, lease,
-// retry and audit path without pretending a chain scan ran.
-async function pendingOpeningStage({ checkpoint }) {
-  return { status: 'incomplete', reason: 'opening_worker_not_installed', checkpoint: checkpoint || { cursor: 'not_started' }, metrics: { workerInstalled: false } }
-}
-
 export function createOptionsScanHandler({
   getRedis = redisFromEnv,
   makeArchive = createArchive,
   runStage = runOptionsScheduledStage,
   runPremarketStage = defaultRunPremarketStage,
+  runOpeningStage = defaultRunOpeningStage,
   enabled = () => process.env.OPTIONS_SCANNER_ENABLED === 'true',
 } = {}) {
   return async function optionsScanHandler(req, res) {
@@ -41,7 +36,7 @@ export function createOptionsScanHandler({
     try {
       const result = await runStage({
         redis, archive, stage, requestId: requestId(req), enabled: enabled(),
-        execute: (context) => stage === 'premarket' ? runPremarketStage({ ...context, archive }) : pendingOpeningStage(context),
+        execute: (context) => stage === 'premarket' ? runPremarketStage({ ...context, archive }) : runOpeningStage({ ...context, archive, redis }),
         publish: async (result) => { for (const record of result.records || []) await archiveOptionsAuditRecord(archive, record) },
       })
       const statusCode = result.status === 'incomplete' ? 503 : result.status === 'in_progress' ? 202 : 200
