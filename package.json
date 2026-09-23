@@ -17,7 +17,8 @@
     "options:alpaca:acceptance": "node scripts/options-alpaca-acceptance.mjs",
     "options:schedule": "node scripts/options-qstash-schedule.mjs",
     "research:e2e:live": "node scripts/research-catalyst-smoke.mjs",
-    "research:priority:compare": "node scripts/research-priority-comparison.mjs"
+    "research:priority:compare": "node scripts/research-priority-comparison.mjs",
+    "options:evaluate": "node scripts/options-evaluate.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
