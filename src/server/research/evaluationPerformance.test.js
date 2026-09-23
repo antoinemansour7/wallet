@@ -99,6 +99,59 @@ describe('predeclared session tracking', () => {
   })
 })
 
+describe('provider gaps and outcome growth', () => {
+  const master = { resolve: () => [{ securityId: 'figi:ABC' }] }
+  async function seeded(observations) {
+    const redis = evaluationTestStore(), archive = createArchive(redis)
+    await archive.put('evaluation-run', 'run', { id: 'run', availableAt: at, observations }, 'evaluation-runs', at)
+    return { redis, archive }
+  }
+
+  it('scores a window across a gap-filled session and records which bars were filled', () => {
+    const filled = market.map((b, i) => (i === 2 ? { ...b, source: 'alpaca-sip' } : b))
+    const [five] = evaluateObservation(observation(), { stock: filled, benchmark: filled }, now)
+    expect(five.status).toBe('completed')
+    expect(five.path[2]).toMatchObject({ date: market[2].date, source: 'alpaca-sip' })
+    expect(five.path[1]).not.toHaveProperty('source')
+    expect(five.filledSessions).toEqual([{ date: market[2].date, series: 'stock', source: 'alpaca-sip' }, { date: market[2].date, series: 'benchmark', source: 'alpaca-sip' }])
+    expect(evaluated()[0].filledSessions).toEqual([])
+  })
+
+  it('announces every ticker it will need, sector ETFs included, before fetching prices', async () => {
+    const { archive } = await seeded([observation(), observation('b', { ticker: 'XYZ', securityId: 'figi:XYZ', sector: 'Technology' })])
+    const prefetch = vi.fn(async () => {})
+    const candlesFor = vi.fn(async () => market)
+    await trackEvaluation(archive, { master: { resolve: ({ ticker }) => [{ securityId: `figi:${ticker}` }] }, candlesFor, prefetch, now })
+    expect(prefetch).toHaveBeenCalledWith(['ABC', 'XYZ', 'XLK'])
+    expect(prefetch.mock.invocationCallOrder[0]).toBeLessThan(candlesFor.mock.invocationCallOrder[1])
+  })
+
+  it('writes an unfinished outcome again only when something the report reads has changed', async () => {
+    const early = market[7].timestamp + 7 * 3600000 // five-session horizon done, twenty pending
+    const { archive } = await seeded([observation(), observation('rejected', { status: 'rejected' })])
+    const candlesFor = async () => market
+    expect(await trackEvaluation(archive, { master, candlesFor, now: early })).toBe(4)
+    // Next day: the pending windows gained one session of path.
+    expect(await trackEvaluation(archive, { master, candlesFor, now: early + 86400000 })).toBe(1)
+    const outcomes = latestOutcomes(await archive.list('evaluation-outcomes', early + 86400000))
+    expect(outcomes.get('stock:20').path).toHaveLength(9)
+    expect(outcomes.get('rejected:20').path).toHaveLength(8)
+    // Same prices again: nothing changed, nothing written.
+    expect(await trackEvaluation(archive, { master, candlesFor, now: early + 86400000 + 3600000 })).toBe(0)
+    expect(await archive.list('evaluation-outcomes', early + 2 * 86400000)).toHaveLength(5)
+  })
+
+  it('writes a status change for a rejected observation, and its final completed outcome', async () => {
+    const { archive } = await seeded([observation('rejected', { status: 'rejected' })])
+    const gap = market.filter((_, i) => i !== 3)
+    const early = market[7].timestamp + 7 * 3600000
+    await trackEvaluation(archive, { master, candlesFor: async (ticker) => (ticker === 'SPY' ? market : gap), now: early })
+    expect(latestOutcomes(await archive.list('evaluation-outcomes', early)).get('rejected:5').reason).toBe('session_price_unavailable')
+    expect(await trackEvaluation(archive, { master, candlesFor: async () => market, now: early + 86400000 })).toBe(1)
+    expect(latestOutcomes(await archive.list('evaluation-outcomes', early + 86400000)).get('rejected:5').status).toBe('completed')
+  })
+})
+
 describe('cohort reporting and uncertainty', () => {
   it('groups uncertainty by decision date and reports finite-only means, medians and losses', () => {
     const rows = [observation('a'), observation('b'), observation('c', { decisionAt: '2026-09-05T22:00:00Z' })]
