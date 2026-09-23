@@ -17,10 +17,14 @@ const evidence = (ticker, family = 'fundamentals', extra = {}) => ({ id: `${tick
   publicAt: at, firstSeenAt: at, availableAt: at, extractionCompletedAt: at, priority: 60,
   decision: { status: 'eligible' }, source: { excerpt: 'Revenue increased against the prior comparable quarter.' },
   observedFacts: [{ concept: 'revenue', value: 100 }], interpretation: { thesis: 'Improvement' }, ...extra })
-const candidate = (ticker, family = 'fundamentals', attention = 0, extra = {}) => ({ ...identity(ticker), key: `figi:${ticker}:${family}`,
-  strategyFamily: family, evidence: [evidence(ticker, family)], evidenceIds: [`${ticker}-${family}`],
-  attention, quiet: quietCondition({ attention, repricingPercent: 1 }), price: 100, volume: 1000000, spreadBps: 10,
-  sector: 'Technology', reviewable: true, rejection: null, ...extra })
+const candidate = (ticker, family = 'fundamentals', attention = 0, extra = {}) => {
+  const row = { ...identity(ticker), key: `figi:${ticker}:${family}`,
+    strategyFamily: family, evidence: [evidence(ticker, family)], evidenceIds: [`${ticker}-${family}`],
+    attention, quiet: quietCondition({ attention, repricingPercent: 1 }), price: 100, volume: 1000000, spreadBps: 10,
+    sector: 'Technology', reviewable: true, rejection: null, ...extra }
+  // constrained-v2 reads the pre-decision execution facts, not the quote fields.
+  return { execution: { spreadBps: row.spreadBps, volume: row.volume, sector: row.sector, missing: [] }, ...row }
+}
 const decision = (c, score = 70) => ({ key: c.key, score, status: 'accepted', reason: 'Supported change', evidenceIds: c.evidenceIds })
 const snapshot = (candidates = [candidate('QUIET'), candidate('LOUD', 'fundamentals', 4), candidate('SOCIAL', 'attention', 2)]) => ({
   id: 'input', asOf: at, availableAt: at, definition: experimentDefinition(at), candidates,
@@ -114,6 +118,19 @@ describe('forward discovery ablation matrix', () => {
     expect(select(snapshot(), { active: active.slice(0, 2) }).find((r) => r.arm === 'constrained' && r.ticker === 'QUIET').rejectionReason).toBe('sector_concentration_limit')
   })
 
+  it('judges execution on the gathered pre-decision facts only, recording them on the accepted row (constrained-v2)', () => {
+    const noFacts = candidate('BARE', 'fundamentals', 0, { execution: undefined })
+    const rows = select(snapshot([noFacts, candidate('QUIET')]))
+    const constrained = rows.filter((r) => r.arm === 'constrained')
+    expect(constrained.every((r) => r.armVersion === 'constrained-v2')).toBe(true)
+    expect(constrained.find((r) => r.ticker === 'BARE').rejectionReason).toBe('execution_or_sector_data_unavailable')
+    const accepted = constrained.find((r) => r.ticker === 'QUIET')
+    expect(accepted).toMatchObject({ status: 'accepted', sector: 'Technology', portfolio: expect.objectContaining({ orderSize: 10000 }) })
+    expect(accepted.costBps).toBeCloseTo(Math.max(20, 10 + 20 * Math.sqrt(10000 / (100 * 1000000))))
+    const wide = candidate('WIDE', 'fundamentals', 0, { execution: { spreadBps: 150, volume: 1000000, sector: 'Energy', missing: [] } })
+    expect(select(snapshot([wide])).find((r) => r.arm === 'constrained').rejectionReason).toBe('execution_constraint')
+  })
+
   it('does not reconstruct old decisions using future evidence, revisions or prices', () => {
     const s = identity('ABC'), master = createSecurityMaster([{ asOf: '2026-01-01', securities: [s] }])
     const future = '2026-09-10T12:00:00Z'
@@ -188,6 +205,31 @@ describe('forward discovery ablation matrix', () => {
     await prepareEvaluation({ ...inputs, performanceBlock: 'later outcome', performanceStats: { total: 999 } }, deps)
     expect(baselineReviewer.mock.calls[1][2].inputs.performanceBlock).toBe('first')
     expect((await archive.get('evaluation-learning', EVALUATION_ID)).performanceStats.total).toBe(1)
+  })
+
+  it('attaches execution facts for reviewable candidates without changing the shared review input', async () => {
+    const archive = createArchive(evaluationTestStore())
+    const security = identity('ABC'), master = createSecurityMaster([{ asOf: '2026-01-01', securities: [security] }])
+    const reviewer = vi.fn(async () => [])
+    const collectExecution = vi.fn(async (candidates) => new Map(candidates.map((c) => [c.key, { spreadBps: 5, volume: 2e6, sector: 'Technology', missing: [] }])))
+    const inputs = { baselineBoard: [], signals: [], articles: [], sectorTrends: new Map(), coverageHistory: new Map(), technicals: new Map(),
+      quotesByTicker: new Map([['ABC', { price: 99 }]]),
+      admission: { candidates: [{ ...security, streams: ['fundamentals'] }], allCandidates: [{ ...security, evidence: [evidence('ABC')] }] } }
+    const snapshot = await prepareEvaluation(inputs, { archive, master, reviewer, collectExecution,
+      baselineReviewer: async () => [], contrarian: async (v) => v, catalyst: async (v) => v })
+    expect(collectExecution.mock.calls[0][0].map((c) => c.ticker)).toEqual(['ABC'])
+    expect(snapshot.candidates[0].execution).toEqual({ spreadBps: 5, volume: 2e6, sector: 'Technology', missing: [] })
+    expect(JSON.stringify(reviewer.mock.calls[0][0])).not.toContain('execution')
+    expect(JSON.stringify(snapshot.neutralInput)).not.toContain('execution')
+  })
+
+  it('still freezes the snapshot when execution data cannot be gathered', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const archive = createArchive(evaluationTestStore()), master = createSecurityMaster([])
+    const inputs = { baselineBoard: [], signals: [], articles: [], quotesByTicker: new Map(), sectorTrends: new Map(), coverageHistory: new Map(), technicals: new Map() }
+    const snapshot = await prepareEvaluation(inputs, { archive, master, reviewer: async () => [], baselineReviewer: async () => [],
+      contrarian: async (v) => v, catalyst: async (v) => v, collectExecution: async () => { throw new Error('provider down') } })
+    expect(snapshot.id).toMatch(/^[a-f0-9]{64}$/)
   })
 })
 

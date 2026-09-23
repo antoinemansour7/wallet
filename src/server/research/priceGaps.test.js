@@ -82,7 +82,7 @@ describe('Alpaca SIP daily bars', () => {
     })
     const bars = await alpacaSipDailyBars({ fetchImpl, keyId: 'k', secret: 's' })(['AMZN', 'SPY'], '2026-09-22', '2026-09-22')
     expect(fetchImpl).toHaveBeenCalledTimes(2)
-    expect(bars.get('AMZN')).toEqual([{ date: '2026-09-22', open: 258, high: 259, close: 254.98 }])
+    expect(bars.get('AMZN')).toEqual([{ date: '2026-09-22', open: 258, high: 259, close: 254.98, volume: null }])
     expect(bars.get('SPY')[0].close).toBe(773.38)
   })
 

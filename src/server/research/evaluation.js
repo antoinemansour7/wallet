@@ -6,6 +6,8 @@ import * as frozen from './frozen/engine.js'
 import { runContrarianAgent } from './frozen/contrarianAgent.js'
 import { runCatalystAgent } from './frozen/catalystAgent.js'
 import { generateStructuredArray, usesOpenAIResearch } from './openaiModel.js'
+import { defaultExecutionCollector } from './executionData.js'
+import { createSecClient } from './secDisclosures.js'
 
 const number = (value) => Number.isFinite(value) ? value : null
 const positive = (value) => Number.isFinite(value) && value > 0
@@ -118,7 +120,7 @@ export function captureCandidates(inputs, master, asOf) {
 
 export async function prepareEvaluation(inputs, { archive, master, reviewer = neutralReviewer,
   baselineReviewer = frozen.extractTickers, contrarian = runContrarianAgent, catalyst = runCatalystAgent,
-  requestOptions }) {
+  collectExecution = defaultCollector(), requestOptions }) {
   const asOf = new Date().toISOString()
   const definition = await archive.put('evaluation-definition', EVALUATION_ID, experimentDefinition(asOf), 'evaluation-definitions', asOf)
   // Freeze learning feedback before the first observation, never adapt it on the
@@ -131,6 +133,12 @@ export async function prepareEvaluation(inputs, { archive, master, reviewer = ne
   const technicals = new Map([...inputs.technicals].filter(([ticker]) => selected.some((c) => c.ticker === ticker)))
   const candidates = captureCandidates(inputs, master, asOf)
   const reviewInput = neutralInputs(candidates)
+  // Only the constrained arm reads these; gathered alongside the model reviews
+  // and attached after the shared review input is built, so no other arm's
+  // inputs change.
+  const executionPending = Promise.resolve()
+    .then(() => collectExecution(candidates.filter((c) => c.reviewable), { asOf }))
+    .catch((error) => { console.warn('[evaluation] execution data unavailable:', error.message); return new Map() })
   let baselineReview = null
   const [baselineResult, neutralResult] = await Promise.allSettled([
     baselineReviewer(inputs.baselineSignals || inputs.signals, inputs.articles, { inputs: { board, technicals, sectorTrends: inputs.sectorTrends, ...learning },
@@ -139,6 +147,8 @@ export async function prepareEvaluation(inputs, { archive, master, reviewer = ne
     reviewer(reviewInput, { requestOptions }),
   ])
   const failures = [baselineResult, neutralResult].map((r) => r.status === 'rejected' ? String(r.reason?.message || r.reason) : null)
+  const execution = await executionPending
+  for (const candidate of candidates) if (execution.has(candidate.key)) candidate.execution = execution.get(candidate.key)
   const snapshot = { availableAt: new Date().toISOString(), asOf, definitionId: definition.id,
     // Full model input/output and decision-time features, never reports written later.
     candidates, baselineBoard: board, baselineReview, neutralInput: reviewInput,
@@ -212,13 +222,15 @@ export function selectArms(snapshot, { runId, decisionAt, active = [] }) {
       row.rank = row.score === null ? null : index + 1
       if (row.status === 'accepted') {
         let reason = securities.has(row.securityId) ? 'duplicate_security' : accepted >= 5 ? 'rank_capacity' : null
-        if (!reason && arm.id === 'constrained') reason = portfolioRejection(row, positions)
+        if (!reason && arm.id === 'constrained') reason = portfolioRejection(executionView(row), positions.map(executionView))
         if (reason) { row.status = 'rejected'; row.rejectionReason = reason }
         else {
           accepted++; securities.add(row.securityId)
           if (arm.id === 'constrained') {
             row.portfolio = { ...PORTFOLIO_POLICY, weight: PORTFOLIO_POLICY.orderSize / PORTFOLIO_POLICY.capital }
-            row.costBps = Math.max(20, row.spreadBps + 20 * Math.sqrt(PORTFOLIO_POLICY.orderSize / (row.price * row.volume)))
+            const facts = executionView(row)
+            row.sector = facts.sector
+            row.costBps = Math.max(20, facts.spreadBps + 20 * Math.sqrt(PORTFOLIO_POLICY.orderSize / (row.price * facts.volume)))
             positions.push(row)
           }
         }
@@ -230,6 +242,20 @@ export function selectArms(snapshot, { runId, decisionAt, active = [] }) {
     }
   }
   return deepFreeze(output)
+}
+
+function defaultCollector() {
+  let secClient = null
+  try { secClient = createSecClient() } catch { /* SEC_USER_AGENT unset: sectors stay missing */ }
+  return defaultExecutionCollector({ secClient })
+}
+
+// constrained-v2 judges execution only on the pre-decision facts gathered for
+// it (executionData.js). The quote feeds' own spread, volume and sector were
+// always absent, which is why v1 accepted nothing.
+function executionView(row) {
+  const facts = row.execution || {}
+  return { ...row, spreadBps: facts.spreadBps ?? null, volume: facts.volume ?? null, sector: facts.sector ?? null }
 }
 
 function portfolioRejection(c, active) {
