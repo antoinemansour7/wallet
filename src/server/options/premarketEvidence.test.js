@@ -53,6 +53,7 @@ describe('runOptionsPremarketStage', () => {
     const saveCheckpoint = vi.fn()
     const result = await runOptionsPremarketStage({
       window, deadlineAt: window.deadlineAt, checkpoint: null, saveCheckpoint, archive,
+      now: () => '2026-09-22T13:10:00.000Z',
       createAlpaca: stubAlpaca(),
       fetchRegime: async () => ({ asOf: '2026-09-22', score: 7, label: 'constructive' }),
       loadMaster: async () => ({ resolve: () => [] }), // no SEC master populated: sec/catalysts stay empty, honestly
@@ -121,13 +122,13 @@ describe('runOptionsPremarketStage', () => {
     expect(regimeEvidence.points).toBeGreaterThan(0)
   })
 
-  it('excludes a security for a catalyst 4 calendar days out, wide enough to cover 3 trading sessions across a weekend', async () => {
+  it('excludes a security for a catalyst before the actual three-session exit', async () => {
     const archive = { put: vi.fn(async (kind, id, record) => record) }
     const sandisk = OPTIONS_WATCHLIST_SNAPSHOT.securities.find((s) => s.ticker === 'SNDK')
     const gatherSec = vi.fn(async () => ({
       secItems: [],
       catalystItems: [{
-        eventId: 'test-catalyst-1', issuerId: sandisk.issuerId, ticker: sandisk.ticker, eventDate: '2026-09-26',
+        eventId: 'test-catalyst-1', issuerId: sandisk.issuerId, ticker: sandisk.ticker, eventDate: '2026-09-24',
         kind: 'sec_8k', label: '8-K filing', publicAt: '2026-09-22T12:00:00.000Z', availableAt: '2026-09-22T13:10:00.000Z',
         source: { provider: 'sec', licenseId: 'sec-edgar-public', url: 'https://data.sec.gov/submissions/CIK0000320193.json' },
       }],

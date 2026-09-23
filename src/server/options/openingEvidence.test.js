@@ -62,7 +62,9 @@ function alpacaContract(overrides = {}) {
 }
 
 function chainObservation({ contracts = [alpacaContract()], rejected = [] } = {}) {
-  return { underlying: { quote: { ...quote('2026-09-22T13:31:00.000Z', 2000), bid: 499.9, ask: 500.1 } }, contracts, rejected }
+  // Local calibration at this price gives delta ~.35, consistent with the
+  // eligible provider fixture. At S=500 this $2.05 call actually has delta .66.
+  return { underlying: { quote: { ...quote('2026-09-22T13:31:00.000Z', 2000), bid: 494.9, ask: 495.1 } }, contracts, rejected }
 }
 
 describe('runOptionsOpeningStage', () => {
@@ -159,6 +161,7 @@ describe('runOptionsOpeningStage', () => {
     const initial = chainObservation()
     const changed = chainObservation({ contracts: [alpacaContract({
       quote: { bid: 2.4, ask: 2.5, bidSize: 5, askSize: 5, marketAt: '2026-09-22T13:32:02.000Z', ageMs: 1000 },
+      fetchedAt: '2026-09-22T13:32:03.000Z',
     })] })
     changed.underlying.quote.marketAt = '2026-09-22T13:32:01.000Z'
     const optionChain = vi.fn().mockResolvedValueOnce(initial).mockResolvedValueOnce(changed)

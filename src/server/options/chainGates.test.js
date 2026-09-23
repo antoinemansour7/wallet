@@ -33,6 +33,32 @@ function context(overrides = {}) {
 }
 
 describe('evaluateOpeningContractGates', () => {
+  it('fails closed on missing/negative ages and invalid prices or timestamps', () => {
+    for (const quoteAgeMs of [null, -1, Infinity, NaN]) expect(evaluateOpeningContractGates(contract({ quoteAgeMs }), context()).status).toBe('rejected')
+    for (const marketAt of [null, 'bad-date', '2026-09-22T13:32:00.000Z']) expect(evaluateOpeningContractGates(contract({ marketAt }), context()).status).toBe('rejected')
+    expect(evaluateOpeningContractGates(contract({ ask: Infinity }), context()).status).toBe('rejected')
+    expect(evaluateOpeningContractGates(contract({ openInterest: Infinity }), context()).status).toBe('rejected')
+    expect(evaluateOpeningContractGates(contract({ openInterestDate: '2026-09-23' }), context()).reason).toBe('future_open_interest')
+  })
+
+  it('accepts a valid locked stock quote but rejects a crossed stock quote', () => {
+    const stock = underlying()
+    stock.quote.bid = stock.quote.ask = 100
+    expect(evaluateOpeningContractGates(contract(), context({ underlying: stock })).status).toBe('accepted')
+    stock.quote.bid = 101
+    expect(evaluateOpeningContractGates(contract(), context({ underlying: stock })).reason).toBe('invalid_underlying_quote')
+  })
+
+  it('detects a stock quote that aged during chain acquisition', () => {
+    const stock = { ...underlying(), fetchedAt: '2026-09-22T13:31:02.000Z' }
+    expect(evaluateOpeningContractGates(contract(), context({ underlying: stock })).reason).toBe('stale_underlying_quote')
+  })
+
+  it('rejects a different-session quote even when acquisition and age look fresh', () => {
+    const later = contract({ marketAt: '2026-09-23T13:31:02.000Z' })
+    later.fetchedAt = '2026-09-23T13:31:03.000Z'
+    expect(evaluateOpeningContractGates(later, context()).reason).toBe('quote_session_mismatch')
+  })
   it('accepts a fresh, liquid, in-window contract and labels it primary', () => {
     const result = evaluateOpeningContractGates(contract(), context())
     expect(result).toMatchObject({ status: 'accepted', cohort: 'primary', dte: 24, absDelta: 0.35 })
@@ -77,9 +103,9 @@ describe('evaluateOpeningContractGates', () => {
     expect(evaluateOpeningContractGates(contract({ todayVolume: 2, priorVolume: 10 }), context())).toMatchObject({ status: 'rejected', reason: 'insufficient_volume' })
   })
 
-  it('rejects missing analytics and a delta outside the .15-.60 window, but accepts an untimestamped delta within it', () => {
-    expect(evaluateOpeningContractGates(contract({ delta: null }), context())).toMatchObject({ status: 'rejected', reason: 'missing_analytics' })
-    expect(evaluateOpeningContractGates(contract({ delta: 0.05 }), context())).toMatchObject({ status: 'rejected', reason: 'delta_outside_window' })
+  it('defers the delta gate to local calibration regardless of provider analytics', () => {
+    expect(evaluateOpeningContractGates(contract({ delta: null }), context())).toMatchObject({ status: 'accepted', absDelta: null })
+    expect(evaluateOpeningContractGates(contract({ delta: 0.05 }), context())).toMatchObject({ status: 'accepted' })
     const result = evaluateOpeningContractGates(contract({ delta: 0.4, analyticsAge: 'unknown' }), context())
     expect(result).toMatchObject({ status: 'accepted', analyticsAgeUnknown: true })
   })
@@ -96,7 +122,7 @@ describe('buildOptionsChain', () => {
   it('splits contracts into accepted, rejected and pending, and carries enumeration rejections through', () => {
     const observation = {
       underlying: underlying(),
-      contracts: [contract(), contract({ delta: null }), contract({ marketAt: '2026-09-22T13:15:00.000Z' })],
+      contracts: [contract(), contract({ openInterest: null }), contract({ marketAt: '2026-09-22T13:15:00.000Z' })],
       rejected: [{ symbol: 'EX261016C00999000', reasons: ['nonstandard_deliverable'] }],
     }
     const chain = buildOptionsChain({ security, direction: 'call', tradingDate: TRADING_DATE, optionChainObservation: observation })
@@ -123,7 +149,7 @@ describe('buildOptionsChain', () => {
 
 describe('policy version', () => {
   it('is exported for versioning the gate/cohort policy in audit records', () => {
-    expect(OPTIONS_CHAIN_GATE_POLICY_VERSION).toBe('options-opening-chain-gates-v1')
+    expect(OPTIONS_CHAIN_GATE_POLICY_VERSION).toBe('options-opening-chain-gates-v2')
   })
 })
 

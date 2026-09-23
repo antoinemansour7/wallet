@@ -101,6 +101,36 @@ describe("the epic's illustrative case", () => {
 describe('exercise style and dividends', () => {
   const base = { spot: 100, strike: 105, timeYears: 40 / 365, volatility: 0.35, riskFreeRate: 0.05, steps: 512 }
 
+  it('preserves the early-exercise floor for calls at negative rates', () => {
+    const inputs = { ...base, type: 'call', spot: 120, strike: 100, volatility: 0.1, riskFreeRate: -0.1 }
+    expect(priceOption(inputs)).toBeGreaterThanOrEqual(20)
+    expect(priceOption({ ...inputs, exercise: 'european' })).toBeLessThan(20)
+  })
+
+  it('retains dividends that fall inside the first or last half lattice step', () => {
+    const inputs = { ...base, type: 'call', strike: 100 }
+    const immediate = priceOption({ ...inputs, dividends: [{ timeYears: 1e-8, amount: 2 }] })
+    expect(immediate).toBeCloseTo(priceOption({ ...inputs, spot: 98 }), 2)
+    const nearExpiry = priceOption({ ...inputs, dividends: [{ timeYears: inputs.timeYears - 1e-8, amount: 2 }], exercise: 'european' })
+    expect(nearExpiry).toBeLessThan(priceOption({ ...inputs, exercise: 'european' }) - 0.5)
+    const itm = { ...inputs, spot: 120, dividends: [{ timeYears: 1e-8, amount: 8 }] }
+    expect(priceOption(itm)).toBe(20)
+  })
+
+  it('floors the ex-dividend stock at zero and preserves the put upper bound', () => {
+    const inputs = { ...base, type: 'put', spot: 1, strike: 2, dividends: [{ timeYears: 10 / 365, amount: 3 }] }
+    const price = priceOption(inputs)
+    expect(price).toBeLessThanOrEqual(2)
+    expect(price).toBeGreaterThan(1.9)
+    expect(calibrateImpliedVolatility({ ...inputs, targetPrice: price }).reason).not.toBe('price_below_no_arbitrage_lower_bound')
+  })
+
+  it('does not fold the ex-dividend jump into a one-day theta difference', () => {
+    const priced = priceWithGreeks({ ...base, type: 'call', strike: 100, dividends: [{ timeYears: 0.1 / 365, amount: 2 }] })
+    expect(priced.theta).toBeLessThan(0)
+    expect(Math.abs(priced.theta)).toBeLessThan(0.2)
+  })
+
   it('values an American call with no dividend exactly as its European twin', () => {
     const american = priceOption({ ...base, type: 'call', exercise: 'american' })
     const european = priceOption({ ...base, type: 'call', exercise: 'european' })
@@ -141,6 +171,21 @@ describe('exercise style and dividends', () => {
 })
 
 describe('boundaries and bounds', () => {
+  it('rejects nonfinite or coerced numeric inputs', () => {
+    const inputs = { type: 'call', spot: 100, strike: 100, timeYears: 0.1, volatility: 0.3, riskFreeRate: 0.04 }
+    for (const field of ['spot', 'strike', 'volatility']) {
+      for (const value of [Infinity, NaN, '100']) expect(() => priceOption({ ...inputs, [field]: value })).toThrow(OptionsPricingError)
+    }
+  })
+
+  it('resolves lattice gamma across neighboring strikes without ATM spikes', () => {
+    for (const volatility of [0.02, 0.35]) for (const strike of [98, 99, 100, 101, 102]) {
+      const inputs = { type: 'put', spot: 100, strike, timeYears: 30 / 365, volatility, riskFreeRate: 0, steps: 256 }
+      // At zero rates/no dividends the American put equals its European twin.
+      const expected = blackScholes(inputs).gamma
+      expect(Math.abs(priceWithGreeks(inputs).gamma - expected)).toBeLessThan(Math.max(0.0001, expected * 0.02))
+    }
+  })
   it('returns intrinsic value at zero time to expiry', () => {
     expect(priceOption({ type: 'call', spot: 110, strike: 100, timeYears: 0, volatility: 0.3, riskFreeRate: 0.05 })).toBe(10)
     expect(priceOption({ type: 'put', spot: 110, strike: 100, timeYears: 0, volatility: 0.3, riskFreeRate: 0.05 })).toBe(0)
@@ -213,6 +258,11 @@ describe('calibrateImpliedVolatility', () => {
     type: 'put', exercise: 'american', spot: 100, strike: 100,
     timeYears: 30 / 365, riskFreeRate: 0.04, steps: 256,
   }
+
+  it('rejects non-identifiable IV at the exercise floor', () => {
+    expect(calibrateImpliedVolatility({ ...contract, spot: 40, targetPrice: 60 }))
+      .toMatchObject({ status: 'failed', reason: 'iv_not_identifiable_at_price_floor', impliedVolatility: null })
+  })
 
   it('recovers the volatility that produced a price, and reports its residual', () => {
     const price = priceOption({ ...contract, volatility: 0.42 })

@@ -1,6 +1,8 @@
 import { digest } from '../research/archive.js'
+import { resolveOptionsHoldingExit } from './scenarios.js'
+import { horizonEvents } from './scoring.js'
 
-export const OPTIONS_SHORTLIST_POLICY_VERSION = 'options-premarket-shortlist-v1'
+export const OPTIONS_SHORTLIST_POLICY_VERSION = 'options-premarket-shortlist-v2'
 export const OPTIONS_SHORTLIST_MAX_CANDIDATES = 10
 const HOLDING_DAYS = 3 // fixed primary horizon (epic #201 section 10)
 
@@ -11,7 +13,7 @@ function round(value, digits = 3) {
 // Clipped linear ramp: 0 points at or below `zero`, `max` points at or above
 // `full`, linear between. Matches the epic's "clipped linear ramps" v0 policy.
 function ramp(value, { zero, full, max }) {
-  if (value == null) return 0
+  if (!Number.isFinite(value)) return 0
   if (value <= zero) return 0
   if (value >= full) return max
   return round(((value - zero) / (full - zero)) * max)
@@ -57,14 +59,14 @@ function technicalConfirmationScore(record, direction) {
 // not the epic's nominal 10, because no input today can make this
 // component score above zero — a candidate's max should reflect what's
 // actually reachable, not a ceiling nothing can reach.
-function catalystQualityScore(record) {
-  const state = record.nonEventHorizon.state
+function catalystQualityScore(record, horizonCoverage) {
+  const state = horizonCoverage ?? record.nonEventHorizon.state
   return { component: 'catalystQuality', max: 0, points: 0, coverage: state, evidence: [{ feature: 'nonEventHorizon.state', raw: state, points: 0 }] }
 }
 
-export function scoreOptionsDirection(record, direction) {
+export function scoreOptionsDirection(record, direction, { horizonCoverage = null } = {}) {
   if (!['call', 'put'].includes(direction)) throw new Error('direction must be call or put')
-  const components = [underlyingSetupScore(record, direction), technicalConfirmationScore(record, direction), catalystQualityScore(record)]
+  const components = [underlyingSetupScore(record, direction), technicalConfirmationScore(record, direction), catalystQualityScore(record, horizonCoverage)]
   return { securityId: record.security.securityId, ticker: record.security.ticker, direction,
     max: components.reduce((sum, c) => sum + c.max, 0), total: round(components.reduce((sum, c) => sum + c.points, 0)), components }
 }
@@ -75,21 +77,37 @@ export function buildOptionsShortlist({ snapshot, watchlist, maxCandidates = OPT
   if (!Number.isInteger(maxCandidates) || maxCandidates < 1) throw new Error('maxCandidates must be a positive integer')
 
   const bySecurityId = new Map(snapshot.securities.map((record) => [record.security.securityId, record]))
+  const holdingExit = resolveOptionsHoldingExit(snapshot.tradingDate, HOLDING_DAYS)
+  if (!holdingExit) throw new Error('Shortlist holding horizon is outside the exchange calendar')
   const scored = []
   const rejected = []
 
   for (const security of watchlist.securities) {
     const record = bySecurityId.get(security.securityId)
     if (!record) { rejected.push({ securityId: security.securityId, ticker: security.ticker, status: 'missing', reason: 'not_in_feature_snapshot' }); continue }
-    if (record.underlying.premarketPrice == null) { rejected.push({ securityId: security.securityId, ticker: security.ticker, status: 'unavailable', reason: 'no_premarket_price' }); continue }
-    if (record.nonEventHorizon.state === 'excluded') {
-      rejected.push({ securityId: security.securityId, ticker: security.ticker, status: 'rejected', reason: 'known_event_in_holding_window', events: record.nonEventHorizon.reasons })
+    if (!Number.isFinite(record.underlying.premarketPrice) || record.underlying.premarketPrice <= 0) { rejected.push({ securityId: security.securityId, ticker: security.ticker, status: 'unavailable', reason: 'no_premarket_price' }); continue }
+    // The feature snapshot's legacy five-CALENDAR-day flag is not the
+    // three-SESSION holding period. Use the same dated-event rule as scoring.
+    const eventRecord = record.events ? record : { ...record, events: { catalysts: (record.nonEventHorizon.reasons || [])
+      .filter((item) => item.date).map((item) => ({ ...item, eventDate: item.date })) } }
+    const events = horizonEvents({ features: eventRecord, exitDate: holdingExit.exitDate, expirationDate: holdingExit.exitDate, tradingDate: snapshot.tradingDate })
+    if (events.inHorizon.length) {
+      rejected.push({ securityId: security.securityId, ticker: security.ticker, status: 'rejected', reason: 'known_event_in_holding_window', events: events.inHorizon })
       continue
     }
-    const call = scoreOptionsDirection(record, 'call')
-    const put = scoreOptionsDirection(record, 'put')
+    const horizonCoverage = ['earnings', 'catalysts'].every((feed) => record.coverage?.[feed]?.status === 'complete') ? 'eligible' : 'unknown'
+    const call = scoreOptionsDirection(record, 'call', { horizonCoverage })
+    const put = scoreOptionsDirection(record, 'put', { horizonCoverage })
+    if (call.total === 0 && put.total === 0) {
+      rejected.push({ securityId: security.securityId, ticker: security.ticker, status: 'rejected', reason: 'no_directional_setup' })
+      continue
+    }
+    if (call.total === put.total) {
+      rejected.push({ securityId: security.securityId, ticker: security.ticker, status: 'rejected', reason: 'directional_setup_tie' })
+      continue
+    }
     const [best, other] = call.total >= put.total ? [call, put] : [put, call]
-    scored.push({ security, record, best, other })
+    scored.push({ security, record, best, other, horizonCoverage })
   }
 
   scored.sort((a, b) => b.best.total - a.best.total || a.security.ticker.localeCompare(b.security.ticker))
@@ -98,10 +116,10 @@ export function buildOptionsShortlist({ snapshot, watchlist, maxCandidates = OPT
     rejected.push({ securityId: entry.security.securityId, ticker: entry.security.ticker, status: 'rejected', reason: 'not_top_n', direction: entry.best.direction, score: entry.best.total })
   }
 
-  const candidates = shortlisted.map(({ security, record, best }) => ({
+  const candidates = shortlisted.map(({ security, record, best, horizonCoverage }) => ({
     securityId: security.securityId, ticker: security.ticker, direction: best.direction,
-    score: best.total, maxScore: best.max, catalystCoverage: record.nonEventHorizon.state,
-    holdingHorizonSessions: HOLDING_DAYS, featureVersion: record.featureVersion, featureRecordId: record.recordId,
+    score: best.total, maxScore: best.max, catalystCoverage: horizonCoverage,
+    holdingHorizonSessions: HOLDING_DAYS, holdingExitAt: holdingExit.exitAt, featureVersion: record.featureVersion, featureRecordId: record.recordId,
   }))
   const scores = scored.map(({ security, best, other }) => ({ securityId: security.securityId, ticker: security.ticker, scores: [best, other] }))
 

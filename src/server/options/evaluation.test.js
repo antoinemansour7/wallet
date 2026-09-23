@@ -3,13 +3,27 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { digest } from '../research/archive.js'
 import { createOutcomeCapturePlan } from './observations.js'
-import { replayOptionsScan } from './evaluationReplay.js'
+import { OPTIONS_REPLAY_VERSIONS, replayOptionsScan } from './evaluationReplay.js'
 import {
   OPTIONS_EVALUATION_POLICY, assertEndpointHorizonAlignment, clusteredUncertainty, compareOptionsCohorts,
   evaluateOptionsArchive, evaluateOptionsOutcome, validateEvaluationProtocol,
 } from './evaluation.js'
 
-const fixture = JSON.parse(readFileSync(new URL('./fixtures/evaluation/archive.json', import.meta.url)))
+const legacyFixture = JSON.parse(readFileSync(new URL('./fixtures/evaluation/archive.json', import.meta.url)))
+// Build a NEW synthetic test archive for the reviewed policy. Never relabel a
+// real/frozen archive in production, nor overwrite the original v0 fixture.
+const fixture = structuredClone(legacyFixture)
+const reversionSynthetic = (hash) => {
+  const value = structuredClone(fixture.objects[hash])
+  value.versions = OPTIONS_REPLAY_VERSIONS
+  const nextHash = digest(value)
+  fixture.objects[nextHash] = value
+  delete fixture.objects[hash]
+  return nextHash
+}
+if (fixture.objects[fixture.manifest.protocolHash].dataKind !== 'synthetic') throw new Error('Only synthetic fixtures may be regenerated')
+fixture.manifest.protocolHash = reversionSynthetic(fixture.manifest.protocolHash)
+fixture.manifest.scanHashes = fixture.manifest.scanHashes.map(reversionSynthetic)
 const scan = () => structuredClone(fixture.objects[fixture.manifest.scanHashes[0]])
 const protocol = () => structuredClone(fixture.objects[fixture.manifest.protocolHash])
 const security = { securityId: 'sec:EX', issuerId: 'iss:EX', ticker: 'EX' }
@@ -24,6 +38,9 @@ function point(at, bid = 7.4, overrides = {}) {
 const evaluate = (observations, overrides = {}) => evaluateOptionsOutcome({ plan: plan(), entry, observations, asOf: '2026-10-10T00:00:00Z', ...overrides })
 
 describe('frozen two-stage replay', () => {
+  it('rejects the legacy archive under a different production policy version', () => {
+    expect(() => replayOptionsScan(legacyFixture.objects[legacyFixture.manifest.scanHashes[0]])).toThrow('Unsupported replay policy versions')
+  })
   it('rebuilds shortlist, gates and scores and retains all eligible contracts', () => {
     const result = replayOptionsScan(scan())
     expect(result.shortlist.candidates).toHaveLength(1)
@@ -53,10 +70,16 @@ describe('frozen two-stage replay', () => {
     expect(result.exclusions.every((e) => e.reason === 'insufficient_volume')).toBe(true)
   })
 
-  it.each(['quote', 'analytics', 'openInterest'])('cannot insert later %s into an opening signal', (field) => {
+  it.each(['quote', 'openInterest'])('cannot insert later %s into an opening signal', (field) => {
     const input = scan()
     input.chains[0].contracts.forEach((c) => { c[field].availableAt = '2026-09-22T21:00:00Z' })
     expect(replayOptionsScan(input).ranking.ranked).toHaveLength(0)
+  })
+
+  it('ignores provider analytics unavailable at the opening cutoff and retains locally calibrated scores', () => {
+    const input = scan(), baseline = replayOptionsScan(input)
+    input.chains[0].contracts.forEach((item) => { item.analytics.availableAt = '2026-09-22T21:00:00Z' })
+    expect(replayOptionsScan(input).ranking.ranked.map((item) => item.score)).toEqual(baseline.ranking.ranked.map((item) => item.score))
   })
 
   it('recomputes freshness instead of trusting provider ageMs and excludes wrong identities', () => {

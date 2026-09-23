@@ -72,7 +72,7 @@ function scenarioSet({
   const horizon = {
     id: '3_sessions', sessions: 3, status: primaryAvailable ? 'available' : 'excluded',
     reason: primaryAvailable ? null : 'horizon_beyond_expiry', exitDate: PRIMARY_EXIT_DATE,
-    exitAt: `${PRIMARY_EXIT_DATE}T20:00:00.000Z`, remainingYears: 0.058,
+    exitAt: `${PRIMARY_EXIT_DATE}T20:00:00.000Z`, remainingYears: 0.058, calendarElapsedDays: 3.25,
   }
   return {
     policyVersion: 'options-scenario-matrix-v1',
@@ -95,7 +95,7 @@ function scenarioSet({
     premiumTargets: primaryAvailable
       ? [{
         targetPct: 25, horizonId: '3_sessions', ivMultiplier: 1, solved,
-        requiredMovePct: type === 'put' ? -3.2 : 3.2,
+        requiredMovePct: (type === 'put' ? -1 : 1) * requiredMoveInImpliedMoves * 30 * Math.sqrt(3.25 / 365),
         requiredMoveInImpliedMoves: solved ? (type === 'put' ? -requiredMoveInImpliedMoves : requiredMoveInImpliedMoves) : null,
         reason: solved ? null : 'no_solution_within_search_bound',
       }]
@@ -141,7 +141,7 @@ describe('OPTIONS_SCORE_POLICY', () => {
     expect(OPTIONS_SCORE_POLICY.weightsFittedOn).toBe('none-frozen-v0-hypothesis')
     expect(OPTIONS_SCORE_POLICY.missingDataPolicy).toEqual({
       featurePoints: 'zero',
-      absentPenaltyInput: 'record_inapplicable_without_penalty',
+      absentPenaltyInput: 'worst_case_existing_penalty_or_exclude_required_model_input',
       unknownEventCoverage: 'flag',
       hardGateOrModelInput: 'exclude',
     })
@@ -203,6 +203,15 @@ describe('scoreOptionsContract', () => {
 })
 
 describe('hard-gate separation', () => {
+  it('enforces locally calibrated signed delta, even if provider delta passed', () => {
+    for (const delta of [null, NaN, -0.4, 0.05, 0.9]) {
+      expect(score({ scenarioOverrides: { delta } }).blockers).toContainEqual(expect.objectContaining({ code: 'calibrated_delta_outside_window' }))
+    }
+  })
+
+  it('excludes missing model decay rather than allowing it to remove a penalty', () => {
+    expect(score({ scenarioOverrides: { decayPctOfEntryPremium: null } }).status).toBe('ineligible')
+  })
   it('refuses to score a contract that failed a hard gate, and awards no partial points', () => {
     const result = score({ gate: { status: 'rejected', reason: 'stale_contract_quote' } })
     expect(result.status).toBe('ineligible')
@@ -247,14 +256,21 @@ describe('hard-gate separation', () => {
 })
 
 describe('missing data', () => {
-  it('gives no points and no penalty for absent historical IV context, and says so', () => {
+  it('treats invalid or future IV history as unavailable, never as cheap volatility', () => {
+    const absent = score({ ivContext: null }).score
+    for (const ivContext of [{ percentile: -1 }, { percentile: 101 }, { percentile: 10, availableAt: '2026-09-23T00:00:00Z' }]) {
+      expect(score({ ivContext }).score).toBe(absent)
+    }
+  })
+  it('gives no points and the existing worst-case penalty for absent historical IV context', () => {
     const withContext = score()
     const without = score({ ivContext: null })
     expect(componentPoints(without, 'ivVega')).toBeLessThan(componentPoints(withContext, 'ivVega'))
     const traced = without.components.find((component) => component.component === 'ivVega')
       .features.find((item) => item.feature === 'historicalIvPercentile')
     expect(traced).toMatchObject({ raw: null, points: 0, reason: 'historical_iv_context_unavailable' })
-    expect(penalty(without, 'iv_above_90th_percentile')).toBeNull()
+    expect(penalty(without, 'iv_above_90th_percentile')).toMatchObject({ points: 5, reason: 'missing_input_uses_existing_worst_case_penalty' })
+    expect(without.score).toBeLessThanOrEqual(score({ ivContext: { percentile: 99 } }).score)
     expect(without.missing).toContainEqual(expect.objectContaining({ path: 'ivContext.percentile' }))
   })
 
@@ -274,6 +290,17 @@ describe('missing data', () => {
 })
 
 describe('penalties', () => {
+  it('makes risk deductions continuous at the original thresholds', () => {
+    const before = score({ scenarioOverrides: { decayPctOfEntryPremium: -15, ivDownReturnPct: -25 } })
+    const after = score({ scenarioOverrides: { decayPctOfEntryPremium: -15.001, ivDownReturnPct: -25.001 } })
+    expect(Math.abs(before.score - after.score)).toBeLessThan(0.01)
+    const iv90 = score({ ivContext: { percentile: 90 } })
+    const ivOver = score({ ivContext: { percentile: 90.001 } })
+    expect(Math.abs(iv90.score - ivOver.score)).toBeLessThan(0.01)
+    const lowVolume = score({ contractOverrides: { todayVolume: 4 } })
+    const fullVolume = score({ contractOverrides: { todayVolume: 5 } })
+    expect(fullVolume.score - lowVolume.score).toBeCloseTo(0.6, 3)
+  })
   it('scales the wide-spread penalty across the 5-10% band', () => {
     expect(penalty(score({ scenarioOverrides: { bid: 5.4, ask: 5.6 } }), 'wide_spread')).toBeNull()
     const mid = penalty(score({ scenarioOverrides: { bid: 5.31, ask: 5.72 } }), 'wide_spread')
@@ -287,12 +314,12 @@ describe('penalties', () => {
   it('penalises a contract that only cleared the volume gate on prior-session volume', () => {
     expect(penalty(score(), 'volume_only_by_prior_session')).toBeNull()
     const result = score({ contractOverrides: { todayVolume: 2, previousVolume: 800 } })
-    expect(penalty(result, 'volume_only_by_prior_session').points).toBe(3)
+    expect(penalty(result, 'volume_only_by_prior_session').points).toBe(1.8)
   })
 
   it('penalises implied volatility above its own comparable-history 90th percentile', () => {
     const result = score({ ivContext: { percentile: 96, sampleSize: 180, window: '1y', evidenceId: 'c'.repeat(64) } })
-    expect(penalty(result, 'iv_above_90th_percentile').points).toBe(5)
+    expect(penalty(result, 'iv_above_90th_percentile').points).toBe(3)
   })
 
   it('penalises time decay above 15% of entry premium over the primary horizon', () => {
@@ -322,6 +349,19 @@ describe('penalties', () => {
 })
 
 describe('component behaviour', () => {
+  it('charges carry once when unchanged-IV and shocked-IV returns decay equally', () => {
+    const lessCarry = score({ scenarioOverrides: { decayPctOfEntryPremium: -4, ivDownReturnPct: -16 } })
+    const moreCarry = score({ scenarioOverrides: { decayPctOfEntryPremium: -10, ivDownReturnPct: -22 } })
+    expect(componentPoints(lessCarry, 'ivVega')).toBe(componentPoints(moreCarry, 'ivVega'))
+    expect(lessCarry.score - moreCarry.score).toBeCloseTo(componentPoints(lessCarry, 'thetaEfficiency') - componentPoints(moreCarry, 'thetaEfficiency'), 3)
+  })
+
+  it('does not expand the underlying move budget when option IV alone rises', () => {
+    const low = score({ scenarioOverrides: { impliedVolatility: 0.3 } })
+    const high = score({ scenarioOverrides: { impliedVolatility: 0.6 } })
+    expect(componentPoints(low, 'expectedMoveCompatibility')).toBe(componentPoints(high, 'expectedMoveCompatibility'))
+    expect(high.score).toBeLessThan(low.score)
+  })
   it('plateaus delta exposure in the .25-.45 band and tapers to the .15/.60 shoulders', () => {
     const at = (delta) => componentPoints(score({ scenarioOverrides: { delta } }), 'deltaExposure')
     expect(at(0.35)).toBe(10)
@@ -358,14 +398,12 @@ describe('component behaviour', () => {
     expect(componentPoints(score({ scenarioOverrides: { solved: false } }), 'expectedMoveCompatibility')).toBe(0)
   })
 
-  it('scores liquidity on the binding side of relative and absolute spread', () => {
+  it('scores percentage friction independently of premium denomination', () => {
     const tight = componentPoints(score({ scenarioOverrides: { bid: 5.48, ask: 5.52 } }), 'liquidity')
     const wide = componentPoints(score({ scenarioOverrides: { bid: 5.25, ask: 5.8 } }), 'liquidity')
     expect(tight).toBeGreaterThan(wide)
-    // A 2% relative spread on a $40 premium is $0.80 wide in absolute terms,
-    // and the absolute side has to bind.
     const expensive = componentPoints(score({ scenarioOverrides: { bid: 39.6, ask: 40.4 } }), 'liquidity')
-    expect(expensive).toBeLessThan(tight)
+    expect(expensive).toBe(tight)
   })
 
   it('awards no catalyst points in non-event mode and records why', () => {

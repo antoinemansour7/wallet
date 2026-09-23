@@ -186,7 +186,8 @@ describe('the scenario matrix', () => {
 
   it('claims a gain while out of the money only when the premium rose AND the strike is still out of reach', () => {
     for (const scenario of set.scenarios) {
-      expect(scenario.gainWhileOutOfTheMoney).toBe(scenario.midReturnPct > 0 && scenario.isOutOfTheMoney)
+      expect(scenario.gainWhileOutOfTheMoney).toBe(scenario.askEntryModeledBidReturnPct > 0 && scenario.isOutOfTheMoney)
+      expect(scenario.midGainWhileOutOfTheMoney).toBe(scenario.midReturnPct > 0 && scenario.isOutOfTheMoney)
     }
     const gainers = set.scenarios.filter((scenario) => scenario.gainWhileOutOfTheMoney)
     expect(gainers.length).toBeGreaterThan(0)
@@ -276,7 +277,7 @@ describe('premium-target inversion', () => {
       horizons: OPTIONS_SCENARIO_HORIZONS.filter((horizon) => horizon.id === OPTIONS_SCENARIO_PRIMARY_HORIZON),
     })
     expect(verification.scenarios[0].theoreticalValue).toBeCloseTo(target.targetValuePerShare, 2)
-    expect(verification.scenarios[0].midReturnPct).toBeCloseTo(50, 1)
+    expect(verification.scenarios[0].askEntryModeledBidReturnPct).toBeCloseTo(50, 1)
   })
 
   it('prices the required move against the horizon implied move budget', () => {
@@ -312,6 +313,26 @@ describe('premium-target inversion', () => {
 })
 
 describe('calibration and its failure modes', () => {
+  it('blocks a primary IV-shock state that fails convergence even when entry passes', () => {
+    const mid = 5.819334794988491
+    const scenario = build({ underlyingPrice: 100,
+      contract: callContract({ strikePrice: 95, quote: { bid: mid * 0.99, ask: mid * 1.01 } }),
+      dividends: [{ exDate: '2026-09-28', amount: 3 }], steps: 32,
+      ...OPTIONS_SCENARIO_RANKING_PROFILE,
+    })
+    expect(scenario.convergence.converged).toBe(true)
+    expect(scenario.publishable).toBe(false)
+    expect(scenario.blockers[0].code).toBe('primary_valuation_not_converged')
+    expect(scenario.valuationChecks.find((check) => check.id === 'primary_iv_down').converged).toBe(false)
+  })
+
+  it('rejects malformed scenario inputs and unknown cash dividend amounts', () => {
+    expect(() => build({ asOf: 'not-an-instant' })).toThrow(/valuation instant/)
+    expect(() => build({ asOf: '2026-09-23T14:00:00Z' })).toThrow(/trading date/)
+    expect(() => build({ dividends: [{ exDate: '2026-10-05', amount: null }] })).toThrow(/Dividend amount/)
+    expect(() => build({ costs: { ...OPTIONS_SCENARIO_COST_ASSUMPTIONS, commissionPerContract: -1 } })).toThrow(/costs/)
+    expect(() => build({ ivMultipliers: [Infinity] })).toThrow(/grid/)
+  })
   it('calibrates to the synchronized midpoint and keeps the provider IV beside it', () => {
     const set = build({ providerImpliedVolatility: 0.62, assumptionSources: { providerAnalytics: 'alpaca' } })
     expect(set.calibration.status).toBe('calibrated')
