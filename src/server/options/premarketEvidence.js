@@ -7,6 +7,7 @@ import { loadSecurityMaster } from '../research/securityMaster.js'
 import { getMarketRegime } from '../marketRegime.js'
 import { buildOptionsShortlist } from './shortlist.js'
 import { gatherOptionsSecEvidence } from './secCatalystEvidence.js'
+import { accumulateProviderStats, emptyProviderStats, finalizeProviderStats } from './operations.js'
 
 const BENCHMARK_SECURITY = Object.freeze({ securityId: 'benchmark:SPY', issuerId: 'benchmark:SPY', ticker: 'SPY' })
 const ALPACA_UNDERLYING_URL = 'https://data.alpaca.markets/v2/stocks/snapshots'
@@ -64,10 +65,11 @@ function logFailure(stage, error) {
 
 // Two independent Alpaca calls: a failure in one (e.g. a bars-endpoint rate
 // limit) must not discard the other's already-fetched, still-usable result.
-async function gatherAlpaca(alpaca, securities, tradingDate, deadlineAt) {
+async function gatherAlpaca(alpaca, securities, tradingDate, deadlineAt, providerStats) {
   let underlyings = [], underlyingAvailable = false
   try {
     const result = await alpaca.underlyingSnapshots(securities, { deadline: deadlineAt })
+    accumulateProviderStats(providerStats, result)
     underlyings = result.observations.map(mapUnderlyingInput)
     underlyingAvailable = true
   } catch (error) { logFailure('underlying', error) }
@@ -76,6 +78,7 @@ async function gatherAlpaca(alpaca, securities, tradingDate, deadlineAt) {
   try {
     const start = new Date(Date.parse(`${tradingDate}T00:00:00Z`) - BAR_LOOKBACK_DAYS * DAY).toISOString().slice(0, 10)
     const result = await alpaca.stockBars([...securities, BENCHMARK_SECURITY], { start, end: tradingDate, deadline: deadlineAt })
+    accumulateProviderStats(providerStats, result)
     bars = result.observations
     barsAvailable = true
   } catch (error) { logFailure('bars', error) }
@@ -100,8 +103,9 @@ export async function runOptionsPremarketStage({
 
   let alpaca = null, alpacaAvailable = true
   try { alpaca = createAlpaca() } catch (error) { alpacaAvailable = false; logFailure('alpaca-construct', error) }
+  const providerStats = emptyProviderStats()
   const { underlyings, bars, underlyingAvailable, barsAvailable } = alpaca
-    ? await gatherAlpaca(alpaca, securities, tradingDate, deadlineAt)
+    ? await gatherAlpaca(alpaca, securities, tradingDate, deadlineAt, providerStats)
     : { underlyings: [], bars: [], underlyingAvailable: false, barsAvailable: false }
 
   let regime = null
@@ -152,6 +156,7 @@ export async function runOptionsPremarketStage({
       shortlistId: shortlist.shortlistId, candidateCount: shortlist.candidates.length, rejectedCount: shortlist.rejected.length,
       alpacaAvailable, underlyingAvailable, barsAvailable, regimeAvailable: regime != null, secCompletedCount: secCompleted.length,
       decisionRecordId: decisionRecord.recordId, scoreRecordId: scoreRecord.recordId, evidenceRecordId: evidenceRecord.recordId,
+      ...finalizeProviderStats(providerStats),
     },
   }
 }

@@ -31,6 +31,23 @@ function stubAlpaca() {
 }
 
 describe('runOptionsPremarketStage', () => {
+  it('sums provider request diagnostics from both Alpaca calls into the stage metrics (#215)', async () => {
+    const archive = { put: vi.fn(async (kind, id, record) => record) }
+    const createAlpaca = () => ({
+      underlyingSnapshots: vi.fn(async (securities) => ({ ...alpacaSnapshotFor(securities), requestCount: 1, pageCounts: {}, diagnostics: [{ status: 200 }] })),
+      stockBars: vi.fn(async (securities) => ({ ...alpacaBarsFor(securities), requestCount: 1, pageCounts: { bars: 1 }, diagnostics: [{ status: 429 }, { status: 200 }] })),
+    })
+    const result = await runOptionsPremarketStage({
+      window, deadlineAt: window.deadlineAt, checkpoint: null, saveCheckpoint: vi.fn(), archive,
+      createAlpaca,
+      fetchRegime: async () => ({ asOf: '2026-09-22', score: 7, label: 'constructive' }),
+      loadMaster: async () => ({ resolve: () => [] }),
+      createSec: () => ({ request: vi.fn() }),
+    })
+    expect(result.status).toBe('complete')
+    expect(result.metrics).toMatchObject({ providerRequestCount: 2, providerPagesFetched: 1, provider429Count: 1, providerServerErrorCount: 0 })
+  })
+
   it('produces a complete, frozen shortlist from live-shaped inputs', async () => {
     const archive = { put: vi.fn(async (kind, id, record) => record) }
     const saveCheckpoint = vi.fn()

@@ -126,3 +126,16 @@ describe('policy version', () => {
     expect(OPTIONS_CHAIN_GATE_POLICY_VERSION).toBe('options-opening-chain-gates-v1')
   })
 })
+
+describe('operational skew tracing (#215)', () => {
+  it('carries the accepted skew onto both the gate evaluation and the flattened contract', () => {
+    const result = evaluateOpeningContractGates(contract({ marketAt: '2026-09-22T13:31:02.000Z' }), context({ underlying: underlying({ marketAt: '2026-09-22T13:31:00.000Z' }) }))
+    expect(result.status).toBe('accepted')
+    expect(result.skewMs).toBe(2000)
+    const chain = buildOptionsChain({
+      security: { securityId: 'sec-1', issuerId: 'iss-1', ticker: 'EX' }, direction: 'call', tradingDate: TRADING_DATE,
+      optionChainObservation: { contracts: [contract({ marketAt: '2026-09-22T13:31:02.000Z' })], underlying: underlying({ marketAt: '2026-09-22T13:31:00.000Z' }) },
+    })
+    expect(chain.contracts[0].skewMs).toBe(2000)
+  })
+})

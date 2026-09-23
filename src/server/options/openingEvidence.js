@@ -10,6 +10,7 @@ import {
   scoreOpeningChains, scoreOpeningContract,
 } from './publication.js'
 import { rankOptionsScores } from './scoring.js'
+import { accumulateProviderStats, emptyProviderStats, finalizeProviderStats } from './operations.js'
 
 const DAY = 86400000
 const DTE_MIN = 7
@@ -35,7 +36,7 @@ function expirationRange(tradingDate) {
 
 // #208's frozen premarket decision is found the same way its own spec
 // documents: completion pointer -> scan audit record -> metrics.decisionRecordId -> decision record.
-async function resolvePremarketContext({ redis, archive, tradingDate, policyVersion }) {
+export async function resolvePremarketContext({ redis, archive, tradingDate, policyVersion }) {
   const completion = await readCompletedOptionsStage(redis, { tradingDate, stage: 'premarket', policyVersion })
   if (!completion?.auditRecordId) return null
   const scanRecord = await optionsAuditRecord(archive, 'scan', completion.auditRecordId)
@@ -55,13 +56,18 @@ async function resolvePremarketContext({ redis, archive, tradingDate, policyVers
 // A contract "pending" only on the regular-open timing gets retried in
 // place -- the whole chain is refetched (metadata rarely changes, snapshots
 // do) since Alpaca has no cheaper single-contract requote endpoint.
-async function fetchChainWithRetry({ alpaca, security, direction, tradingDate, expiration, deadlineAt, maxRetries, retryDelayMs, sleep, now }) {
+async function fetchChainWithRetry({
+  alpaca, security, direction, tradingDate, expiration, deadlineAt, maxRetries, retryDelayMs, sleep, now,
+  onObservation = () => {},
+}) {
   let observation = await alpaca.optionChain({ security, ...expiration, type: direction, deadline: deadlineAt })
+  onObservation(observation)
   let chain = buildOptionsChain({ security, direction, tradingDate, optionChainObservation: observation })
   let attempts = 1
   while (chain.pending.length && attempts <= maxRetries && Date.parse(deadlineAt) - now() > retryDelayMs + 5000) {
     await sleep(retryDelayMs)
     observation = await alpaca.optionChain({ security, ...expiration, type: direction, deadline: deadlineAt })
+    onObservation(observation)
     chain = buildOptionsChain({ security, direction, tradingDate, optionChainObservation: observation })
     attempts += 1
   }
@@ -139,7 +145,13 @@ export async function runOptionsOpeningStage({
   try { alpaca = createAlpaca() } catch { alpacaAvailable = false }
 
   const expiration = expirationRange(tradingDate)
-  let acceptedCount = 0, rejectedCount = 0, retriedCount = 0, primaryCount = 0, edgeCount = 0
+  let acceptedCount = 0, rejectedCount = 0, retriedCount = 0, primaryCount = 0, edgeCount = 0, revalidationFailedCount = 0
+  // Shared across the bounded-concurrency loop below: JS mutation between
+  // `await` points is race-free, so one accumulator is all this needs. See
+  // operations.js -- these counters ride the stage's existing `metrics`
+  // object into the archived, already-redacted scan record for free.
+  const providerStats = emptyProviderStats()
+  const onObservation = (observation) => accumulateProviderStats(providerStats, observation)
 
   const fetchedEntries = await runBounded(candidates, 3, async (candidate) => {
     const security = bySecurityId.get(candidate.securityId)
@@ -151,7 +163,7 @@ export async function runOptionsOpeningStage({
       available = false
     } else {
       try {
-        const fetched = await fetchChainWithRetry({ alpaca, security, direction: candidate.direction, tradingDate, expiration, deadlineAt, maxRetries, retryDelayMs, sleep, now })
+        const fetched = await fetchChainWithRetry({ alpaca, security, direction: candidate.direction, tradingDate, expiration, deadlineAt, maxRetries, retryDelayMs, sleep, now, onObservation })
         final = finalizeChain(fetched.chain, fetched.observation)
         underlying = fetched.observation.underlying
         rawInputHash = fetched.rawInputHash
@@ -177,7 +189,7 @@ export async function runOptionsOpeningStage({
   if (candidates.length && !availableEntries.length) {
     return {
       status: 'incomplete', reason: 'opening_chain_unavailable', records: [],
-      metrics: { premarketShortlistAvailable: true, securityCount: candidates.length, alpacaAvailable, acceptedCount, rejectedCount },
+      metrics: { premarketShortlistAvailable: true, securityCount: candidates.length, alpacaAvailable, acceptedCount, rejectedCount, ...finalizeProviderStats(providerStats) },
     }
   }
 
@@ -208,7 +220,7 @@ export async function runOptionsOpeningStage({
         try {
           const fetched = await fetchChainWithRetry({
             alpaca, security: initial.security, direction: initial.direction, tradingDate, expiration, deadlineAt,
-            maxRetries: 0, retryDelayMs, sleep, now,
+            maxRetries: 0, retryDelayMs, sleep, now, onObservation,
           })
           const final = finalizeChain(fetched.chain, fetched.observation)
           const availableAt = new Date(now()).toISOString()
@@ -229,6 +241,7 @@ export async function runOptionsOpeningStage({
         const contract = refreshed?.chain?.contracts.find((item) => item.contractId === selected.contract.contractId)
         if (!initial || !contract || !refreshed?.underlying) {
           scores[index] = rejectScoreForRevalidation(scores[index], refreshed?.error || 'contract_failed_refreshed_gates')
+          revalidationFailedCount += 1
           observations.set(selected.contract.contractId, { ...original, revalidation: { status: 'rejected', pass, reason: refreshed?.error || 'contract_failed_refreshed_gates' } })
           continue
         }
@@ -253,6 +266,7 @@ export async function runOptionsOpeningStage({
     for (const selected of ranking.displayed.filter((entry) => !observations.get(entry.contract.contractId)?.revalidation)) {
       const index = scores.findIndex((item) => item.contract.contractId === selected.contract.contractId)
       scores[index] = rejectScoreForRevalidation(scores[index], 'revalidation_budget_exhausted')
+      revalidationFailedCount += 1
       observations.set(selected.contract.contractId, {
         ...observations.get(selected.contract.contractId),
         revalidation: { status: 'rejected', reason: 'revalidation_budget_exhausted' },
@@ -291,10 +305,11 @@ export async function runOptionsOpeningStage({
     records,
     metrics: {
       premarketShortlistAvailable: true, securityCount: candidates.length, alpacaAvailable,
-      acceptedCount, rejectedCount, retriedCount, primaryCount, edgeCount,
+      acceptedCount, rejectedCount, retriedCount, primaryCount, edgeCount, revalidationFailedCount,
       scoredCount: ranking.ranked.length, selectedCount: ranking.displayed.length,
       publicationRecordId: built.publicationRecord.recordId, scoreRecordId: built.scoreRecord.recordId,
       outcomeRecordId: built.outcomeRecord.recordId,
+      ...finalizeProviderStats(providerStats),
     },
   }
 }
