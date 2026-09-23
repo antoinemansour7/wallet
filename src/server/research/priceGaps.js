@@ -42,7 +42,7 @@ export function alpacaSipDailyBars({ fetchImpl = fetch, keyId = process.env.ALPA
       const body = await response.json()
       for (const [symbol, rows] of Object.entries(body.bars || {})) {
         const list = bars.get(symbol) || []
-        for (const row of rows || []) list.push({ date: String(row.t).slice(0, 10), open: row.o, high: row.h, close: row.c })
+        for (const row of rows || []) list.push({ date: String(row.t).slice(0, 10), open: row.o, high: row.h, close: row.c, volume: row.v ?? null })
         bars.set(symbol, list)
       }
       token = body.next_page_token || null
