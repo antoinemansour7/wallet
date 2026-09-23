@@ -1,6 +1,31 @@
 import { optionsAuditRecord } from './auditStore.js'
 import { optionsPublicationSummary } from './publication.js'
 import { marketDay, optionsLocalParts, zonedMarketInstant } from './calendar.js'
+import { optionsStageWindow } from './scheduler.js'
+
+const OPENING_ATTEMPTS = new Set(['complete', 'late', 'incomplete', 'missed'])
+const OPENING_STATUS = { complete: 'published', late: 'late', incomplete: 'failed', missed: 'missed' }
+
+// Why today has no morning yet, in the owner's terms: not due, due, failed,
+// finished too late, or never ran in its window. Attempts are read only when
+// the answer depends on them; an unreadable history is `unknown`, never an
+// error, so the page still renders. Null on closed or uncalendared days.
+async function openingScanStatus({ archive, at, publication }) {
+  const window = optionsStageWindow(at, 'opening')
+  if (!['early', 'on_time', 'late'].includes(window.state)) return null
+  const base = { tradingDate: window.tradingDate, scheduledAt: window.scheduledAt, deadlineAt: window.deadlineAt }
+  if (publication?.tradingDate === window.tradingDate) return { ...base, status: 'published' }
+  if (window.state === 'early') return { ...base, status: 'scheduled' }
+  let records
+  try { records = await archive.list('options-records:scan', at, { since: window.windowStartAt, count: Infinity }) }
+  catch { return { ...base, status: 'unknown' } }
+  const attempts = (records || []).map((record) => record?.payload)
+    .filter((item) => item?.stage === 'opening' && item.tradingDate === window.tradingDate && OPENING_ATTEMPTS.has(item.status))
+    .sort((a, b) => Date.parse(a.endedAt) - Date.parse(b.endedAt))
+  const latest = attempts.find((item) => item.status === 'complete') || attempts.at(-1)
+  if (latest) return { ...base, status: OPENING_STATUS[latest.status], at: latest.endedAt }
+  return { ...base, status: window.state === 'late' ? 'missed' : 'due' }
+}
 
 // Display policy only: a fixed directional +/−5% move, three sessions and
 // unchanged IV. Never choose the highest-return cell or reprice on a read.
@@ -29,6 +54,7 @@ export async function buildOptionsResearchView({ archive, manifest, contractId, 
   const base = {
     summary, session, manifestId: manifest?.manifestId || null,
     morning: publication || null, candidates: [],
+    ...(contractId ? {} : { opening: await openingScanStatus({ archive, at, publication }) }),
   }
   if (!publication) return base
   if (contractId && !publication.selected.some((row) => row.contractId === contractId)) return null
@@ -48,6 +74,7 @@ export async function buildOptionsResearchView({ archive, manifest, contractId, 
     const scenario = scenarios.find((item) => item.contractId === selected.contractId && item.purpose === 'selected_full_matrix')
     const set = scenario?.scenarioSet
     const returns = (set?.scenarios || []).map((row) => row.askEntryModeledBidReturnPct).filter(Number.isFinite)
+    const risk = [...(score?.penalties || [])].sort((a, b) => b.points - a.points)[0]
     return {
       contractId: selected.contractId, ticker: selected.ticker, direction: selected.direction,
       rank: selected.rank, score: selected.score, contract: identity(contract || score?.contract || set?.contract),
@@ -60,7 +87,7 @@ export async function buildOptionsResearchView({ archive, manifest, contractId, 
       premiumAtRisk: set?.entry?.premiumAtRiskPerContract ?? null,
       drivers: [...(score?.components || [])].filter((item) => item.points > 0).sort((a, b) => b.points - a.points).slice(0, 2)
         .map(({ component, points, max }) => ({ component, points, max })),
-      risk: [...(score?.penalties || [])].sort((a, b) => b.points - a.points)[0]?.code || 'full_premium_at_risk',
+      risk: risk?.code || 'full_premium_at_risk', riskReason: risk?.reason || null,
       detailsAvailable: Boolean(contract && set && score),
     }
   })
