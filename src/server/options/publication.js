@@ -8,6 +8,7 @@ import {
 import {
   createOptionsScoreAuditRecord, diagnoseOptionsScorePolicy, rankOptionsScores, scoreOptionsContract,
 } from './scoring.js'
+import { createOutcomeCaptureAuditRecord, createOutcomeCapturePlan } from './observations.js'
 
 export const OPTIONS_PUBLICATION_POLICY_VERSION = 'options-morning-publication-v1'
 export const OPTIONS_PUBLICATION_POLICY = Object.freeze({
@@ -234,7 +235,21 @@ export function createOpeningAuditRecords({
   const publicationRecord = createOptionsPublicationAuditRecord({
     scanId, tradingDate, availableAt, ranking, observations, completeness, lineage,
   })
-  return { scenarioRecord, scoreRecord, decisionRecord, publicationRecord }
+  const outcomePlans = ranking.displayed.map((entry) => {
+    const observed = observations.get(entry.contract.contractId)
+    const contract = observed?.contract || entry.contract
+    if (!contract?.securityId || !contract?.issuerId) return null
+    return createOutcomeCapturePlan({
+      scanId, tradingDate,
+      entryAt: observed?.contract?.quote?.marketAt || availableAt,
+      contract,
+    })
+  }).filter(Boolean)
+  const outcomeRecord = createOutcomeCaptureAuditRecord({
+    scanId, availableAt, plans: outcomePlans,
+    inputHashes: [decisionRecord.recordId, publicationRecord.recordId],
+  })
+  return { scenarioRecord, scoreRecord, decisionRecord, publicationRecord, outcomeRecord }
 }
 
 export function optionsPublicationSummary(manifest, at = Date.now(), { calendar = OPTIONS_CALENDAR_2026 } = {}) {

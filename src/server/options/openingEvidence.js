@@ -281,7 +281,7 @@ export async function runOptionsOpeningStage({
     chainRecordIds: chainRecords.map((record) => record.recordId), premarketRecordIds: premarket.recordIds,
     observations, completeness: entries.some((entry) => !entry.available) ? 'partial' : 'complete',
   })
-  const records = [...chainRecords, built.scenarioRecord, built.scoreRecord, built.decisionRecord, built.publicationRecord]
+  const records = [...chainRecords, built.scenarioRecord, built.scoreRecord, built.decisionRecord, built.outcomeRecord, built.publicationRecord]
 
   return {
     status: 'complete',
@@ -294,6 +294,7 @@ export async function runOptionsOpeningStage({
       acceptedCount, rejectedCount, retriedCount, primaryCount, edgeCount,
       scoredCount: ranking.ranked.length, selectedCount: ranking.displayed.length,
       publicationRecordId: built.publicationRecord.recordId, scoreRecordId: built.scoreRecord.recordId,
+      outcomeRecordId: built.outcomeRecord.recordId,
     },
   }
 }
