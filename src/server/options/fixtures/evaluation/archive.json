@@ -1,0 +1,1079 @@
+{
+  "manifest": {
+    "schemaVersion": "options-evaluation-archive-v1",
+    "asOf": "2026-09-23T12:00:00Z",
+    "protocolHash": "076e25f8a3b06d1362b5fea5e807cd22887c38e24d98cfba1796557da8e7bcf0",
+    "scanHashes": [
+      "3260a3a83037ee6d443dddbf370612368ab52c0de7e12909a4465eb0dcc2e0e2"
+    ],
+    "outcomeHashes": [
+      "5cf331b7674f75b7264cce71847e6e1be0d620eab5b6712d1134f9918de8707c",
+      "64135e58a191a15ab7bea7c9e74f2751abd758352a1185d33d6621910a98c2ec",
+      "79d3b92640a909c24bfe4b1de2840665d8b75168413f9298adbea04f780dca64"
+    ]
+  },
+  "objects": {
+    "076e25f8a3b06d1362b5fea5e807cd22887c38e24d98cfba1796557da8e7bcf0": {
+      "version": "synthetic-preregistered-v1",
+      "dataKind": "synthetic",
+      "frozenAt": "2026-08-01T00:00:00Z",
+      "policy": {
+        "version": "options-evaluation-v1",
+        "endpointSessions": [
+          0,
+          1,
+          3,
+          5,
+          10
+        ],
+        "premiumTargetsPct": [
+          25,
+          50,
+          100
+        ],
+        "stopLossPct": -25,
+        "timeExitSessions": 3,
+        "multiplier": 100,
+        "feePerSide": 0.7,
+        "slippagePerShare": 0.01,
+        "quoteToleranceMs": 30000,
+        "purgeSessions": 10,
+        "embargoSessions": 10,
+        "match": {
+          "delta": 0.1,
+          "dte": 7,
+          "spreadPct": 5
+        },
+        "bootstrapReplicates": 300
+      },
+      "versions": {
+        "features": "options-point-in-time-features-v1",
+        "sources": "options-feature-sources-phase0-v1",
+        "shortlist": "options-premarket-shortlist-v1",
+        "gates": "options-opening-chain-gates-v1",
+        "publication": "options-morning-publication-v1",
+        "score": "options-deterministic-score-v0",
+        "scenarios": "options-scenario-matrix-v1",
+        "pricing": "options-american-crr-vellekoop-v1",
+        "calendar": "cboe-us-equity-options-2026-v1"
+      },
+      "folds": [
+        {
+          "version": "walk-forward-1",
+          "policyHash": "7c59ee6acf099ff67baf260e2ee7732f8095ee609469aabf8f69d6b9ada93866",
+          "holdoutUsedForTuning": false,
+          "train": {
+            "start": "2026-06-01",
+            "end": "2026-06-15"
+          },
+          "validation": {
+            "start": "2026-07-07",
+            "end": "2026-07-20"
+          },
+          "holdout": {
+            "start": "2026-09-22",
+            "end": "2026-10-15"
+          }
+        }
+      ]
+    },
+    "3260a3a83037ee6d443dddbf370612368ab52c0de7e12909a4465eb0dcc2e0e2": {
+      "scanId": "synthetic:2026-09-22",
+      "tradingDate": "2026-09-22",
+      "premarketAt": "2026-09-22T13:00:00.000Z",
+      "openingAt": "2026-09-22T13:32:20.000Z",
+      "versions": {
+        "features": "options-point-in-time-features-v1",
+        "sources": "options-feature-sources-phase0-v1",
+        "shortlist": "options-premarket-shortlist-v1",
+        "gates": "options-opening-chain-gates-v1",
+        "publication": "options-morning-publication-v1",
+        "score": "options-deterministic-score-v0",
+        "scenarios": "options-scenario-matrix-v1",
+        "pricing": "options-american-crr-vellekoop-v1",
+        "calendar": "cboe-us-equity-options-2026-v1"
+      },
+      "references": {
+        "watchlist": {
+          "version": "synthetic-watchlist-v1",
+          "availableAt": "2026-09-22T13:00:00.000Z",
+          "securities": [
+            {
+              "securityId": "sec:EX",
+              "issuerId": "iss:EX",
+              "ticker": "EX"
+            }
+          ]
+        },
+        "identity": {
+          "version": "synthetic-identity-v1",
+          "availableAt": "2026-09-22T13:00:00.000Z",
+          "securities": [
+            {
+              "securityId": "sec:EX",
+              "issuerId": "iss:EX",
+              "ticker": "EX"
+            }
+          ]
+        },
+        "events": {
+          "version": "synthetic-events-v1",
+          "availableAt": "2026-09-22T13:00:00.000Z"
+        },
+        "feed": {
+          "version": "synthetic-fixture-v1",
+          "availableAt": "2026-09-22T13:00:00.000Z"
+        },
+        "calendar": {
+          "version": "cboe-us-equity-options-2026-v1",
+          "availableAt": "2026-09-22T00:00:00.000Z",
+          "validFrom": "2026-01-01",
+          "validThrough": "2026-12-31",
+          "timeZone": "America/New_York",
+          "source": {
+            "provider": "cboe",
+            "url": "https://www.cboe.com/about/hours/us-options",
+            "retrievedAt": "2026-09-22T00:00:00.000Z"
+          },
+          "regular": {
+            "open": "09:30",
+            "close": "16:00"
+          },
+          "extended": {
+            "gthOpen": "07:30",
+            "gthClose": "09:25",
+            "transitionClose": "09:30",
+            "curbOpen": "16:00",
+            "curbClose": "16:15"
+          },
+          "holidays": {
+            "2026-01-01": "New Year's Day",
+            "2026-01-19": "Martin Luther King Jr. Day",
+            "2026-02-16": "Presidents' Day",
+            "2026-04-03": "Good Friday",
+            "2026-05-25": "Memorial Day",
+            "2026-06-19": "Juneteenth",
+            "2026-07-03": "Independence Day observed",
+            "2026-09-07": "Labor Day",
+            "2026-11-26": "Thanksgiving Day",
+            "2026-12-25": "Christmas Day"
+          },
+          "earlyCloses": {
+            "2026-11-27": {
+              "name": "Thanksgiving early close",
+              "close": "13:00"
+            },
+            "2026-12-24": {
+              "name": "Christmas early close",
+              "close": "13:00"
+            }
+          }
+        }
+      },
+      "featureInputs": {
+        "bars": [
+          {
+            "securityId": "sec:EX",
+            "date": "2026-08-03",
+            "close": 151,
+            "availableAt": "2026-08-03T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-08-03",
+            "close": 400.4,
+            "availableAt": "2026-08-03T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-08-04",
+            "close": 151.5,
+            "availableAt": "2026-08-04T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-08-04",
+            "close": 400.6,
+            "availableAt": "2026-08-04T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-08-05",
+            "close": 152,
+            "availableAt": "2026-08-05T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-08-05",
+            "close": 400.8,
+            "availableAt": "2026-08-05T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-08-06",
+            "close": 152.5,
+            "availableAt": "2026-08-06T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-08-06",
+            "close": 401,
+            "availableAt": "2026-08-06T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-08-07",
+            "close": 153,
+            "availableAt": "2026-08-07T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-08-07",
+            "close": 401.2,
+            "availableAt": "2026-08-07T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-08-10",
+            "close": 154.5,
+            "availableAt": "2026-08-10T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-08-10",
+            "close": 401.8,
+            "availableAt": "2026-08-10T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-08-11",
+            "close": 155,
+            "availableAt": "2026-08-11T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-08-11",
+            "close": 402,
+            "availableAt": "2026-08-11T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-08-12",
+            "close": 155.5,
+            "availableAt": "2026-08-12T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-08-12",
+            "close": 402.2,
+            "availableAt": "2026-08-12T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-08-13",
+            "close": 156,
+            "availableAt": "2026-08-13T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-08-13",
+            "close": 402.4,
+            "availableAt": "2026-08-13T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-08-14",
+            "close": 156.5,
+            "availableAt": "2026-08-14T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-08-14",
+            "close": 402.6,
+            "availableAt": "2026-08-14T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-08-17",
+            "close": 158,
+            "availableAt": "2026-08-17T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-08-17",
+            "close": 403.2,
+            "availableAt": "2026-08-17T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-08-18",
+            "close": 158.5,
+            "availableAt": "2026-08-18T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-08-18",
+            "close": 403.4,
+            "availableAt": "2026-08-18T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-08-19",
+            "close": 159,
+            "availableAt": "2026-08-19T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-08-19",
+            "close": 403.6,
+            "availableAt": "2026-08-19T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-08-20",
+            "close": 159.5,
+            "availableAt": "2026-08-20T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-08-20",
+            "close": 403.8,
+            "availableAt": "2026-08-20T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-08-21",
+            "close": 160,
+            "availableAt": "2026-08-21T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-08-21",
+            "close": 404,
+            "availableAt": "2026-08-21T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-08-24",
+            "close": 161.5,
+            "availableAt": "2026-08-24T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-08-24",
+            "close": 404.6,
+            "availableAt": "2026-08-24T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-08-25",
+            "close": 162,
+            "availableAt": "2026-08-25T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-08-25",
+            "close": 404.8,
+            "availableAt": "2026-08-25T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-08-26",
+            "close": 162.5,
+            "availableAt": "2026-08-26T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-08-26",
+            "close": 405,
+            "availableAt": "2026-08-26T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-08-27",
+            "close": 163,
+            "availableAt": "2026-08-27T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-08-27",
+            "close": 405.2,
+            "availableAt": "2026-08-27T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-08-28",
+            "close": 163.5,
+            "availableAt": "2026-08-28T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-08-28",
+            "close": 405.4,
+            "availableAt": "2026-08-28T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-08-31",
+            "close": 165,
+            "availableAt": "2026-08-31T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-08-31",
+            "close": 406,
+            "availableAt": "2026-08-31T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-09-01",
+            "close": 165.5,
+            "availableAt": "2026-09-01T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-09-01",
+            "close": 406.2,
+            "availableAt": "2026-09-01T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-09-02",
+            "close": 166,
+            "availableAt": "2026-09-02T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-09-02",
+            "close": 406.4,
+            "availableAt": "2026-09-02T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-09-03",
+            "close": 166.5,
+            "availableAt": "2026-09-03T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-09-03",
+            "close": 406.6,
+            "availableAt": "2026-09-03T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-09-04",
+            "close": 167,
+            "availableAt": "2026-09-04T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-09-04",
+            "close": 406.8,
+            "availableAt": "2026-09-04T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-09-07",
+            "close": 168.5,
+            "availableAt": "2026-09-07T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-09-07",
+            "close": 407.4,
+            "availableAt": "2026-09-07T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-09-08",
+            "close": 169,
+            "availableAt": "2026-09-08T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-09-08",
+            "close": 407.6,
+            "availableAt": "2026-09-08T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "sec:EX",
+            "date": "2026-09-09",
+            "close": 169.5,
+            "availableAt": "2026-09-09T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          },
+          {
+            "securityId": "benchmark:SPY",
+            "date": "2026-09-09",
+            "close": 407.8,
+            "availableAt": "2026-09-09T21:00:00Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          }
+        ],
+        "underlyings": [
+          {
+            "securityId": "sec:EX",
+            "issuerId": "iss:EX",
+            "ticker": "EX",
+            "price": 180,
+            "availableAt": "2026-09-22T13:00:00.000Z",
+            "marketAt": "2026-09-22T13:00:00.000Z",
+            "source": {
+              "provider": "alpaca",
+              "licenseId": "alpaca-basic-indicative",
+              "url": "https://example.test/archived"
+            }
+          }
+        ],
+        "regime": [
+          {
+            "eventId": "regime",
+            "securityId": "sec:EX",
+            "issuerId": "iss:EX",
+            "ticker": "EX",
+            "score": 8,
+            "label": "constructive",
+            "availableAt": "2026-09-22T13:00:00.000Z",
+            "source": {
+              "provider": "fixture",
+              "licenseId": "test-fixture",
+              "url": "https://example.test/regime"
+            }
+          }
+        ]
+      },
+      "coverage": {
+        "earnings": {
+          "status": "complete",
+          "asOf": "2026-09-22T13:00:00.000Z"
+        },
+        "catalysts": {
+          "status": "complete",
+          "asOf": "2026-09-22T13:00:00.000Z"
+        }
+      },
+      "chains": [
+        {
+          "securityId": "sec:EX",
+          "availableAt": "2026-09-22T13:32:20.000Z",
+          "underlying": {
+            "quote": {
+              "bid": 179.9,
+              "ask": 180.1,
+              "marketAt": "2026-09-22T13:32:15.000Z",
+              "availableAt": "2026-09-22T13:32:15.000Z",
+              "bidSize": 20,
+              "askSize": 20
+            }
+          },
+          "contracts": [
+            {
+              "securityId": "sec:EX",
+              "issuerId": "iss:EX",
+              "ticker": "EX",
+              "rawId": "raw-0",
+              "contractId": "contract-0",
+              "osiSymbol": "EX261016C00185000",
+              "type": "call",
+              "strikePrice": 185,
+              "expirationDate": "2026-10-16",
+              "availableAt": "2026-09-22T13:00:00.000Z",
+              "validFrom": "2026-09-01T00:00:00Z",
+              "status": "active",
+              "deliverable": {
+                "adjusted": false,
+                "multiplier": 100
+              },
+              "quote": {
+                "bid": 5.4,
+                "ask": 5.6,
+                "marketAt": "2026-09-22T13:32:15.000Z",
+                "availableAt": "2026-09-22T13:32:15.000Z",
+                "bidSize": 20,
+                "askSize": 20
+              },
+              "openInterest": {
+                "value": 1200,
+                "asOfDate": "2026-09-21",
+                "availableAt": "2026-09-22T13:00:00.000Z"
+              },
+              "volume": {
+                "value": 40,
+                "sessionDate": "2026-09-22",
+                "semantics": "cumulative_at_cutoff",
+                "marketAt": "2026-09-22T13:32:20.000Z",
+                "availableAt": "2026-09-22T13:32:20.000Z"
+              },
+              "previousDailyBar": {
+                "volume": 800,
+                "sessionDate": "2026-09-21",
+                "availableAt": "2026-09-22T13:00:00.000Z"
+              },
+              "analytics": {
+                "impliedVolatility": 0.4,
+                "greeks": {
+                  "delta": 0.42
+                },
+                "availableAt": "2026-09-22T13:32:20.000Z"
+              },
+              "fetchedAt": "2026-09-22T13:32:20.000Z",
+              "rawReferenceHash": "1bbcad29320f20847a515cc854063cda0ddaea20cdcff45eb6b5e0e9ee15fbd4"
+            },
+            {
+              "securityId": "sec:EX",
+              "issuerId": "iss:EX",
+              "ticker": "EX",
+              "rawId": "raw-1",
+              "contractId": "contract-1",
+              "osiSymbol": "EX261016C00190000",
+              "type": "call",
+              "strikePrice": 190,
+              "expirationDate": "2026-10-16",
+              "availableAt": "2026-09-22T13:00:00.000Z",
+              "validFrom": "2026-09-01T00:00:00Z",
+              "status": "active",
+              "deliverable": {
+                "adjusted": false,
+                "multiplier": 100
+              },
+              "quote": {
+                "bid": 4.4,
+                "ask": 4.6,
+                "marketAt": "2026-09-22T13:32:15.000Z",
+                "availableAt": "2026-09-22T13:32:15.000Z",
+                "bidSize": 20,
+                "askSize": 20
+              },
+              "openInterest": {
+                "value": 1200,
+                "asOfDate": "2026-09-21",
+                "availableAt": "2026-09-22T13:00:00.000Z"
+              },
+              "volume": {
+                "value": 40,
+                "sessionDate": "2026-09-22",
+                "semantics": "cumulative_at_cutoff",
+                "marketAt": "2026-09-22T13:32:20.000Z",
+                "availableAt": "2026-09-22T13:32:20.000Z"
+              },
+              "previousDailyBar": {
+                "volume": 800,
+                "sessionDate": "2026-09-21",
+                "availableAt": "2026-09-22T13:00:00.000Z"
+              },
+              "analytics": {
+                "impliedVolatility": 0.4,
+                "greeks": {
+                  "delta": 0.39
+                },
+                "availableAt": "2026-09-22T13:32:20.000Z"
+              },
+              "fetchedAt": "2026-09-22T13:32:20.000Z",
+              "rawReferenceHash": "042896dc1966b8a6214e5383aba5b8b931cfa049d17aafa37eb8a77c859b95da"
+            },
+            {
+              "securityId": "sec:EX",
+              "issuerId": "iss:EX",
+              "ticker": "EX",
+              "rawId": "raw-2",
+              "contractId": "contract-2",
+              "osiSymbol": "EX261016C00195000",
+              "type": "call",
+              "strikePrice": 195,
+              "expirationDate": "2026-10-16",
+              "availableAt": "2026-09-22T13:00:00.000Z",
+              "validFrom": "2026-09-01T00:00:00Z",
+              "status": "active",
+              "deliverable": {
+                "adjusted": false,
+                "multiplier": 100
+              },
+              "quote": {
+                "bid": 3.4000000000000004,
+                "ask": 3.5999999999999996,
+                "marketAt": "2026-09-22T13:32:15.000Z",
+                "availableAt": "2026-09-22T13:32:15.000Z",
+                "bidSize": 20,
+                "askSize": 20
+              },
+              "openInterest": {
+                "value": 1200,
+                "asOfDate": "2026-09-21",
+                "availableAt": "2026-09-22T13:00:00.000Z"
+              },
+              "volume": {
+                "value": 40,
+                "sessionDate": "2026-09-22",
+                "semantics": "cumulative_at_cutoff",
+                "marketAt": "2026-09-22T13:32:20.000Z",
+                "availableAt": "2026-09-22T13:32:20.000Z"
+              },
+              "previousDailyBar": {
+                "volume": 800,
+                "sessionDate": "2026-09-21",
+                "availableAt": "2026-09-22T13:00:00.000Z"
+              },
+              "analytics": {
+                "impliedVolatility": 0.4,
+                "greeks": {
+                  "delta": 0.36
+                },
+                "availableAt": "2026-09-22T13:32:20.000Z"
+              },
+              "fetchedAt": "2026-09-22T13:32:20.000Z",
+              "rawReferenceHash": "dba0082ec68e72d47fa926dcc91fb9b00961ceb4342554a0c2aa567144a5a6d3"
+            }
+          ]
+        }
+      ]
+    },
+    "5cf331b7674f75b7264cce71847e6e1be0d620eab5b6712d1134f9918de8707c": {
+      "scanId": "synthetic:2026-09-22",
+      "contractId": "contract-0",
+      "observations": [
+        {
+          "contractId": "contract-0",
+          "securityId": "sec:EX",
+          "issuerId": "iss:EX",
+          "at": "2026-09-22T20:00:00.000Z",
+          "availableAt": "2026-09-22T20:00:00.000Z",
+          "quote": {
+            "bid": 3,
+            "ask": 3.2,
+            "marketAt": "2026-09-22T20:00:00.000Z",
+            "availableAt": "2026-09-22T20:00:00.000Z",
+            "bidSize": 20,
+            "askSize": 20
+          },
+          "underlyingPrice": 175,
+          "iv": 0.35
+        }
+      ]
+    },
+    "64135e58a191a15ab7bea7c9e74f2751abd758352a1185d33d6621910a98c2ec": {
+      "scanId": "synthetic:2026-09-22",
+      "contractId": "contract-1",
+      "observations": [
+        {
+          "contractId": "contract-1",
+          "securityId": "sec:EX",
+          "issuerId": "iss:EX",
+          "at": "2026-09-22T20:00:00.000Z",
+          "availableAt": "2026-09-22T20:00:00.000Z",
+          "quote": {
+            "bid": 2.5,
+            "ask": 2.7,
+            "marketAt": "2026-09-22T20:00:00.000Z",
+            "availableAt": "2026-09-22T20:00:00.000Z",
+            "bidSize": 20,
+            "askSize": 20
+          },
+          "underlyingPrice": 175,
+          "iv": 0.35
+        }
+      ]
+    },
+    "79d3b92640a909c24bfe4b1de2840665d8b75168413f9298adbea04f780dca64": {
+      "scanId": "synthetic:2026-09-22",
+      "contractId": "contract-2",
+      "observations": [
+        {
+          "contractId": "contract-2",
+          "securityId": "sec:EX",
+          "issuerId": "iss:EX",
+          "at": "2026-09-22T20:00:00.000Z",
+          "availableAt": "2026-09-22T20:00:00.000Z",
+          "quote": {
+            "bid": 2,
+            "ask": 2.2,
+            "marketAt": "2026-09-22T20:00:00.000Z",
+            "availableAt": "2026-09-22T20:00:00.000Z",
+            "bidSize": 20,
+            "askSize": 20
+          },
+          "underlyingPrice": 175,
+          "iv": 0.35
+        }
+      ]
+    }
+  }
+}
