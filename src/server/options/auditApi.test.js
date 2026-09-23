@@ -1,12 +1,13 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ verifyOwner: vi.fn(), redisFromEnv: vi.fn(), createArchive: vi.fn(), latest: vi.fn(), record: vi.fn() }))
+const mocks = vi.hoisted(() => ({ verifyOwner: vi.fn(), redisFromEnv: vi.fn(), createArchive: vi.fn(), latest: vi.fn(), record: vi.fn(), refresh: vi.fn() }))
 vi.mock('@upstash/redis', () => ({ Redis: { fromEnv: mocks.redisFromEnv } }))
 vi.mock('../research/evaluationApi.js', () => ({ verifyOwner: mocks.verifyOwner }))
 vi.mock('../research/archive.js', () => ({ createArchive: mocks.createArchive }))
 vi.mock('./auditStore.js', () => ({ latestOptionsManifest: mocks.latest, optionsAuditRecord: mocks.record }))
-import handler from './auditApi.js'
+vi.mock('./detailRefresh.js', () => ({ refreshOptionsContractDetail: mocks.refresh }))
+import handler, { createOptionsAuditHandler } from './auditApi.js'
 
 const response = () => ({ setHeader: vi.fn(), status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() })
 const request = (overrides = {}) => ({ method: 'GET', headers: { authorization: 'Bearer owner-token' }, query: {}, ...overrides })
@@ -30,7 +31,7 @@ describe('owner-only options audit API', () => {
     expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, no-store')
     expect(res.setHeader).toHaveBeenCalledWith('Vary', 'Authorization')
     expect(res.status).toHaveBeenCalledWith(200)
-    expect(body(res)).toEqual({ manifest: { manifestId: 'manifest-1' } })
+    expect(body(res)).toEqual({ summary: expect.objectContaining({ state: 'unavailable', referenceId: 'manifest-1' }) })
   })
 
   it('authorizes before any storage read', async () => {
@@ -76,10 +77,43 @@ describe('owner-only options audit API', () => {
     expect(JSON.stringify(body(res))).not.toContain('secret-provider-detail')
   })
 
-  it('rejects mutations before authentication or storage', async () => {
-    const res = response(); await handler(request({ method: 'POST' }), res)
+  it('rejects unsupported methods before authentication or storage', async () => {
+    const res = response(); await handler(request({ method: 'PATCH' }), res)
     expect(res.status).toHaveBeenCalledWith(405)
     expect(mocks.verifyOwner).not.toHaveBeenCalled()
     expect(mocks.redisFromEnv).not.toHaveBeenCalled()
+  })
+
+  it('creates a separate owner-only detail refresh revision', async () => {
+    const refreshDetail = vi.fn(async () => ({
+      morning: { recordId: 'morning' }, refresh: { recordId: 'refresh', status: 'accepted' },
+    }))
+    const latestManifest = vi.fn(async () => ({ manifestId: 'f'.repeat(64), scanId: 'scan', records: [] }))
+    const local = createOptionsAuditHandler({
+      authorize: vi.fn(async () => ({ uid: 'owner' })), redisFromEnv: () => ({}), makeArchive: () => ({ archive: true }),
+      latestManifest, readRecord: vi.fn(), refreshDetail, now: () => Date.parse('2026-09-22T14:00:00.000Z'),
+    })
+    const res = response()
+    await local(request({ method: 'POST', body: { contractId: 'osi:EX' } }), res)
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(body(res).detail).toMatchObject({ morning: { recordId: 'morning' }, refresh: { recordId: 'refresh' } })
+    expect(refreshDetail).toHaveBeenCalledWith(expect.objectContaining({ contractId: 'osi:EX', archive: { archive: true } }))
+  })
+
+  it('returns a fresh owner summary that becomes stale without rewriting storage', async () => {
+    const publication = {
+      tradingDate: '2026-09-22', state: 'theoretical', observationMode: 'theoretical', result: 'candidates',
+      availableAt: '2026-09-22T13:32:00.000Z', validUntil: '2026-09-22T13:32:30.000Z', selected: [],
+    }
+    const dependencies = {
+      authorize: vi.fn(async () => ({ uid: 'owner' })), redisFromEnv: () => ({}), makeArchive: () => ({}),
+      latestManifest: vi.fn(async () => ({ manifestId: 'manifest', publication })), readRecord: vi.fn(),
+    }
+    let res = response()
+    await createOptionsAuditHandler({ ...dependencies, now: () => Date.parse('2026-09-22T13:32:20.000Z') })(request(), res)
+    expect(body(res).summary.state).toBe('theoretical')
+    res = response()
+    await createOptionsAuditHandler({ ...dependencies, now: () => Date.parse('2026-09-22T13:33:00.000Z') })(request(), res)
+    expect(body(res).summary.state).toBe('stale')
   })
 })

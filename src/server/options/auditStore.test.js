@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createArchive } from '../research/archive.js'
 import { createOptionsAuditRecord } from './audit.js'
 import { commitOptionsScan, latestOptionsManifest, OPTIONS_LATEST_POINTER_KEY, OPTIONS_SCAN_LOCK_KEY } from './auditStore.js'
+import { createOpeningAuditRecords } from './publication.js'
 
 function memoryRedis() {
   const values = new Map(), indexes = new Map(), calls = { set: 0, get: 0, zadd: 0, eval: 0 }
@@ -15,7 +16,9 @@ function memoryRedis() {
     async eval(_script, keys, args) {
       calls.eval++
       if (values.get(keys[0]) !== args[0]) return 0
-      values.set(keys[1], args[1]); return 1
+      const prior = values.get(keys[2])
+      if (prior) return prior === args[2] ? 2 : -1
+      values.set(keys[1], args[1]); values.set(keys[2], args[2]); return 1
     },
   }
 }
@@ -95,5 +98,30 @@ describe('options audit storage', () => {
     redis.eval = vi.fn(async () => 0)
     await expect(commitOptionsScan({ archive, redis, records: [scanRecord()], scanId: 'scan-1', availableAt: common.availableAt, lockToken: 'owner-token' })).rejects.toThrow('lock was lost')
     expect(redis.values.has(OPTIONS_LATEST_POINTER_KEY)).toBe(false)
+  })
+
+  it('publishes one complete opening revision and treats an identical retry as a duplicate', async () => {
+    const redis = memoryRedis(), archive = createArchive(redis, { objectStore: memoryObjectStore() })
+    await redis.set(OPTIONS_SCAN_LOCK_KEY, 'owner-token')
+    const ranking = {
+      policyVersion: 'score-v0', cohort: null, maxPerUnderlyingDirection: 2,
+      ranked: [], displayed: [], suppressed: [], ineligible: [],
+      metrics: { scoredCount: 0, ineligibleCount: 0, displayedCount: 0, suppressedCount: 0, topScore: null, blockerCodes: [] },
+    }
+    const built = createOpeningAuditRecords({
+      scanId: 'scan-1', tradingDate: '2026-09-22', availableAt: common.availableAt, ranking, scenarios: [],
+    })
+    const records = Object.values(built)
+    const first = await commitOptionsScan({
+      archive, redis, records, scanId: 'scan-1', availableAt: common.availableAt,
+      lockToken: 'owner-token', requirePublication: true,
+    })
+    const second = await commitOptionsScan({
+      archive, redis, records, scanId: 'scan-1', availableAt: common.availableAt,
+      lockToken: 'owner-token', requirePublication: true,
+    })
+    expect(first.duplicate).toBe(false)
+    expect(second).toMatchObject({ duplicate: true, manifest: { manifestId: first.manifest.manifestId } })
+    expect(first.manifest.publication).toMatchObject({ state: 'empty', result: 'empty' })
   })
 })
