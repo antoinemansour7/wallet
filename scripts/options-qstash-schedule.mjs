@@ -25,14 +25,18 @@ const schedules = Object.entries({
   destination: new URL(`/api/options-scan?mode=${stage}`, appUrl?.startsWith('http') ? appUrl : `https://${appUrl}`).href,
 }))
 
-async function request(path, init = {}) {
+async function request(path, init = {}, label = 'schedules') {
   const response = await fetch(new URL(path, apiBase), {
     ...init,
     headers: { Authorization: `Bearer ${token}`, ...(init.headers || {}) },
     signal: AbortSignal.timeout(15000),
   })
-  const body = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(`QStash schedule request failed (${response.status})`)
+  const text = await response.text()
+  let body = {}
+  try { body = text ? JSON.parse(text) : {} } catch { body = { error: text } }
+  // QStash's own validation message is the only useful part of a 4xx; it
+  // never echoes the bearer token or forwarded headers.
+  if (!response.ok) throw new Error(`QStash ${label} request failed (${response.status}): ${String(body.error || body.message || 'no detail').slice(0, 300)}`)
   return body
 }
 
@@ -41,7 +45,8 @@ if (action === 'check') {
   const rows = Array.isArray(existing) ? existing : existing.schedules || []
   console.log(JSON.stringify(schedules.map((expected) => {
     const actual = rows.find((item) => item.scheduleId === expected.scheduleId || item.id === expected.scheduleId)
-    return { stage: expected.stage, installed: Boolean(actual), cron: actual?.cron || expected.cron, destination: expected.destination }
+    return { stage: expected.stage, installed: Boolean(actual), cron: actual?.cron || expected.cron,
+      destination: actual?.destination || expected.destination, destinationMatches: actual ? actual.destination === expected.destination : null }
   }), null, 2))
 } else if (action === 'remove') {
   for (const schedule of schedules) await request(`/v2/schedules/${encodeURIComponent(schedule.scheduleId)}`, { method: 'DELETE' })
@@ -49,7 +54,9 @@ if (action === 'check') {
 } else {
   if (!cronSecret) throw new Error('CRON_SECRET is required')
   for (const schedule of schedules) {
-    await request(`/v2/schedules/${encodeURIComponent(schedule.destination)}`, {
+    // QStash reads the destination from the raw path: it must stay unencoded,
+    // including its ?mode= query, or it is rejected as having no scheme.
+    await request(`/v2/schedules/${schedule.destination}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -57,12 +64,14 @@ if (action === 'check') {
         'Upstash-Schedule-Id': schedule.scheduleId,
         'Upstash-Method': 'POST',
         'Upstash-Retries': schedule.retries,
-        'Upstash-Retry-Delay': '30s',
+        // A millisecond expression (e.g. `pow(2, retried) * 1000`), not a duration.
+        ...(schedule.retries !== '0' ? { 'Upstash-Retry-Delay': '30000' } : {}),
         'Upstash-Timeout': '300s',
         'Upstash-Forward-Authorization': `Bearer ${cronSecret}`,
       },
       body: '{}',
-    })
+    }, `${schedule.stage} schedule`)
+    console.log(`installed ${schedule.stage}: ${schedule.cron}`)
   }
   console.log(JSON.stringify({ installed: schedules.map(({ stage, scheduleId, cron, destination }) => ({ stage, scheduleId, cron, destination })) }, null, 2))
 }
