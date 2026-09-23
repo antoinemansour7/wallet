@@ -1,4 +1,5 @@
 import { OPTIONS_SCHEDULE_POLICY } from '../src/server/options/scheduler.js'
+import { OPTIONS_FORWARD_CAPTURE_POLICY } from '../src/server/options/forwardCapture.js'
 
 const action = process.argv[2] || 'check'
 const token = process.env.QSTASH_TOKEN
@@ -10,9 +11,16 @@ if (!['check', 'apply', 'remove'].includes(action)) throw new Error('Usage: npm 
 if (!token) throw new Error('QSTASH_TOKEN is required')
 if (!appUrl) throw new Error('OPTIONS_SCAN_BASE_URL or VERCEL_PROJECT_PRODUCTION_URL is required')
 
-const schedules = Object.entries(OPTIONS_SCHEDULE_POLICY.provider.schedules).map(([stage, cron]) => ({
+// A retried capture tick arrives after the instant it was meant to observe, so
+// it could never satisfy the evaluator; it would only spend daily messages.
+const retries = { observe: '0' }
+const schedules = Object.entries({
+  ...OPTIONS_SCHEDULE_POLICY.provider.schedules,
+  observe: OPTIONS_FORWARD_CAPTURE_POLICY.schedule,
+}).map(([stage, cron]) => ({
   stage,
   cron,
+  retries: retries[stage] || '2',
   scheduleId: `wallai-options-${stage}-v1`,
   destination: new URL(`/api/options-scan?mode=${stage}`, appUrl?.startsWith('http') ? appUrl : `https://${appUrl}`).href,
 }))
@@ -48,7 +56,7 @@ if (action === 'check') {
         'Upstash-Cron': schedule.cron,
         'Upstash-Schedule-Id': schedule.scheduleId,
         'Upstash-Method': 'POST',
-        'Upstash-Retries': '2',
+        'Upstash-Retries': schedule.retries,
         'Upstash-Retry-Delay': '30s',
         'Upstash-Timeout': '300s',
         'Upstash-Forward-Authorization': `Bearer ${cronSecret}`,

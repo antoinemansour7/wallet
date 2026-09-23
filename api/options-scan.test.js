@@ -96,4 +96,65 @@ describe('options scan dispatcher', () => {
     expect(JSON.stringify(res.body)).not.toContain('max requests')
     expect(JSON.stringify(res.body)).not.toContain('secret')
   })
+
+  describe('forward outcome capture (mode=observe)', () => {
+    const redis = { redis: true }
+    const observeHandler = (runObserveTick, extra = {}) => createOptionsScanHandler({
+      getRedis: () => redis, makeArchive: () => ({ archive: true }), runStage: vi.fn(), makeAdapter: () => ({ adapter: true }),
+      runObserveTick, ...extra,
+    })
+
+    it('runs the capture tick outside the once-a-day stage runner, with redis, archive and the Alpaca adapter', async () => {
+      const runObserveTick = vi.fn(async () => ({ status: 'captured', tradingDate: '2026-09-22', instants: ['2026-09-22T20:00:00.000Z'], recordIds: ['a'.repeat(64)], failed: [] }))
+      const runStage = vi.fn()
+      const res = response()
+      await observeHandler(runObserveTick, { runStage, captureEnabled: () => true })(request({ query: { mode: 'observe' } }), res)
+      expect(res.statusCode).toBe(200)
+      expect(res.body).toEqual({ status: 'captured', stage: 'observe', tradingDate: '2026-09-22', instants: 1, failed: 0 })
+      expect(runStage).not.toHaveBeenCalled()
+      expect(runObserveTick).toHaveBeenCalledWith(expect.objectContaining({ redis, archive: { archive: true }, adapter: { adapter: true }, enabled: true }))
+    })
+
+    it('does not build the provider adapter when capture is disabled', async () => {
+      const makeAdapter = vi.fn(() => { throw new Error('credentials required') })
+      const runObserveTick = vi.fn(async ({ enabled }) => ({ status: enabled ? 'captured' : 'disabled' }))
+      const res = response()
+      await observeHandler(runObserveTick, { captureEnabled: () => false, makeAdapter })(request({ query: { mode: 'observe' } }), res)
+      expect(res.statusCode).toBe(200)
+      expect(res.body.status).toBe('disabled')
+      expect(makeAdapter).not.toHaveBeenCalled()
+    })
+
+    it('reports a partial capture as 503 so the scheduler surfaces it, without provider detail', async () => {
+      const runObserveTick = vi.fn(async () => ({ status: 'partial', tradingDate: '2026-09-22', instants: ['x'], failed: [{ jobId: 'j', reason: 'daily_request_budget_exhausted' }] }))
+      const res = response()
+      await observeHandler(runObserveTick, { captureEnabled: () => true })(request({ query: { mode: 'observe' } }), res)
+      expect(res.statusCode).toBe(503)
+      expect(res.body).toEqual({ status: 'partial', stage: 'observe', tradingDate: '2026-09-22', instants: 1, failed: 1 })
+    })
+
+    it('fails closed and sanitized when capture throws', async () => {
+      const runObserveTick = vi.fn(async () => { throw new Error('Redis quota secret') })
+      const res = response()
+      await observeHandler(runObserveTick, { captureEnabled: () => true })(request({ query: { mode: 'observe' } }), res)
+      expect(res.statusCode).toBe(503)
+      expect(res.body).toMatchObject({ error: 'Options outcome capture is unavailable.', category: 'capture_failed' })
+      expect(JSON.stringify(res.body)).not.toContain('secret')
+    })
+
+    it('defaults capture to the scanner flag unless OPTIONS_FORWARD_CAPTURE_ENABLED is set explicitly', async () => {
+      const runObserveTick = vi.fn(async ({ enabled }) => ({ status: enabled ? 'idle' : 'disabled' }))
+      const run = async () => { const res = response(); await observeHandler(runObserveTick)(request({ query: { mode: 'observe' } }), res); return res.body.status }
+      vi.stubEnv('OPTIONS_SCANNER_ENABLED', 'true')
+      vi.stubEnv('OPTIONS_FORWARD_CAPTURE_ENABLED', '')
+      expect(await run()).toBe('idle')
+      vi.stubEnv('OPTIONS_SCANNER_ENABLED', 'false')
+      vi.stubEnv('OPTIONS_FORWARD_CAPTURE_ENABLED', 'true')
+      expect(await run()).toBe('idle')
+      vi.stubEnv('OPTIONS_SCANNER_ENABLED', 'true')
+      vi.stubEnv('OPTIONS_FORWARD_CAPTURE_ENABLED', 'false')
+      expect(await run()).toBe('disabled')
+      vi.unstubAllEnvs()
+    })
+  })
 })

@@ -14,6 +14,7 @@ export const EXTERNAL_RECORD_KINDS = new Set([
   'options-scenario',
   'options-outcome',
   'options-observation',
+  'options-observation-day',
   'options-coverage',
   'options-policy',
   'options-diagnostic',
