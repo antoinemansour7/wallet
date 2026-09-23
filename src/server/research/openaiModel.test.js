@@ -1,11 +1,11 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ create: vi.fn() }))
+const mocks = vi.hoisted(() => ({ create: vi.fn(), constructed: vi.fn() }))
 
 vi.mock('openai', () => ({
   default: class OpenAI {
-    constructor() { this.responses = { create: mocks.create } }
+    constructor(options) { mocks.constructed(options); this.responses = { create: mocks.create } }
   },
 }))
 
@@ -17,6 +17,7 @@ describe('OpenAI research model', () => {
   beforeEach(() => {
     process.env.OPENAI_API_KEY = 'test-key'
     mocks.create.mockReset()
+    mocks.constructed.mockReset()
   })
 
   afterEach(() => {
@@ -28,6 +29,14 @@ describe('OpenAI research model', () => {
     expect(usesOpenAIResearch({ NODE_ENV: 'production' })).toBe(true)
     expect(usesOpenAIResearch({ NODE_ENV: 'test' })).toBe(false)
     expect(usesOpenAIResearch({ NODE_ENV: 'test', RESEARCH_MODEL_PROVIDER: 'openai' })).toBe(true)
+  })
+
+  it('caps the SDK\'s own automatic retries so one stalled call cannot silently consume a caller\'s whole time budget', async () => {
+    mocks.create.mockResolvedValue({
+      status: 'completed', model: 'gpt-5.4-mini-2026-03-17', output_text: '{"items":[]}', usage: {},
+    })
+    await generateStructuredArray({ name: 'test_ranking', instructions: 'Rank.', input: 'ABC', itemSchema: { type: 'string' } })
+    expect(mocks.constructed).toHaveBeenCalledWith(expect.objectContaining({ maxRetries: 1 }))
   })
 
   it('uses strict Responses API structured output and returns its items', async () => {

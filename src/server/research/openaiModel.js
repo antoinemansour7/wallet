@@ -2,6 +2,17 @@ import OpenAI from 'openai'
 
 export const OPENAI_RESEARCH_MODEL = process.env.OPENAI_RESEARCH_MODEL || 'gpt-5.4-mini-2026-03-17'
 
+// The SDK's own default (2 retries, 10-minute timeout) lets one rate-limited
+// or slow call silently consume a caller's entire cron time budget through
+// backoff and retries with nothing ever surfacing as an error — each retry
+// attempt gets its own fresh copy of the timeout rather than a shrinking
+// remainder. A per-call `requestOptions.timeout` (the caller's real remaining
+// budget) always overrides this default; it only guards call sites that omit
+// one, such as the standalone health check.
+function createClient() {
+  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 1, timeout: 60_000 })
+}
+
 // Tests retain the already-mocked Anthropic path unless they explicitly opt in.
 // Production defaults to OpenAI so an old Anthropic key cannot silently keep
 // the paid ranking path on the wrong provider.
@@ -35,7 +46,7 @@ export async function generateStructuredArray({
   requestOptions,
 }) {
   if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not set')
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  const client = createClient()
   const create = (effort) => client.responses.create({
     model: OPENAI_RESEARCH_MODEL,
     instructions,
@@ -120,7 +131,7 @@ export async function generateWebReport({
   requestOptions,
 }) {
   if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not set')
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  const client = createClient()
   const response = await client.responses.create({
     model: OPENAI_RESEARCH_MODEL,
     instructions,
@@ -148,7 +159,7 @@ export async function generateWebReport({
 
 export async function checkOpenAIResearchModel(requestOptions) {
   if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not set')
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  const client = createClient()
   const response = await client.responses.create({
     model: OPENAI_RESEARCH_MODEL,
     input: 'Reply with exactly OK.',
