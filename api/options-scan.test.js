@@ -26,15 +26,18 @@ describe('options scan dispatcher', () => {
     expect(res.statusCode).toBe(400)
   })
 
-  it('still uses the truthful placeholder for the opening stage', async () => {
+  it('dispatches opening into the real worker with the redis handle attached', async () => {
+    const runOpeningStage = vi.fn(async () => ({ status: 'complete', records: [], metrics: { acceptedCount: 2 } }))
+    const redis = { redis: true }
     const runStage = vi.fn(async ({ stage, execute }) => {
-      expect(await execute({ checkpoint: null })).toMatchObject({ status: 'incomplete', reason: 'opening_worker_not_installed' })
-      return { status: 'incomplete', stage, tradingDate: '2026-09-22', attempt: 1, auditRecordId: 'audit-reference' }
+      expect(await execute({ checkpoint: null })).toMatchObject({ status: 'complete', metrics: { acceptedCount: 2 } })
+      return { status: 'complete', stage, tradingDate: '2026-09-22', attempt: 1, auditRecordId: 'audit-reference' }
     })
-    const handler = createOptionsScanHandler({ getRedis: () => ({ redis: true }), makeArchive: () => ({ archive: true }), runStage, enabled: () => true })
+    const handler = createOptionsScanHandler({ getRedis: () => redis, makeArchive: () => ({ archive: true }), runStage, enabled: () => true, runOpeningStage })
     const res = response()
     await handler(request({ query: { mode: 'opening' } }), res)
-    expect(res.statusCode).toBe(503)
+    expect(res.statusCode).toBe(200)
+    expect(runOpeningStage).toHaveBeenCalledWith(expect.objectContaining({ redis, archive: { archive: true } }))
   })
 
   it('dispatches premarket into the real worker and does not expose the provider message ID', async () => {
