@@ -11,6 +11,7 @@ export const RESEARCH_SCHEDULE_GRACE_MS = 90 * 60 * 1000
 export const RESEARCH_SCHEDULES = Object.freeze([
   { job: 'research-foundation', hours: [1, 4, 10, 13, 16, 19, 22] },
   { job: 'nightly-research', hours: [7] },
+  { job: 'research-reports', hours: [9] },
   { job: 'track-performance', hours: [9] },
   { job: 'research-evaluation', hours: [11] },
 ])

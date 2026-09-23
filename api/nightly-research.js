@@ -17,6 +17,7 @@ import { runCatalystAgent } from '../src/server/agents/catalystAgent.js'
 import { runExaDiscovery } from '../src/server/agents/exaDiscoveryAgent.js'
 import { getMarketRegime, regimeSizeMultiplier } from '../src/server/marketRegime.js'
 import { freezeEvaluationJob } from '../src/server/research/evaluationJob.js'
+import { runDeferredReports } from '../src/server/research/deferredReports.js'
 import { STAGES, candidateTraces, currentResearchRun, recordCandidates, recordResearchRun, researchLog, skipStage, stage } from '../src/server/research/observability.js'
 import { createCronBudget, withinCronBudget } from '../src/server/research/runtimeBudget.js'
 import { checkOpenAIResearchModel } from '../src/server/research/openaiModel.js'
@@ -26,7 +27,11 @@ const RESEARCH_TTL = 48 * 60 * 60 // 48 hours
 const HISTORY_TTL = HISTORY_RETENTION_SECONDS
 const HISTORY_MAX_ENTRIES = HISTORY_LIMIT
 const AGENT_MINIMUM_MS = 70_000
-const REPORT_MINIMUM_MS = 55_000
+// Reports run in their own invocation from this cron, not at the tail of the
+// nightly run, where they only ever got the seconds it had left. Hobby crons
+// fire anywhere within their hour, so this is two hours after the nightly
+// schedule: a late nightly run can never still hold the lock.
+export const REPORTS_CRON_SCHEDULE = '0 9 * * *'
 // Freezing the packet is one archive write with no model calls — the six-arm
 // review that used to need ~90s here now runs in the separate
 // research-evaluation cron, which has its own full 300s budget.
@@ -117,7 +122,8 @@ export default async function handler(req, res) {
   const startedAt = Date.now()
   const budget = createCronBudget({ startedAt })
   const { recordRun } = await import('../src/server/runLog.js')
-  const job = req.query?.mode === 'premarket' ? 'premarket-check' : 'nightly-research'
+  const reportsRequested = req.query?.mode === 'reports' || req.headers?.['x-vercel-cron-schedule'] === REPORTS_CRON_SCHEDULE
+  const job = req.query?.mode === 'premarket' ? 'premarket-check' : reportsRequested ? 'research-reports' : 'nightly-research'
   const redis = getRedis()
   if (!redis) {
     await recordRun(job, startedAt, { errors: [{ step: 'redis', error: 'Redis not configured' }] })
@@ -138,7 +144,9 @@ export default async function handler(req, res) {
   }
   if (!acquired) return res.status(409).json({ error: 'Research publication already running' })
   try {
-    return await recordResearchRun(redis, { job }, () => runLocked(req, res, startedAt, recordRun, redis, budget))
+    return await recordResearchRun(redis, { job }, () => (job === 'research-reports'
+      ? runReports(res, startedAt, recordRun, redis, budget)
+      : runLocked(req, res, startedAt, recordRun, redis, budget)))
   } finally {
     // A throw here (same Redis outage) would otherwise replace whatever the
     // try block returned or threw, masking the real result of the run.
@@ -147,6 +155,23 @@ export default async function handler(req, res) {
     } catch (error) {
       console.error('[nightly-research] lock release failed:', error.message)
     }
+  }
+}
+
+async function runReports(res, startedAt, recordRun, redis, budget) {
+  try {
+    const result = await stage(STAGES.report_generation, () => runDeferredReports({ redis, budget, generate: generateResearchReports }), {
+      metrics: (outcome) => ({ outcome: outcome.status, candidates: outcome.candidates, reports: outcome.written,
+        failed: outcome.failed, deferred: outcome.deferred }),
+    })
+    const errors = result.failed || result.deferred
+      ? [{ step: 'reports', error: `${result.written}/${result.candidates} reports written${result.stopped ? ` (${result.stopped})` : ''}` }] : []
+    await recordRun('research-reports', startedAt, { errors })
+    return res.status(200).json({ mode: 'reports', ...result })
+  } catch (err) {
+    console.error('[nightly-research] deferred reports failed:', err.message)
+    await recordRun('research-reports', startedAt, { errors: [{ step: 'reports', error: err.message }] })
+    return res.status(503).json({ error: 'Report generation unavailable' })
   }
 }
 
@@ -479,33 +504,16 @@ async function runDiscovery(res, startedAt, recordRun, foundation, budget) {
     }
   }
 
-  // Step 4: generate research reports for this run's tickers only. A carried
-  // pick already has the report its own run wrote, and regenerating it would
-  // spend the run's longest leg rewriting work that is already done.
-  let reports = reportCandidates
-  let reportsComplete = reportCandidates.length === 0
+  // Step 4: reports for this run's new picks are written by the separate
+  // REPORTS_CRON_SCHEDULE invocation, with a full budget of its own. A carried
+  // pick already has the report its own run wrote.
   if (reportCandidates.length > 0) {
-    if (!budget.canStart(REPORT_MINIMUM_MS)) {
-      skipStage(STAGES.report_generation, 'time_budget', { availableMs: budget.availableMs(), candidates: reportCandidates.length })
-      errors.push({ step: 'reports', error: 'deferred to preserve the cron completion budget' })
-    } else try {
-      reports = await stage(STAGES.report_generation, () => withinCronBudget(budget, 'Report generation', (signal, timeout) =>
-        generateResearchReports(reportCandidates, { requestOptions: { signal, timeout } })),
-        { metrics: (written) => ({ reports: written.length, candidates: reportCandidates.length }) })
-      reportsComplete = reports.every((report) => !report.reportError)
-      console.log(`[nightly-research] generated ${reports.length} reports`)
-    } catch (err) {
-      console.error('[nightly-research] report generation failed:', err.message)
-      errors.push({ step: 'reports', error: err.message })
-    }
+    researchLog({ event: 'reports_deferred', stage: STAGES.report_generation, metrics: { candidates: reportCandidates.length } })
   }
 
-  // Step 5: store the completed run, replacing the pre-report payload
-  const reportsById = new Map(reports.map((p) => [p.candidateId, p]))
-  const completed = Object.fromEntries(Object.entries(picksByHorizon).map(([horizon, list]) => [horizon,
-    list.map((p) => p.generatedAt === generatedAt ? reportsById.get(p.candidateId) || p : p),
-  ]))
-  payload = { ...payload, picks: completed[5], picksByHorizon: completed, errors, reportsPending: !reportsComplete }
+  // Step 5: store the final projection with any errors recorded after publication
+  const completed = picksByHorizon
+  payload = { ...payload, errors }
   const board = payload.picks
 
   if (redis) {

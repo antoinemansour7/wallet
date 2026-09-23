@@ -47,6 +47,7 @@ describe('researchScheduleHealth', () => {
       path: {
         'research-foundation': '/api/research-foundation',
         'nightly-research': '/api/nightly-research',
+        'research-reports': '/api/nightly-research',
         'track-performance': '/api/track-performance',
         'research-evaluation': '/api/research-evaluation',
       }[job],

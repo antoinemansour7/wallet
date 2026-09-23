@@ -3,7 +3,7 @@
 // invents a number, a cause or a zero that the record does not contain.
 export const TIME_FILTERS = { '12H': 12, '24H': 24, '3D': 72, '7D': 168, '30D': 720 }
 export const RUN_TYPES = {
-  All: null, 'Nightly Research': 'nightly-research', 'SEC Ingestion': 'research-foundation',
+  All: null, 'Nightly Research': 'nightly-research', Reports: 'research-reports', 'SEC Ingestion': 'research-foundation',
   Evaluation: 'research-evaluation', Performance: 'track-performance',
 }
 const STAGE_LABELS = {
@@ -113,6 +113,9 @@ export function runIssues(run) {
       issues.push({ severity: 2, headline: `${name} completed with reduced coverage` })
     } else if (stage.status === 'skipped') {
       issues.push({ severity: 2, headline: skipHeadline(stage) })
+    } else if (stage.stage === 'report_generation' && run.job === 'research-reports' && stage.metrics?.outcome === 'partial') {
+      const missing = (stage.metrics.candidates ?? 0) - (stage.metrics.reports ?? 0)
+      issues.push({ severity: 2, headline: `${missing} of ${stage.metrics.candidates} reports were not written`, detail: 'Those picks stay published without a report.' })
     } else if (errors > 0) {
       issues.push({ severity: 2, headline: `${name} completed with ${errors} source error${errors === 1 ? '' : 's'}` })
     } else if (stage.error) {
@@ -189,6 +192,11 @@ export function runSummary(run) {
     if (!snapshots.length) return { facts: [], note: 'Evaluates saved research snapshots in a separate job.' }
     const observations = snapshots.reduce((sum, stage) => sum + stage.metrics.observations, 0)
     return { facts: [`${plural(observations, 'observation')} across ${plural(snapshots.length, 'snapshot')}`], note: null }
+  }
+  if (run.job === 'research-reports') {
+    const reports = stages.find((stage) => stage.stage === 'report_generation')?.metrics || {}
+    if (reports.candidates > 0) return { facts: [`${reports.reports ?? 0} of ${reports.candidates} reports written`], note: null }
+    return { facts: [], note: 'No new picks needed a report. Writes reports for the picks each nightly run publishes.' }
   }
   if (run.job === 'track-performance') {
     return { facts: [], note: 'Tracks outcomes for previously published research and evaluation candidates.' }
