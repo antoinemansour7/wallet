@@ -88,6 +88,26 @@ describe('runOptionsOpeningStage', () => {
     expect(optionChain).toHaveBeenCalledWith(expect.objectContaining({ type: 'call', expirationDateGte: '2026-09-29', expirationDateLte: '2026-11-21' }))
   })
 
+  it('sums provider request diagnostics across every optionChain call into the stage metrics (#215)', async () => {
+    const optionChain = vi.fn(async () => ({
+      ...chainObservation(),
+      requestCount: 2, pageCounts: { metadata: 1, snapshots: 1 },
+      diagnostics: [{ status: 429 }, { status: 200 }],
+    }))
+    const result = await runOptionsOpeningStage({
+      window, deadlineAt: window.deadlineAt,
+      redis: redisStub({ status: 'complete', auditRecordId: SCAN_ID }),
+      archive: archiveStub({ candidates: [candidate()] }),
+      createAlpaca: () => ({ optionChain }),
+    })
+    expect(result.status).toBe('complete')
+    // One optionChain() call for the initial fetch and one more for the
+    // single selected contract's prepublication revalidation pass -- both
+    // are real provider traffic for this stage attempt, so both count.
+    expect(optionChain).toHaveBeenCalledTimes(2)
+    expect(result.metrics).toMatchObject({ providerRequestCount: 4, providerPagesFetched: 4, provider429Count: 2, providerServerErrorCount: 0, revalidationFailedCount: 0 })
+  })
+
   it('blocks publication when opening data is unavailable', async () => {
     const result = await runOptionsOpeningStage({
       window, deadlineAt: window.deadlineAt,

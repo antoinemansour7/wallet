@@ -5,6 +5,7 @@ import { verifyOwner } from '../research/evaluationApi.js'
 import { latestOptionsManifest, optionsAuditRecord } from './auditStore.js'
 import { optionsPublicationSummary } from './publication.js'
 import { refreshOptionsContractDetail } from './detailRefresh.js'
+import { buildOptionsOperationsReport } from './operations.js'
 
 function unavailable(res, error) {
   const referenceId = `options-${randomUUID()}`
@@ -18,6 +19,7 @@ export function createOptionsAuditHandler({
   latestManifest = latestOptionsManifest,
   readRecord = optionsAuditRecord,
   refreshDetail = refreshOptionsContractDetail,
+  buildReport = buildOptionsOperationsReport,
   now = Date.now,
 } = {}) {
   return async function optionsAuditHandler(req, res) {
@@ -49,6 +51,15 @@ export function createOptionsAuditHandler({
         const record = await readRecord(archive, String(type), String(id))
         if (!record) return res.status(404).json({ error: 'Options audit record not found' })
         return res.status(200).json({ record })
+      }
+      // Same owner gate, same sanitized-error pattern, same route -- a
+      // dedicated Operations page/route is deliberately not added here
+      // (#215's scope is the API and its diagnostics; #216 is the UI, and
+      // #207 already called out keeping mode dispatch on existing routes
+      // over unbounded new handlers).
+      if (req.query?.view === 'operations') {
+        const operations = await buildReport({ archive, redis, latestManifest, now })
+        return res.status(200).json({ operations })
       }
       const manifest = await latestManifest(archive, redis)
       return res.status(200).json({ summary: optionsPublicationSummary(manifest, now()) })

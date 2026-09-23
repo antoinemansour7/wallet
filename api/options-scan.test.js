@@ -47,6 +47,28 @@ describe('options scan dispatcher', () => {
     }))
   })
 
+  it('counts Redis commands through the whole stage attempt and totals archived bytes into the metrics (#215)', async () => {
+    const records = [{ recordId: 'r1', byteLength: 1200 }, { recordId: 'r2', byteLength: 800 }]
+    const runOpeningStage = vi.fn(async ({ redis }) => {
+      await redis.get('x') // the scheduler's own lease/checkpoint calls land on the same shared, counted client
+      await redis.get('y')
+      return { status: 'complete', scanId: 'scan', availableAt: '2026-09-22T13:34:00.000Z', records, metrics: { acceptedCount: 2 } }
+    })
+    const commitScan = vi.fn(async () => ({ manifest: { manifestId: 'manifest' } }))
+    const redis = { get: vi.fn(async () => null) }
+    const runStage = vi.fn(async ({ execute, publish }) => {
+      const outcome = await execute({ checkpoint: null })
+      expect(outcome.metrics).toMatchObject({ acceptedCount: 2, r2Bytes: 2000, redisCommandCount: 2 })
+      await publish(outcome, { lockKey: 'lease-key', lockToken: 'lease-token' })
+      return { status: 'complete', stage: 'opening', tradingDate: '2026-09-22', attempt: 1, auditRecordId: 'audit-reference' }
+    })
+    const handler = createOptionsScanHandler({ getRedis: () => redis, makeArchive: () => ({ archive: true }), runStage, enabled: () => true, runOpeningStage, commitScan })
+    const res = response()
+    await handler(request({ query: { mode: 'opening' } }), res)
+    expect(res.statusCode).toBe(200)
+    expect(redis.get).toHaveBeenCalledTimes(2) // the real client actually received the calls, unchanged
+  })
+
   it('dispatches premarket into the real worker and does not expose the provider message ID', async () => {
     const runPremarketStage = vi.fn(async () => ({ status: 'complete', records: [], metrics: { candidateCount: 3 } }))
     const runStage = vi.fn(async ({ stage, requestId, execute }) => {

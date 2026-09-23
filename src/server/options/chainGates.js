@@ -83,6 +83,10 @@ export function evaluateOpeningContractGates(contract, { tradingDate, regularOpe
     dte,
     absDelta: Number(absDelta.toFixed(4)),
     analyticsAgeUnknown: contract.analytics?.age === 'unknown',
+    // Carried forward for operational diagnostics (#215): quote/underlying
+    // synchronization quality across the whole accepted set, not just the
+    // pass/fail line at maxSkewMs.
+    skewMs,
   }
 }
 
@@ -106,6 +110,10 @@ function flattenContract(contract, evaluation) {
     // Carried forward because the volume gate can be cleared on prior-session
     // volume alone, and scoring (#211) charges a penalty for exactly that.
     previousVolume: contract.previousDailyBar?.volume ?? null,
+    // Carried forward for operational diagnostics (#215): lets a reader see
+    // the quote/underlying skew distribution across an accepted set, not just
+    // whether any single contract crossed the gate threshold.
+    skewMs: evaluation.skewMs ?? null,
     analytics: contract.analytics,
     fetchedAt: contract.fetchedAt,
     rawReferenceHash: contract.rawReferenceHash,

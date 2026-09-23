@@ -100,6 +100,39 @@ describe('owner-only options audit API', () => {
     expect(refreshDetail).toHaveBeenCalledWith(expect.objectContaining({ contractId: 'osi:EX', archive: { archive: true } }))
   })
 
+  it('serves the owner-only operations report on ?view=operations, same gate as everything else', async () => {
+    const buildReport = vi.fn(async () => ({ policyVersion: 'options-operations-diagnostics-v1', status: 'ok' }))
+    const local = createOptionsAuditHandler({
+      authorize: vi.fn(async () => ({ uid: 'owner' })), redisFromEnv: () => ({ fixture: 'redis' }), makeArchive: () => ({ fixture: 'archive' }),
+      latestManifest: vi.fn(), readRecord: vi.fn(), buildReport, now: () => Date.parse('2026-09-22T14:00:00.000Z'),
+    })
+    const res = response()
+    await local(request({ query: { view: 'operations' } }), res)
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(body(res)).toEqual({ operations: { policyVersion: 'options-operations-diagnostics-v1', status: 'ok' } })
+    expect(buildReport).toHaveBeenCalledWith(expect.objectContaining({ archive: { fixture: 'archive' }, redis: { fixture: 'redis' } }))
+  })
+
+  it('denies the operations view to a non-owner exactly like every other private read', async () => {
+    mocks.verifyOwner.mockResolvedValue({ status: 403, error: 'Owner access required' })
+    const res = response(); await handler(request({ query: { view: 'operations' } }), res)
+    expect(res.status).toHaveBeenCalledWith(403)
+    expect(mocks.redisFromEnv).not.toHaveBeenCalled()
+  })
+
+  it('never leaks a raw storage error through the operations view; it degrades to the same sanitized 503', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const local = createOptionsAuditHandler({
+      authorize: vi.fn(async () => ({ uid: 'owner' })), redisFromEnv: () => ({}), makeArchive: () => ({}),
+      latestManifest: vi.fn(), readRecord: vi.fn(),
+      buildReport: vi.fn(async () => { throw new Error('ERR max requests limit exceeded; secret-provider-detail') }),
+    })
+    const res = response()
+    await local(request({ query: { view: 'operations' } }), res)
+    expect(res.status).toHaveBeenCalledWith(503)
+    expect(JSON.stringify(body(res))).not.toContain('secret-provider-detail')
+  })
+
   it('returns a fresh owner summary that becomes stale without rewriting storage', async () => {
     const publication = {
       tradingDate: '2026-09-22', state: 'theoretical', observationMode: 'theoretical', result: 'candidates',
