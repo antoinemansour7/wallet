@@ -51,7 +51,7 @@ function Score({ score }) {
   </>
 }
 
-function Contract({ detail, refresh, refreshing, refreshError, onRefresh }) {
+function Contract({ detail, refreshable, refresh, refreshing, refreshError, onRefresh }) {
   const contract = detail.contract
   const entry = detail.scenarioSet?.entry
   return <>
@@ -61,13 +61,13 @@ function Contract({ detail, refresh, refreshing, refreshError, onRefresh }) {
       <div><dt>Volume</dt><dd>{contract?.volume?.value ?? 'Unavailable'} <small>{contract?.volume?.sessionDate || 'Date unknown'} · {contract?.volume?.session || 'Session unknown'}</small></dd></div></dl>
     <p>Theta: dollars/share/calendar day. Vega and rho: dollars/share per 1 percentage point. Delta: premium change per $1 stock move; gamma: delta change per $1. Local sensitivities do not predict finite moves.</p>
     <p>Provider analytics time: {timestamp(contract?.analytics?.marketAt)}. Model IV: {iv(entry?.impliedVolatility)}. Underlying quote: {timestamp(detail.underlyingMarketAt)}.</p>
-    <section className="options-refresh" aria-label="Separate detail observation"><h3>Later observation</h3><p>Opening any detail requests a separate quote check. It never replaces the morning score, quote or scenario.</p>
+    {refreshable && <section className="options-refresh" aria-label="Separate detail observation"><h3>Later observation</h3><p>Opening any detail requests a separate quote check. It never replaces the morning score, quote or scenario.</p>
       <button type="button" onClick={onRefresh} disabled={refreshing}>{refreshing ? 'Checking observation…' : 'Refresh detail observation'}</button>
       {refreshError && <p role="alert">Detail refresh unavailable. The morning record is unchanged.</p>}
       {refresh && <div role="status"><p>{refresh.status === 'accepted' ? 'New observation · passed data gates' : 'New observation unavailable · did not pass data gates'} · retrieved {timestamp(refresh.availableAt)}</p>
         {refresh.contract && <p>Separate observed bid {money(refresh.contract.quote?.bid)} / ask {money(refresh.contract.quote?.ask)} · quote {timestamp(refresh.contract.quote?.marketAt)} · {words(refresh.contract.quote?.semantics?.kind || 'feed status unknown')}. Not a live-fill promise.</p>}
       </div>}
-    </section>
+    </section>}
   </>
 }
 
@@ -82,7 +82,10 @@ function Lineage({ lineage, detail }) {
   </>
 }
 
-export default function CandidateDetails({ candidate, manifestId, request }) {
+// `refreshable` requests a separate live quote check when detail opens; views of
+// past mornings pass false so reading history never calls the provider.
+// `leading` sections render immediately, without loading archived detail.
+export default function CandidateDetails({ candidate, manifestId, request, refreshable = true, leading = [] }) {
   const [detail, setDetail] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(false)
@@ -108,20 +111,21 @@ export default function CandidateDetails({ candidate, manifestId, request }) {
     started.current = true; setLoading(true); setError(false)
     try {
       const data = await request(`${OPTIONS_API}&view=research&manifestId=${encodeURIComponent(manifestId)}&contractId=${encodeURIComponent(candidate.contractId)}`)
-      if (alive.current) { setDetail(data.research); await refreshDetail() }
+      if (alive.current) { setDetail(data.research); if (refreshable) await refreshDetail() }
     } catch { if (alive.current) { setError(true); started.current = false } }
     finally { if (alive.current) setLoading(false) }
   }
   const sections = [
     ['View scenarios', () => <Scenarios set={detail.scenarioSet} contract={candidate.contract} />],
     ['Why it ranked', () => <Score score={detail.score} />],
-    ['Contract details', () => <Contract detail={detail} refresh={refresh} refreshing={refreshing} refreshError={refreshError} onRefresh={refreshDetail} />],
+    ['Contract details', () => <Contract detail={detail} refreshable={refreshable} refresh={refresh} refreshing={refreshing} refreshError={refreshError} onRefresh={refreshDetail} />],
     ['Chain comparison', () => <><p>Archived gated contracts from this chain. Scores retain their frozen ranking inputs; comparison quotes can have later timestamps. Unscored contracts remain unavailable.</p><Table label="Frozen chain comparison" headings={['Contract', 'Bid / ask', 'Score', 'Quote time']}>
       {detail.comparison.map((row) => <tr key={row.contractId}><th scope="row">{words(row.type)} {money(row.strikePrice)} · {row.expirationDate}{row.contractId === candidate.contractId ? ' · selected' : ''}</th><td>{money(row.bid)} / {money(row.ask)}</td><td>{number(row.score)}</td><td>{timestamp(row.marketAt)}</td></tr>)}
     </Table></>],
     ['Data lineage', () => <Lineage lineage={detail.lineage} detail={detail} />],
   ]
-  return <div className="options-disclosures">{sections.map(([label, content]) => <details key={label} onToggle={(event) => { if (event.currentTarget.open) load() }}><summary>{label}</summary>
+  return <div className="options-disclosures">{leading.map(([label, content]) => <details key={label}><summary>{label}</summary>{content()}</details>)}
+    {sections.map(([label, content]) => <details key={label} onToggle={(event) => { if (event.currentTarget.open) load() }}><summary>{label}</summary>
     {loading && !detail && <p role="status">Loading archived detail…</p>}
     {error && <p role="alert">Archived detail unavailable. <button type="button" onClick={load}>Retry detail</button></p>}
     {detail && content()}

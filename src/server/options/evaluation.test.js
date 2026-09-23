@@ -152,6 +152,19 @@ describe('observed returns and censored paths', () => {
   })
 })
 
+describe('per-sample returns for the shadow dashboard', () => {
+  it('lists every counted sample only on request, leaving the archived report shape unchanged', () => {
+    const observations = [point('2026-09-22T13:37:20.000Z', 7.4), point('2026-09-22T13:42:20.000Z', 3, { quote: { bid: 0, ask: 0.2, marketAt: '2026-09-22T13:42:20.000Z', bidSize: 20, askSize: 20 } })]
+    expect(evaluate(observations)).not.toHaveProperty('samples')
+    const { samples } = evaluate(observations, { includeSamples: true })
+    expect(samples).toEqual([
+      { at: '2026-09-22T13:37:20.000Z', status: 'observed', returnPct: expect.any(Number) },
+      { at: '2026-09-22T13:42:20.000Z', status: 'zero_bid', returnPct: null },
+    ])
+    expect(samples[0].returnPct).toBeGreaterThan(0)
+  })
+})
+
 describe('holdouts, baselines, uncertainty and independent archives', () => {
   it('enforces ten-session gaps, pre-registration and no holdout tuning', () => {
     expect(validateEvaluationProtocol(protocol())).toBeTruthy()

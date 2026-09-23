@@ -29,7 +29,7 @@ function quoteProblem(point, at, policy) {
   return null
 }
 
-export function evaluateOptionsOutcome({ plan, entry, observations = [], asOf, policy = OPTIONS_EVALUATION_POLICY }) {
+export function evaluateOptionsOutcome({ plan, entry, observations = [], asOf, policy = OPTIONS_EVALUATION_POLICY, includeSamples = false }) {
   const now = timestamp(asOf), start = timestamp(plan.entryAt)
   if (quoteProblem(entry, plan.entryAt, policy)) throw new Error('Entry requires a valid observed ask quote')
   const cost = entry.quote.ask * policy.multiplier + policy.slippagePerShare * policy.multiplier + policy.feePerSide
@@ -102,7 +102,9 @@ export function evaluateOptionsOutcome({ plan, entry, observations = [], asOf, p
     scheduled: scheduled.length, observed: covered, coverage: scheduled.length ? covered / scheduled.length : null,
     gaps: path.filter((p) => p.returnPct == null), targets, strategies },
   expiry: { fullyFollowed: fullyFollowedExpiry, expiredWorthless: fullyFollowedExpiry ? expiry.settlement.intrinsicValue === 0 : null,
-    reason: fullyFollowedExpiry ? null : 'expiry_or_full_path_not_observed' } }
+    reason: fullyFollowedExpiry ? null : 'expiry_or_full_path_not_observed' },
+  // Opt-in, so the archived evaluation report (#214) stays byte-identical.
+  ...(includeSamples ? { samples: path.map(({ at, status, returnPct }) => ({ at, status, returnPct })) } : {}) }
 }
 
 function sessionsBetween(a, b) {
