@@ -1149,7 +1149,7 @@ export async function extractTickers(signals, articles, options = {}) {
   })
   // Review disclosures before the baseline, so a supported adverse filing can
   // veto an otherwise popular attention candidate in the same run.
-  const primary = admission ? await reviewPrimaryCandidates(admission, quotesByTicker, options.foundation) : null
+  const primary = admission ? await reviewPrimaryCandidates(admission, quotesByTicker, { ...options.foundation, requestOptions: options.requestOptions }) : null
   if (primary) options.onPrimaryReview?.({ ...primary, admission })
   const vetoes = new Set(primary?.vetoes || [])
   const allowedAttention = admission ? new Set(admission.candidates.filter((c) => c.streams.includes('attention') && !vetoes.has(c.securityId)).map((c) => c.ticker)) : null

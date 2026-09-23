@@ -332,10 +332,12 @@ describe('zero-mention end-to-end acceptance', () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'offline-fixture')
     fetchMarketQuotes.mockResolvedValue({ quotes: [{ requestedSymbol: 'QUIET', symbol: 'QUIET', price: 12, currency: 'USD', volume: 100000 }] })
     let reviewed
+    const requestOptions = { signal: new AbortController().signal, timeout: 5_000 }
     try {
       const baseline = await withSecurityMaster(master, () => extractTickers([], [], {
         foundation: { archive, master, reviewer, now: () => reviewedAt },
         onPrimaryReview: (result) => { reviewed = result },
+        requestOptions,
       }))
       expect(baseline).toEqual([])
       expect(fetchMarketQuotes).toHaveBeenCalledTimes(1)
@@ -343,6 +345,10 @@ describe('zero-mention end-to-end acceptance', () => {
     } finally { vi.useRealTimers(); vi.unstubAllEnvs() }
     expect(reviewer).toHaveBeenCalledTimes(1)
     expect(reviewer.mock.calls.every(([input]) => input.candidates[0].measurements.attention === 0)).toBe(true)
+    // The primary-disclosure review must be abortable by the same cron budget
+    // that bounds every other model call in this stage — see the "forwards
+    // the caller's request options" regression test above for why.
+    expect(reviewer.mock.calls[0][0].requestOptions).toBe(requestOptions)
     expect(reviewed.picksByHorizon[20][0]).toMatchObject({ ticker: 'QUIET', strategyFamily: 'fundamentals', horizon: 20, signalCount: 0, earliestActionAt: '2026-02-02T12:02:00.000Z' })
     // #107: the pick carries both predeclared horizons and the experiment arm it
     // was assigned at decision time. Neither can be reconstructed later, so if
@@ -442,6 +448,29 @@ describe('primary review prompt budget', () => {
       sources: [{ id: input.documents[0].passages[0].id, type: 'passage', documentId: release.id, url: release.url }],
     })
     expect(reviewed.picksByHorizon[20][0].sources).toContain(release.url)
+  })
+
+  // Regression for the incident where this call ran with no abort signal and
+  // no per-call timeout: it could not be cancelled when the cron budget ran
+  // out, so it kept running in the background — invisible to the caller and
+  // to the deadline that was supposed to bound it — until the outer race
+  // finally gave up and blamed a generic "0ms available" timeout.
+  it('forwards the caller\'s request options to the reviewer for every horizon', async () => {
+    const archive = createArchive(memoryRedis(), { objectStore: memoryObjectStore() })
+    const document = await archive.putDocument({ issuerId: security().issuerId, accession: '0000000001-26-000010', form: '10-Q',
+      url: 'https://www.sec.gov/filing.htm', publicAt, firstSeenAt: seenAt, bytes: 'Revenue increased.' })
+    const evidence = await archiveEvidence(archive, createEvidence({ security: security(), strategyFamily: 'fundamentals',
+      source: { documentId: document.id, accession: document.accession, url: document.url, excerpt: 'Revenue increased.' },
+      publicAt, firstSeenAt: seenAt, extractionCompletedAt: seenAt, interpretation: { thesis: 'Revenue improved.' }, priority: 70 }))
+    const admission = { id: 'admission-request-options', asOf: reviewedAt, candidates: [{ ...security(), evidence: [evidence], streams: ['fundamentals'] }] }
+    const reviewer = vi.fn(async () => [])
+    const requestOptions = { signal: new AbortController().signal, timeout: 5_000 }
+
+    await reviewPrimaryCandidates(admission, new Map([['QUIET', { price: 12, currency: 'USD', volume: 100000 }]]),
+      { archive, reviewer, now: () => reviewedAt, requestOptions })
+
+    expect(reviewer).toHaveBeenCalledTimes(1)
+    expect(reviewer.mock.calls[0][0].requestOptions).toBe(requestOptions)
   })
 
   it('rejects reviewer prose that cites a source outside the supplied packet', async () => {
