@@ -14,8 +14,8 @@
 // be able to out-rank one that can by being strong somewhere else.
 //
 // Missing data never scores well. Every feature that is absent scores zero and
-// says why, and a penalty whose input is missing is not applied and is recorded
-// as inapplicable. Silence is never read as good news.
+// says why. Missing risk inputs retain the existing worst-case deduction;
+// required model attributions fail closed. Silence never improves a score.
 //
 // The weights are a v0 hypothesis. They were fitted on nothing, they are frozen
 // before any holdout is touched, and the score they produce is a ranking device,
@@ -24,9 +24,10 @@
 import { digest } from '../research/archive.js'
 import { createOptionsAuditRecord } from './audit.js'
 import { OPTIONS_SCENARIO_PRIMARY_HORIZON } from './scenarios.js'
+import { OPTIONS_CHAIN_DELTA_RANGE, optionsContractCohort } from './chainGates.js'
 
-export const OPTIONS_SCORE_POLICY_VERSION = 'options-deterministic-score-v0'
-export const OPTIONS_SCORE_CODE_VERSION = 'options-scoring-v1'
+export const OPTIONS_SCORE_POLICY_VERSION = 'options-deterministic-score-v1'
+export const OPTIONS_SCORE_CODE_VERSION = 'options-scoring-v2'
 
 // Transform identities. They are stored on every feature trace so a score can
 // be rebuilt years later against the transform that actually produced it,
@@ -43,6 +44,7 @@ export const OPTIONS_SCORE_POLICY = Object.freeze({
   // Stated, not implied: nothing below was chosen by looking at outcomes.
   weightsFittedOn: 'none-frozen-v0-hypothesis',
   scoreRange: Object.freeze({ min: 0, max: 100 }),
+  attainableComponentPoints: 90,
   // Scores are only comparable across contracts because every one of them is
   // measured at the same horizon against the same premium target.
   primaryHorizonId: OPTIONS_SCENARIO_PRIMARY_HORIZON,
@@ -78,7 +80,6 @@ export const OPTIONS_SCORE_POLICY = Object.freeze({
     impliedToRealized: Object.freeze({ id: RAMP, zero: 1.6, full: 1.0, max: 3 }),
     ivDownResilience: Object.freeze({ id: RAMP, zero: -25, full: -5, max: 3 }),
     relativeSpread: Object.freeze({ id: RAMP, zero: 10, full: 2, max: 8 }),
-    absoluteSpread: Object.freeze({ id: RAMP, zero: 0.50, full: 0.05, max: 8 }),
     openInterest: Object.freeze({ id: LOG_RAMP, zero: 100, full: 10000, max: 4 }),
     sessionVolume: Object.freeze({ id: LOG_RAMP, zero: 5, full: 500, max: 2 }),
     quoteSizes: Object.freeze({ id: LOG_RAMP, zero: 1, full: 25, max: 1 }),
@@ -87,9 +88,11 @@ export const OPTIONS_SCORE_POLICY = Object.freeze({
   penalties: Object.freeze({
     // Inside the gates (spread <= 10%), the upper half of the band still costs.
     wide_spread: Object.freeze({ transform: RAMP, zero: 5, full: 10, max: 5, units: 'percent of mid' }),
-    volume_only_by_prior_session: Object.freeze({ transform: DIRECT, points: 3, minTodayVolume: 5 }),
-    iv_above_90th_percentile: Object.freeze({ transform: DIRECT, points: 5, percentile: 90 }),
-    decay_above_horizon_limit: Object.freeze({ transform: DIRECT, points: 5, maxDecayPctOfEntry: 15 }),
+    volume_only_by_prior_session: Object.freeze({ transform: RAMP, points: 3, minTodayVolume: 5, zero: 5, full: 0, max: 3 }),
+    iv_above_90th_percentile: Object.freeze({ transform: RAMP, points: 5, percentile: 90, zero: 90, full: 100, max: 5 }),
+    // Continue the existing theta shoulder's slope (10 / (15 - 3)) until the
+    // existing five-point cap: 15 + 5 / (10 / 12) = 21. No new slope fitted.
+    decay_above_horizon_limit: Object.freeze({ transform: RAMP, points: 5, maxDecayPctOfEntry: 15, zero: 15, full: 21, max: 5 }),
     event_before_expiry_after_exit: Object.freeze({ transform: DIRECT, points: 5 }),
   }),
   // A dated event inside the holding horizon is an exclusion in the default
@@ -104,7 +107,7 @@ export const OPTIONS_SCORE_POLICY = Object.freeze({
   }),
   missingDataPolicy: Object.freeze({
     featurePoints: 'zero',
-    absentPenaltyInput: 'record_inapplicable_without_penalty',
+    absentPenaltyInput: 'worst_case_existing_penalty_or_exclude_required_model_input',
     unknownEventCoverage: 'flag',
     hardGateOrModelInput: 'exclude',
   }),
@@ -320,7 +323,9 @@ function ivVega({ features: record, entry, ivContext, ivDownRow, evidence }) {
   const ivToRv = realized == null || !(realized > 0) || entry.impliedVolatility == null
     ? null
     : entry.impliedVolatility / (realized / 100)
-  const resilience = numeric(ivDownRow?.midReturnPct)
+  // Isolate the IV shock at the SAME exit time. The total shocked return also
+  // contains carry, already graded in thetaEfficiency.
+  const resilience = numeric(ivDownRow?.ivOnlyReturnPct)
   return component('ivVega', [
     feature({
       name: 'historicalIvPercentile', raw: percentile, units: 'percentile of own comparable history',
@@ -339,7 +344,7 @@ function ivVega({ features: record, entry, ivContext, ivDownRow, evidence }) {
       evidenceIds: evidence.features,
     }),
     feature({
-      name: 'ivDownResilience', raw: resilience, units: 'percent midpoint return',
+      name: 'ivDownResilience', raw: resilience, units: 'incremental IV loss as percent of entry midpoint',
       window: `${OPTIONS_SCORE_POLICY.primaryHorizonId}, stock unchanged, IV x${OPTIONS_SCORE_POLICY.ivDownMultiplier}`,
       transform: transforms.ivDownResilience.id, params: transforms.ivDownResilience,
       points: clippedLinearRamp(resilience, transforms.ivDownResilience),
@@ -354,11 +359,8 @@ function liquidity({ contract: gated, entry, evidence }) {
   const spreadPct = numeric(entry.spreadPct)
   const spreadAbsolute = entry.ask == null || entry.bid == null ? null : entry.ask - entry.bid
   const relativePoints = clippedLinearRamp(spreadPct, transforms.relativeSpread)
-  const absolutePoints = clippedLinearRamp(spreadAbsolute, transforms.absoluteSpread)
-  // A 2% spread on a $40 premium is eighty cents wide. Both readings are kept,
-  // and the binding one carries the points, so the trace shows which side of
-  // the spread actually cost the contract.
-  const relativeBinds = relativePoints <= absolutePoints
+  // Rank return on premium, not arbitrary dollar denomination. A proportional
+  // stock split preserves percentage friction; the dollar spread is diagnostic.
   const todayVolume = numeric(gated.volume?.value)
   const sizes = [numeric(gated.quote?.bidSize), numeric(gated.quote?.askSize)]
   const minSize = sizes.some((size) => size == null) ? null : Math.min(...sizes)
@@ -366,15 +368,14 @@ function liquidity({ contract: gated, entry, evidence }) {
     feature({
       name: 'relativeSpread', raw: spreadPct, units: 'percent of mid', window: 'synchronized entry quote',
       transform: transforms.relativeSpread.id, params: transforms.relativeSpread,
-      points: relativeBinds ? relativePoints : 0,
-      reason: spreadPct == null ? 'entry_quote_unavailable' : relativeBinds ? null : 'absolute_spread_binds',
+      points: relativePoints,
+      reason: spreadPct == null ? 'entry_quote_unavailable' : null,
       evidenceIds: evidence.chain,
     }),
     feature({
       name: 'absoluteSpread', raw: spreadAbsolute, units: 'dollars per share', window: 'synchronized entry quote',
-      transform: transforms.absoluteSpread.id, params: transforms.absoluteSpread,
-      points: relativeBinds ? 0 : absolutePoints,
-      reason: spreadAbsolute == null ? 'entry_quote_unavailable' : relativeBinds ? 'relative_spread_binds' : null,
+      transform: DIRECT, params: { max: 0 }, points: 0,
+      reason: spreadAbsolute == null ? 'entry_quote_unavailable' : 'diagnostic_only_percentage_return_objective',
       evidenceIds: evidence.chain,
     }),
     feature({
@@ -404,22 +405,26 @@ function liquidity({ contract: gated, entry, evidence }) {
   ])
 }
 
-function expectedMoveCompatibility({ target, evidence }) {
+function expectedMoveCompatibility({ target, features: record, primaryHorizon, direction, evidence }) {
   const transforms = OPTIONS_SCORE_POLICY.transforms
-  // Signed for puts, so the magnitude is what the budget is compared against:
-  // a put needing a 3% fall is as close as a call needing a 3% rise.
-  const required = target?.solved && Number.isFinite(target.requiredMoveInImpliedMoves)
-    ? Math.abs(target.requiredMoveInImpliedMoves)
+  // An option must not expand its own move budget merely by becoming more
+  // expensive. Use the frozen underlying RV, shared by all its strikes/tenors.
+  // Annualized RV is spread over calendar time consistently with scenario IV.
+  const realized = numeric(record.technicals.realizedVolatility20dPct)
+  const days = numeric(primaryHorizon?.calendarElapsedDays)
+  const budget = realized > 0 && days > 0 ? realized * Math.sqrt(days / 365) : null
+  const required = target?.solved && Number.isFinite(target.requiredMovePct) && budget > 0
+    ? Math.max(0, (direction === 'call' ? 1 : -1) * target.requiredMovePct) / budget
     : null
   return component('expectedMoveCompatibility', [
     feature({
-      name: 'requiredMoveInImpliedMoves', raw: required,
-      units: `implied move budgets to reach +${OPTIONS_SCORE_POLICY.primaryPremiumTargetPct}% premium`,
+      name: 'requiredMoveInRealizedMoves', raw: required,
+      units: `lagged RV move budgets to reach +${OPTIONS_SCORE_POLICY.primaryPremiumTargetPct}% net return`,
       window: OPTIONS_SCORE_POLICY.primaryHorizonId,
-      transform: transforms.expectedMove.id, params: transforms.expectedMove,
+      transform: transforms.expectedMove.id, params: { ...transforms.expectedMove, moveBudgetPct: round(budget, 6), annualDays: 365 },
       points: clippedLinearRamp(required, transforms.expectedMove),
-      reason: required == null ? (target?.reason || 'premium_target_solution_unavailable') : null,
-      evidenceIds: evidence.scenarios,
+      reason: required == null ? (budget == null ? 'realized_move_budget_unavailable' : target?.reason || 'premium_target_solution_unavailable') : null,
+      evidenceIds: [...evidence.scenarios, ...evidence.features],
     }),
   ])
 }
@@ -441,42 +446,40 @@ function buildPenalties({ features: record, contract: gated, entry, decay, ivCon
   }
 
   const todayVolume = numeric(gated.volume?.value)
-  const priorVolume = numeric(gated.previousVolume)
   if (todayVolume == null || todayVolume < policy.volume_only_by_prior_session.minTodayVolume) {
-    if (priorVolume == null) {
-      // Thin today and no prior-session comparator: the penalty's own input is
-      // missing, which is recorded rather than read as "no penalty due".
-      inapplicable.push({ code: 'volume_only_by_prior_session', reason: 'prior_session_volume_unavailable' })
-    } else {
-      applied.push({ code: 'volume_only_by_prior_session', points: policy.volume_only_by_prior_session.points,
-        raw: todayVolume, units: 'contracts traded today', threshold: policy.volume_only_by_prior_session.minTodayVolume,
-        transform: DIRECT, reason: 'passed_volume_gate_on_prior_session_only' })
-    }
+    applied.push({ code: 'volume_only_by_prior_session', points: todayVolume == null ? policy.volume_only_by_prior_session.points
+      : clippedLinearRamp(todayVolume, policy.volume_only_by_prior_session),
+      raw: todayVolume, units: 'contracts traded today', threshold: policy.volume_only_by_prior_session.minTodayVolume,
+      transform: RAMP, transformParams: policy.volume_only_by_prior_session, reason: 'passed_volume_gate_on_prior_session_only' })
   }
 
   const percentile = numeric(ivContext?.percentile)
   if (percentile == null) {
     inapplicable.push({ code: 'iv_above_90th_percentile', reason: 'historical_iv_context_unavailable' })
+    applied.push({ code: 'iv_above_90th_percentile', points: policy.iv_above_90th_percentile.points,
+      raw: null, units: 'unknown percentile', threshold: policy.iv_above_90th_percentile.percentile,
+      transform: DIRECT, reason: 'missing_input_uses_existing_worst_case_penalty' })
   } else if (percentile > policy.iv_above_90th_percentile.percentile) {
-    applied.push({ code: 'iv_above_90th_percentile', points: policy.iv_above_90th_percentile.points, raw: percentile,
+    applied.push({ code: 'iv_above_90th_percentile', points: clippedLinearRamp(percentile, policy.iv_above_90th_percentile), raw: percentile,
       units: 'percentile of own comparable history', threshold: policy.iv_above_90th_percentile.percentile,
-      transform: DIRECT, reason: 'implied_volatility_rich_against_own_history' })
+      transform: RAMP, transformParams: policy.iv_above_90th_percentile, reason: 'implied_volatility_rich_against_own_history' })
   }
 
   const carryLossPct = decay?.decayPctOfEntryPremium == null ? null : -decay.decayPctOfEntryPremium
   if (carryLossPct == null) {
     inapplicable.push({ code: 'decay_above_horizon_limit', reason: 'time_only_decay_unavailable' })
   } else if (carryLossPct > policy.decay_above_horizon_limit.maxDecayPctOfEntry) {
-    applied.push({ code: 'decay_above_horizon_limit', points: policy.decay_above_horizon_limit.points,
+    applied.push({ code: 'decay_above_horizon_limit', points: clippedLinearRamp(carryLossPct, policy.decay_above_horizon_limit),
       raw: round(carryLossPct, 4), units: 'percent of entry premium',
-      threshold: policy.decay_above_horizon_limit.maxDecayPctOfEntry, transform: DIRECT,
+      threshold: policy.decay_above_horizon_limit.maxDecayPctOfEntry, transform: RAMP, transformParams: policy.decay_above_horizon_limit,
       reason: 'carry_loss_above_horizon_limit' })
   }
 
-  if (events.afterExitBeforeExpiry.length) {
+  const incompleteEvents = ['earnings', 'catalysts'].some((feed) => record.coverage?.[feed]?.status !== 'complete')
+  if (events.afterExitBeforeExpiry.length || incompleteEvents) {
     applied.push({ code: 'event_before_expiry_after_exit', points: policy.event_before_expiry_after_exit.points,
-      raw: events.afterExitBeforeExpiry[0].eventDate, units: 'event date', threshold: null, transform: DIRECT,
-      reason: 'dated_event_between_intended_exit_and_expiry',
+      raw: events.afterExitBeforeExpiry[0]?.eventDate ?? null, units: 'event date', threshold: null, transform: DIRECT,
+      reason: events.afterExitBeforeExpiry.length ? 'dated_event_between_intended_exit_and_expiry' : 'missing_input_uses_existing_worst_case_penalty',
       events: events.afterExitBeforeExpiry.map((event) => ({ eventId: event.eventId, eventDate: event.eventDate, kind: event.kind })) })
   }
 
@@ -491,7 +494,7 @@ function buildPenalties({ features: record, contract: gated, entry, decay, ivCon
 // Eligibility
 // ---------------------------------------------------------------------------
 
-function horizonEvents({ features: record, exitDate, expirationDate, tradingDate }) {
+export function horizonEvents({ features: record, exitDate, expirationDate, tradingDate }) {
   const dated = [
     ...(record.events?.earnings || []).map((item) => ({ ...item, kind: 'earnings' })),
     ...(record.events?.catalysts || []).map((item) => ({ ...item, kind: item.kind || 'catalyst' })),
@@ -541,6 +544,9 @@ export function scoreOptionsContract({
   if (!record?.directional?.[direction]) throw new Error('Scoring requires a point-in-time feature record')
   if (!scenarioSet) throw new Error('Scoring requires a scenario set')
   if (policy.version !== OPTIONS_SCORE_POLICY_VERSION) throw new Error('Unsupported options score policy version')
+  const ivCutoff = record.freezeAt || scenarioSet.asOf
+  if (ivContext && (!Number.isFinite(ivContext.percentile) || ivContext.percentile < 0 || ivContext.percentile > 100
+    || (ivContext.availableAt && !(Date.parse(ivContext.availableAt) <= Date.parse(ivCutoff))))) ivContext = null
 
   const evidence = {
     features: record.recordId ? [record.recordId] : [],
@@ -571,6 +577,7 @@ export function scoreOptionsContract({
 
   const blockers = []
   const missing = []
+  if (gated.type !== direction || scenarioSet.contract?.type !== direction) blockers.push({ code: 'contract_direction_mismatch', detail: direction })
   if (gate && gate.status !== 'accepted') blockers.push({ code: 'hard_gate_failed', detail: gate.reason || 'unspecified' })
   for (const blocker of scenarioSet.blockers || []) blockers.push({ code: 'scenarios_not_publishable', detail: blocker.code })
   if (!scenarioSet.publishable && !(scenarioSet.blockers || []).length) blockers.push({ code: 'scenarios_not_publishable', detail: 'unspecified' })
@@ -594,20 +601,34 @@ export function scoreOptionsContract({
   }
   for (const feed of ['earnings', 'catalysts']) {
     const status = record.coverage?.[feed]?.status
-    if (status && status !== 'complete') {
-      missing.push({ path: `coverage.${feed}`, reason: `coverage_${status}` })
+    if (status !== 'complete') {
+      missing.push({ path: `coverage.${feed}`, reason: `coverage_${status || 'unknown'}` })
       if (policy.eventPolicy.onUnknownCoverage === 'exclude') blockers.push({ code: 'event_coverage_incomplete', detail: feed })
     }
   }
 
-  if (blockers.length) return ineligible({ identity, blockers, missing, eventCohort })
-
   const entry = scenarioSet.entry || {}
   const decay = (scenarioSet.timeOnlyDecay || []).find((item) => item.horizonId === policy.primaryHorizonId) || null
-  const ivDownRow = (scenarioSet.scenarios || []).find((row) => row.horizonId === policy.primaryHorizonId
+  const shockedRow = (scenarioSet.scenarios || []).find((row) => row.horizonId === policy.primaryHorizonId
     && row.movePct === 0 && row.ivMultiplier === policy.ivDownMultiplier) || null
+  const unchangedRow = (scenarioSet.scenarios || []).find((row) => row.horizonId === policy.primaryHorizonId
+    && row.movePct === 0 && row.ivMultiplier === 1)
+  const carryReturn = numeric(unchangedRow?.midReturnPct) ?? numeric(decay?.decayPctOfEntryPremium)
+  const ivDownRow = shockedRow && { ...shockedRow, ivOnlyReturnPct: Number.isFinite(shockedRow.midReturnPct) && carryReturn != null
+    ? shockedRow.midReturnPct - carryReturn : null }
   const target = (scenarioSet.premiumTargets || []).find((row) => row.horizonId === policy.primaryHorizonId
     && row.targetPct === policy.primaryPremiumTargetPct && row.ivMultiplier === policy.primaryIvMultiplier) || null
+
+  const delta = numeric(entry.greeks?.delta)
+  const signedDelta = delta == null ? null : delta * (direction === 'call' ? 1 : -1)
+  if (signedDelta == null || signedDelta < OPTIONS_CHAIN_DELTA_RANGE.min || signedDelta > OPTIONS_CHAIN_DELTA_RANGE.max) {
+    blockers.push({ code: 'calibrated_delta_outside_window', detail: signedDelta })
+  }
+  identity.cohort = optionsContractCohort(gated.dte, signedDelta)
+  if (!Number.isFinite(decay?.decayPctOfEntryPremium) || !Number.isFinite(ivDownRow?.ivOnlyReturnPct)) {
+    blockers.push({ code: 'required_model_attribution_unavailable', detail: 'primary_horizon_decay_or_iv_shock' })
+  }
+  if (blockers.length) return ineligible({ identity, blockers, missing, eventCohort })
 
   if (ivContext?.percentile == null) missing.push({ path: 'ivContext.percentile', reason: 'historical_iv_context_unavailable' })
   if (record.technicals.realizedVolatility20dPct == null) missing.push({ path: 'technicals.realizedVolatility20dPct', reason: 'insufficient_lagged_history' })
@@ -615,7 +636,7 @@ export function scoreOptionsContract({
   if (!ivDownRow) missing.push({ path: 'scenarios.ivDownRow', reason: 'iv_down_scenario_unavailable' })
   if (!target) missing.push({ path: 'scenarios.premiumTarget', reason: 'premium_target_row_unavailable' })
 
-  const context = { features: record, contract: gated, direction, entry, decay, ivDownRow, target, ivContext, mode, evidence }
+  const context = { features: record, contract: gated, direction, entry, decay, ivDownRow, target, ivContext, mode, evidence, primaryHorizon }
   const components = [
     underlyingSetup(context),
     technicalConfirmation(context),
@@ -637,6 +658,7 @@ export function scoreOptionsContract({
     eventCohort,
     status: 'scored',
     score,
+    attainableComponentPoints: policy.attainableComponentPoints,
     componentPoints,
     penaltyPoints,
     components,

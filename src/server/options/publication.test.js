@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   compareRevalidatedQuote, createOpeningAuditRecords, createOptionsPublicationAuditRecord,
-  OPTIONS_PUBLICATION_POLICY, optionsPublicationSummary, publicationProjection, scoreOpeningChains,
+  OPTIONS_PUBLICATION_POLICY, optionsPublicationSummary, publicationProjection, scoreOpeningChains, scoreOpeningContract,
 } from './publication.js'
 import { validateOptionsAuditRecord } from './audit.js'
 
@@ -65,6 +65,24 @@ describe('quote revalidation', () => {
 })
 
 describe('opening publication records', () => {
+  it('chooses the latest visible dated rate independently of array order', () => {
+    const record = feature()
+    const newer = { eventId: 'newer', ratePct: 3, asOfDate: '2026-09-22', availableAt: '2026-09-22T12:00:00.000Z' }
+    const future = { eventId: 'future', ratePct: 10, asOfDate: '2026-09-23' }
+    const unavailable = { eventId: 'unavailable', ratePct: 9, asOfDate: '2026-09-22', availableAt: '2026-09-22T15:00:00.000Z' }
+    record.pricingInputs.rates = [newer, ...record.pricingInputs.rates, future, unavailable]
+    const run = () => scoreOpeningContract({ security, direction: 'call', contract: contract(), underlying: underlying(), feature: record, tradingDate: TRADING_DATE })
+    expect(run().scenario.rateAssumption).toMatchObject({ value: 0.03, source: 'feature:newer', fallback: false })
+    record.pricingInputs.rates.reverse()
+    expect(run().scenario.rateAssumption.value).toBe(0.03)
+  })
+
+  it('rechecks quote gates even when passed an already flattened contract', () => {
+    const stale = contract({ quote: { ...quote(), ageMs: null } })
+    const result = scoreOpeningContract({ security, direction: 'call', contract: stale, underlying: underlying(), feature: feature(), tradingDate: TRADING_DATE })
+    expect(result.score.status).toBe('ineligible')
+    expect(result.score.blockers).toContainEqual({ code: 'hard_gate_failed', detail: 'stale_contract_quote' })
+  })
   it('scores the ranking profile and emits complete immutable lineage', () => {
     const result = evaluated()
     expect(result.ranking.displayed).toHaveLength(1)

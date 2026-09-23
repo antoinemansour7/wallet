@@ -1,7 +1,8 @@
 import { digest } from '../research/archive.js'
 import { createOptionsAuditRecord } from './audit.js'
-import { OPTIONS_CALENDAR_2026, marketDay, optionsLocalParts } from './calendar.js'
+import { OPTIONS_CALENDAR_2026, marketDay, optionsLocalParts, zonedMarketInstant } from './calendar.js'
 import { OPTIONS_PRICING_MODEL_VERSION } from './pricing.js'
+import { evaluateOpeningContractGates } from './chainGates.js'
 import {
   buildContractScenarioSet, OPTIONS_SCENARIO_POLICY_VERSION, OPTIONS_SCENARIO_RANKING_PROFILE,
 } from './scenarios.js'
@@ -10,7 +11,7 @@ import {
 } from './scoring.js'
 import { createOutcomeCaptureAuditRecord, createOutcomeCapturePlan } from './observations.js'
 
-export const OPTIONS_PUBLICATION_POLICY_VERSION = 'options-morning-publication-v1'
+export const OPTIONS_PUBLICATION_POLICY_VERSION = 'options-morning-publication-v2'
 export const OPTIONS_PUBLICATION_POLICY = Object.freeze({
   version: OPTIONS_PUBLICATION_POLICY_VERSION,
   observationMode: 'theoretical',
@@ -34,7 +35,7 @@ function findNulls(value, path = 'payload', found = []) {
 }
 
 function quoteMid(quote) {
-  return quote?.bid > 0 && quote?.ask > quote.bid ? (quote.bid + quote.ask) / 2 : null
+  return Number.isFinite(quote?.bid) && Number.isFinite(quote?.ask) && quote.bid > 0 && quote.ask >= quote.bid ? (quote.bid + quote.ask) / 2 : null
 }
 
 function relativeChange(before, after) {
@@ -65,8 +66,13 @@ export function compareRevalidatedQuote(before, after, beforeUnderlying, afterUn
   }
 }
 
-function riskFreeRate(feature, policy) {
-  const observed = (feature?.pricingInputs?.rates || []).filter((item) => Number.isFinite(item.ratePct)).at(-1)
+function riskFreeRate(feature, policy, asOf, tradingDate) {
+  const observed = (feature?.pricingInputs?.rates || [])
+    .filter((item) => Number.isFinite(item.ratePct) && item.asOfDate <= tradingDate
+      && (!item.availableAt || Date.parse(item.availableAt) <= Date.parse(asOf)))
+    .sort((a, b) => a.asOfDate.localeCompare(b.asOfDate)
+      || (a.availableAt || '').localeCompare(b.availableAt || '')
+      || String(a.eventId || a.revisionId).localeCompare(String(b.eventId || b.revisionId))).at(-1)
   return observed
     ? { value: observed.ratePct / 100, source: `feature:${observed.eventId || observed.revisionId}`, fallback: false }
     : { value: policy.fallbackRiskFreeRate, source: `${policy.version}:fallback-risk-free-rate`, fallback: true }
@@ -92,7 +98,13 @@ export function scoreOpeningContract({
 } = {}) {
   const underlyingPrice = quoteMid(underlying?.quote)
   const asOf = [contract?.quote?.marketAt, underlying?.quote?.marketAt].filter(Boolean).sort().at(-1)
-  const rate = riskFreeRate(feature, policy)
+  const rate = riskFreeRate(feature, policy, asOf, tradingDate)
+  // Also protect direct callers of publication; a preflattened chain is not
+  // proof that the current quote passed the hard gates.
+  const gate = evaluateOpeningContractGates({ ...contract,
+    openInterest: { value: contract.openInterest, asOfDate: contract.openInterestDate },
+    previousDailyBar: { volume: contract.previousVolume },
+  }, { tradingDate, regularOpenAt: zonedMarketInstant(tradingDate, OPTIONS_CALENDAR_2026.regular.open, OPTIONS_CALENDAR_2026.timeZone), underlying })
   let scenarioSet
   try {
     scenarioSet = buildContractScenarioSet({
@@ -111,7 +123,7 @@ export function scoreOpeningContract({
   }
   const scenarioEvidenceId = digest(scenarioSet)
   const score = scoreOptionsContract({
-    security, direction, contract, features: feature, scenarioSet, tradingDate, scenarioEvidenceId,
+    security, direction, contract, features: feature, scenarioSet, tradingDate, scenarioEvidenceId, gate,
   })
   return {
     score,

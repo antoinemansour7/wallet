@@ -28,6 +28,30 @@ function snapshot(records) {
 }
 
 describe('buildOptionsShortlist', () => {
+  it('does not break neutral directional ties in favor of calls', () => {
+    const entry = record({ ticker: 'AAA', relativeStrength: 0, sma20Distance: 0, return5d: 0, regimeScore: 5 })
+    expect(buildOptionsShortlist({ snapshot: snapshot([entry]), watchlist: watchlist(['AAA']) }).rejected[0].reason).toBe('directional_setup_tie')
+  })
+  it('uses the actual session exit instead of the legacy five-day exclusion flag', () => {
+    const entry = record({ ticker: 'AAA', nonEventState: 'excluded' })
+    entry.coverage = { earnings: { status: 'complete' }, catalysts: { status: 'complete' } }
+    entry.events = { earnings: [{ eventDate: '2026-09-27' }], catalysts: [] }
+    expect(buildOptionsShortlist({ snapshot: snapshot([entry]), watchlist: watchlist(['AAA']) }).candidates)
+      .toEqual([expect.objectContaining({ catalystCoverage: 'eligible' })])
+    entry.events.earnings = [{ eventDate: '2026-09-25', timing: 'unknown' }]
+    expect(buildOptionsShortlist({ snapshot: snapshot([entry]), watchlist: watchlist(['AAA']) }).candidates).toHaveLength(0)
+    entry.events.earnings[0].timing = 'after_close'
+    expect(buildOptionsShortlist({ snapshot: snapshot([entry]), watchlist: watchlist(['AAA']) }).candidates).toHaveLength(1)
+  })
+
+  it('includes the holiday weekend in the exclusion window and rejects no-evidence call ties', () => {
+    const entry = record({ ticker: 'AAA' })
+    entry.events = { earnings: [{ eventDate: '2026-11-30', timing: 'before_open' }], catalysts: [] }
+    const snap = { ...snapshot([entry]), tradingDate: '2026-11-24' }
+    expect(buildOptionsShortlist({ snapshot: snap, watchlist: watchlist(['AAA']) }).candidates).toHaveLength(0)
+    const neutral = record({ ticker: 'AAA', relativeStrength: null, sma20Distance: null, return5d: null, regimeScore: null })
+    expect(buildOptionsShortlist({ snapshot: snapshot([neutral]), watchlist: watchlist(['AAA']) }).rejected[0].reason).toBe('no_directional_setup')
+  })
   it('accounts for every watchlist security exactly once', () => {
     const list = watchlist(['AAA', 'BBB', 'CCC'])
     const snap = snapshot([record({ ticker: 'AAA' }), record({ ticker: 'BBB', premarketPrice: null })])

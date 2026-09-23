@@ -14,17 +14,17 @@
 // only wants the good news.
 
 import {
-  OPTIONS_CALENDAR_2026, marketDay, regularSessionClose, zonedMarketInstant,
+  OPTIONS_CALENDAR_2026, marketDay, optionsLocalParts, regularSessionClose, zonedMarketInstant,
 } from './calendar.js'
 import {
   OPTIONS_PRICING_MODEL_VERSION, assessPricingConvergence, calibrateImpliedVolatility,
   priceWithGreeks, solveSpotForValue,
 } from './pricing.js'
 
-export const OPTIONS_SCENARIO_POLICY_VERSION = 'options-scenario-matrix-v1'
+export const OPTIONS_SCENARIO_POLICY_VERSION = 'options-scenario-matrix-v2'
 
-// Epic section 11's matrix, verbatim. Percentage moves in the UNDERLYING.
-export const OPTIONS_SCENARIO_MOVES_PCT = Object.freeze([-8, -5, -3, 0, 2, 5, 8])
+// Symmetric signed percentage moves in the UNDERLYING; both sides include 2% and 3%.
+export const OPTIONS_SCENARIO_MOVES_PCT = Object.freeze([-8, -5, -3, -2, 0, 2, 3, 5, 8])
 
 // RELATIVE IV shocks. 0.90 on a 60% IV is 54%, not 50%. Both the starting and
 // the ending IV are carried on every scenario row so the distinction is visible
@@ -47,14 +47,9 @@ export const OPTIONS_SCENARIO_PRIMARY_HORIZON = '3_sessions'
 
 export const OPTIONS_PREMIUM_TARGETS_PCT = Object.freeze([25, 50, 100])
 
-// Scoring only ever reads the primary horizon and the +25% target (epic
-// section 10), and the full 105-cell matrix costs roughly five times as much to
-// produce. Measured on a 30-day American put at the default step count: ~275ms
-// for the full set against ~75ms for this one -- 55s against 15s over a
-// 200-contract chain, which is the difference between fitting in the
-// 09:31-09:35 window and not. (A call with no dividend takes the closed-form
-// path and costs a few milliseconds either way.) Use this for a ranking pass and
-// keep the full matrix for the contracts that are actually displayed.
+// Ranking uses the primary horizon and +25% net target. The full matrix keeps
+// all five horizons for displayed contracts; both profiles share the same
+// primary-horizon calculations and return exactly the same score.
 export const OPTIONS_SCENARIO_RANKING_PROFILE = Object.freeze({
   horizons: Object.freeze(OPTIONS_SCENARIO_HORIZONS.filter((horizon) => horizon.id === OPTIONS_SCENARIO_PRIMARY_HORIZON)),
   targets: Object.freeze([25]),
@@ -80,7 +75,7 @@ export const OPTIONS_SCENARIO_SEARCH_BOUND = 0.6
 
 // Scenario repricing runs at half the pricer's own default step count: the
 // oracle fixtures pass at 128 steps, so 256 keeps a full factor of two in hand
-// while keeping a 105-cell matrix affordable inside the opening stage window.
+// while keeping a 135-cell matrix affordable inside the opening stage window.
 // The convergence gate below runs at THIS step count, so what is checked is
 // what is actually used.
 export const OPTIONS_SCENARIO_STEPS = 256
@@ -105,6 +100,16 @@ function nextSessionDate(date, calendar) {
     if (day.open) return cursor
   }
   return null
+}
+
+export function resolveOptionsHoldingExit(tradingDate, sessions = 3, calendar = OPTIONS_CALENDAR_2026) {
+  let exitDate = tradingDate
+  if (!marketDay(tradingDate, calendar).open) return null
+  for (let count = 0; count < sessions; count += 1) {
+    exitDate = nextSessionDate(exitDate, calendar)
+    if (!exitDate) return null
+  }
+  return { exitDate, exitAt: regularSessionClose(exitDate, calendar) }
 }
 
 // US equity options stop trading at the close of their expiration date. When
@@ -132,6 +137,9 @@ function yearsBetween(fromInstant, toInstant) {
 export function resolveScenarioHorizons({
   asOf, tradingDate, expirationDate, calendar = OPTIONS_CALENDAR_2026, horizons = OPTIONS_SCENARIO_HORIZONS,
 } = {}) {
+  if (!Number.isFinite(Date.parse(asOf))) throw new Error('Scenario horizons require a valid valuation instant')
+  if (optionsLocalParts(asOf).date !== tradingDate) throw new Error('Valuation instant must fall on the trading date')
+  if (horizons.some((horizon) => !Number.isInteger(horizon.sessions) || horizon.sessions < 0)) throw new Error('Scenario horizons require non-negative session counts')
   const today = marketDay(tradingDate, calendar)
   if (!today.known || !today.open) throw new Error(`Scenario horizons require a trading session: ${tradingDate} is ${today.reason}`)
   const lastSession = lastTradingSession(expirationDate, calendar)
@@ -189,12 +197,15 @@ export function resolveScenarioHorizons({
 // valuation instant. Anything already ex by then is gone from the option's life.
 function dividendsFrom(instant, dividends, calendar) {
   return dividends
-    .map((dividend) => ({
-      exDate: dividend.exDate,
-      amount: dividend.amount,
-      // Dividends go ex at the opening bell of the ex-date.
-      timeYears: yearsBetween(instant, zonedMarketInstant(dividend.exDate, calendar.regular.open, calendar.timeZone)),
-    }))
+    .map((dividend) => {
+      if (!Number.isFinite(dividend.amount) || dividend.amount < 0) throw new Error('Dividend amount is unavailable or invalid')
+      return {
+        exDate: dividend.exDate,
+        amount: dividend.amount,
+        // Dividends go ex at the opening bell of the ex-date.
+        timeYears: yearsBetween(instant, zonedMarketInstant(dividend.exDate, calendar.regular.open, calendar.timeZone)),
+      }
+    })
     .filter((dividend) => dividend.timeYears > 0 && dividend.amount > 0)
 }
 
@@ -231,10 +242,12 @@ function scenarioRow({
 }) {
   const underlyingPrice = entry.underlyingPrice * (1 + movePct / 100)
   const volatility = entry.impliedVolatility * ivMultiplier
-  // Same for all 21 cells of a horizon, so it is resolved once per horizon.
+  // Same for all 27 cells of a horizon, so it is resolved once per horizon.
   const dividends = horizon.dividends
   const priced = horizon.remainingYears <= 0
-    ? { price: intrinsic(contract.type, underlyingPrice, contract.strikePrice), delta: 0, gamma: 0, vega: 0, theta: 0 }
+    ? { price: intrinsic(contract.type, underlyingPrice, contract.strikePrice),
+      delta: intrinsic(contract.type, underlyingPrice, contract.strikePrice) > 0 ? (contract.type === 'call' ? 1 : -1) : 0,
+      gamma: 0, vega: 0, theta: 0 }
     : priceWithGreeks({
       type: contract.type, exercise: 'american', spot: underlyingPrice, strike: contract.strikePrice,
       timeYears: horizon.remainingYears, volatility, riskFreeRate: assumptions.riskFreeRate,
@@ -272,7 +285,8 @@ function scenarioRow({
     extrinsicValue: round(priced.price - intrinsic(contract.type, underlyingPrice, contract.strikePrice), 4),
     // The epic's headline claim, and the only place it may be made: a modelled
     // gain that is still short of the strike. Both halves must hold.
-    gainWhileOutOfTheMoney: midReturnPct > 0 && state === 'otm',
+    midGainWhileOutOfTheMoney: midReturnPct > 0 && state === 'otm',
+    gainWhileOutOfTheMoney: economics.askEntryModeledBidReturnPct > 0 && state === 'otm',
   }
 }
 
@@ -301,11 +315,18 @@ function timeOnlyDecay({ horizon, unchangedRow: row, entry }) {
 // +25%/+50%/+100%? Reported against the horizon's own implied move budget, so a
 // "required move" that is three implied moves reads as the long shot it is.
 function premiumTargetRow({ targetPct, horizon, ivMultiplier, contract, entry, assumptions, steps }) {
-  const targetValue = entry.mid * (1 + targetPct / 100)
+  const { contractMultiplier: multiplier, commissionPerContract, regulatoryFeesPerContract } = assumptions.costs
+  const fees = commissionPerContract + regulatoryFeesPerContract
+  // Solve the very same ask-entry / bid-exit economics shown in the matrix.
+  // (V * bidFactor * multiplier - exitFee) / entryCost = 1 + target.
+  const entryCost = entry.ask * multiplier + fees
+  const targetValue = (entryCost * (1 + targetPct / 100) + fees) / (multiplier * (1 - entry.spreadFraction / 2))
   const volatility = entry.impliedVolatility * ivMultiplier
   const impliedMoveBudgetPct = entry.impliedVolatility * Math.sqrt(Math.max(horizon.calendarElapsedDays, 0) / 365) * 100
   const base = {
     targetPct,
+    targetReturnBasis: 'ask-entry-modeled-bid-exit-after-fees',
+    frictionlessTargetValuePerShare: round(entry.mid * (1 + targetPct / 100), 4),
     targetValuePerShare: round(targetValue, 4),
     horizonId: horizon.id,
     ivMultiplier,
@@ -320,7 +341,7 @@ function premiumTargetRow({ targetPct, horizon, ivMultiplier, contract, entry, a
     // than reporting a bisection result.
     const required = contract.type === 'call' ? contract.strikePrice + targetValue : contract.strikePrice - targetValue
     const movePct = ((required - entry.underlyingPrice) / entry.underlyingPrice) * 100
-    const withinBound = Math.abs(movePct) <= OPTIONS_SCENARIO_SEARCH_BOUND * 100
+    const withinBound = required > 0 && Math.abs(movePct) <= OPTIONS_SCENARIO_SEARCH_BOUND * 100
     return {
       ...base,
       solved: withinBound,
@@ -387,13 +408,19 @@ export function buildContractScenarioSet({
   steps = OPTIONS_SCENARIO_STEPS,
 } = {}) {
   if (contract?.type !== 'call' && contract?.type !== 'put') throw new Error('Scenario building requires a call or put contract')
-  if (!(contract.strikePrice > 0)) throw new Error('Scenario building requires a positive strike')
-  if (!(underlyingPrice > 0)) throw new Error('Scenario building requires a positive underlying price')
+  if (!Number.isFinite(contract.strikePrice) || !(contract.strikePrice > 0)) throw new Error('Scenario building requires a finite positive strike')
+  if (!Number.isFinite(underlyingPrice) || !(underlyingPrice > 0)) throw new Error('Scenario building requires a finite positive underlying price')
   if (!Number.isFinite(riskFreeRate)) throw new Error('Scenario building requires a risk-free rate assumption')
+  if (!Number.isFinite(dividendYield) || !Number.isFinite(borrowRate)) throw new Error('Scenario building requires finite carry assumptions')
+  if (!(costs.contractMultiplier > 0) || !Number.isFinite(costs.contractMultiplier)
+    || ![costs.commissionPerContract, costs.regulatoryFeesPerContract].every((value) => Number.isFinite(value) && value >= 0)) throw new Error('Invalid scenario costs')
+  if (!moves.every((value) => Number.isFinite(value) && value > -100)
+    || !ivMultipliers.every((value) => Number.isFinite(value) && value > 0)
+    || !targets.every((value) => Number.isFinite(value) && value > 0)) throw new Error('Invalid scenario grid')
 
   const bid = contract.quote?.bid
   const ask = contract.quote?.ask
-  if (!(bid > 0) || !(ask > bid)) throw new Error('Scenario building requires a two-sided quote')
+  if (!Number.isFinite(bid) || !Number.isFinite(ask) || !(bid > 0) || !(ask > bid)) throw new Error('Scenario building requires a two-sided quote')
   const mid = (bid + ask) / 2
   const spreadPct = (ask - bid) / mid
 
@@ -544,6 +571,30 @@ export function buildContractScenarioSet({
     }
   }
 
+  // Entry convergence alone does not validate the states that determine the
+  // score: rolling toward a dividend or exercise boundary can change lattice
+  // error. Check the two carry/IV anchors and the primary net-target solution.
+  // The identical checks run in both the ranking and full-matrix profiles.
+  const primary = available.find((horizon) => horizon.id === OPTIONS_SCENARIO_PRIMARY_HORIZON)
+  const valuationChecks = []
+  if (primary) {
+    const primaryTarget = premiumTargets.find((target) => target.horizonId === primary.id && target.targetPct === 25 && target.ivMultiplier === 1)
+    const states = [
+      { id: 'primary_unchanged', spot: underlyingPrice, ivMultiplier: 1 },
+      { id: 'primary_iv_down', spot: underlyingPrice, ivMultiplier: 0.9 },
+      ...(primaryTarget?.solved ? [{ id: 'primary_net_target', spot: primaryTarget.requiredUnderlyingPrice, ivMultiplier: 1 }] : []),
+    ]
+    for (const state of states) {
+      valuationChecks.push({ id: state.id, ...assessPricingConvergence({ ...modelInputs,
+        spot: state.spot, timeYears: primary.remainingYears, dividends: primary.dividends,
+        volatility: calibration.impliedVolatility * state.ivMultiplier }) })
+    }
+  }
+  if (valuationChecks.some((check) => !check.converged)) {
+    return blocked([{ code: 'primary_valuation_not_converged', detail: valuationChecks.filter((check) => !check.converged).map((check) => check.id).join(',') }],
+      { ...context, calibration: calibrationRecord, convergence, valuationChecks })
+  }
+
   const returns = scenarios.map((scenario) => scenario.midReturnPct)
   return {
     ...context,
@@ -552,6 +603,7 @@ export function buildContractScenarioSet({
     blockers: [],
     calibration: calibrationRecord,
     convergence,
+    valuationChecks,
     entry,
     scenarios,
     timeOnlyDecay: decay,

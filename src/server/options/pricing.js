@@ -27,7 +27,7 @@
 //   theta          per CALENDAR day (weekends and holidays decay too).
 //   rho            per 1.00 percentage point of rate (a 0.01 change in r).
 
-export const OPTIONS_PRICING_MODEL_VERSION = 'options-american-crr-vellekoop-v1'
+export const OPTIONS_PRICING_MODEL_VERSION = 'options-american-crr-vellekoop-v2'
 
 // The epic's proposed release tolerance: max($0.02, 1% of the oracle value).
 // Stated here because the tests, the convergence check and any future
@@ -113,10 +113,10 @@ function normalizeInputs(inputs) {
   } = inputs || {}
   if (type !== 'call' && type !== 'put') throw new OptionsPricingError('invalid_option_type', 'type must be call or put')
   if (exercise !== 'american' && exercise !== 'european') throw new OptionsPricingError('invalid_exercise_style', 'exercise must be american or european')
-  if (!(spot > 0)) throw new OptionsPricingError('invalid_spot', 'spot must be a positive number')
-  if (!(strike > 0)) throw new OptionsPricingError('invalid_strike', 'strike must be a positive number')
+  if (!Number.isFinite(spot) || !(spot > 0)) throw new OptionsPricingError('invalid_spot', 'spot must be a finite positive number')
+  if (!Number.isFinite(strike) || !(strike > 0)) throw new OptionsPricingError('invalid_strike', 'strike must be a finite positive number')
   if (!Number.isFinite(timeYears) || timeYears < 0) throw new OptionsPricingError('invalid_time', 'timeYears must be zero or a positive number')
-  if (!(volatility > 0)) throw new OptionsPricingError('invalid_volatility', 'volatility must be a positive number')
+  if (!Number.isFinite(volatility) || !(volatility > 0)) throw new OptionsPricingError('invalid_volatility', 'volatility must be a finite positive number')
   if (!Number.isFinite(riskFreeRate)) throw new OptionsPricingError('invalid_rate', 'riskFreeRate must be a finite number')
   if (!Number.isFinite(dividendYield)) throw new OptionsPricingError('invalid_dividend_yield', 'dividendYield must be a finite number')
   if (!Number.isInteger(steps) || steps < 8) throw new OptionsPricingError('invalid_steps', 'steps must be an integer of at least 8')
@@ -177,6 +177,7 @@ export function blackScholes({ type, spot, strike, timeYears, volatility, riskFr
 // for the non-dividend-paying majority of the watchlist.
 function europeanEquivalent(inputs) {
   return inputs.type === 'call'
+    && inputs.riskFreeRate >= 0
     && inputs.dividendYield <= 0
     && liveDividends(inputs.dividends, inputs.timeYears).length === 0
 }
@@ -187,6 +188,10 @@ function europeanEquivalent(inputs) {
 // date very close to valuation, where the lattice is still narrower than the
 // dividend itself and the value function is locally linear anyway.
 function valueAtPrice(values, step, spot, logU, price) {
+  // Cash dividends cannot make the ex-dividend stock negative. Clamp the
+  // interpolation coordinate as well as its logarithm (a negative weight
+  // previously let a large cash flow push a put above its strike).
+  price = Math.max(price, 0)
   const position = (Math.log(Math.max(price, 1e-12) / spot) / logU + step) / 2
   let lower = Math.floor(position)
   if (lower < 0) lower = 0
@@ -201,6 +206,16 @@ function binomialPrice(inputs) {
   const { type, exercise, spot, strike, timeYears, volatility, riskFreeRate, dividendYield, steps } = inputs
   const dividends = liveDividends(inputs.dividends, timeYears)
   const dt = timeYears / steps
+  // A cash flow rounded to the root used to vanish. At sub-half-step dates,
+  // take the immediate-dividend limit and retain the cum-dividend exercise
+  // decision. This also avoids extrapolating a large drop off a two-node tree.
+  const immediate = dividends.filter((dividend) => dividend.timeYears < dt / 2)
+  if (immediate.length) {
+    const cash = immediate.reduce((sum, dividend) => sum + dividend.amount, 0)
+    const continuation = binomialPrice({ ...inputs, spot: Math.max(spot - cash, 1e-12),
+      dividends: dividends.filter((dividend) => !immediate.includes(dividend)) })
+    return exercise === 'american' ? Math.max(intrinsicValue(type, spot, strike), continuation) : continuation
+  }
   const logU = volatility * Math.sqrt(dt)
   const u = Math.exp(logU)
   const down = 1 / u
@@ -215,8 +230,8 @@ function binomialPrice(inputs) {
 
   const drops = new Float64Array(steps + 1)
   for (const dividend of dividends) {
-    const step = Math.round(dividend.timeYears / dt)
-    if (step > 0 && step < steps) drops[step] += dividend.amount
+    const step = Math.max(1, Math.min(steps - 1, Math.round(dividend.timeYears / dt)))
+    drops[step] += dividend.amount
   }
 
   const values = new Float64Array(steps + 1)
@@ -231,6 +246,13 @@ function binomialPrice(inputs) {
     // keeps the lattice recombining. Value just before the ex-date, as seen at
     // the cum-dividend price S, is the post-drop value read at S - D.
     if (drops[j] > 0) {
+      // Exercise is also available immediately AFTER the drop (particularly
+      // valuable for puts), before mapping the value back to the cum price.
+      if (exercise === 'american') {
+        for (let k = 0; k <= j; k += 1) {
+          values[k] = Math.max(values[k], intrinsicValue(type, spot * Math.exp(logU * (2 * k - j)), strike))
+        }
+      }
       for (let k = 0; k <= j; k += 1) shifted[k] = valueAtPrice(values, j, spot, logU, spot * Math.exp(logU * (2 * k - j)) - drops[j])
       values.set(shifted.subarray(0, j + 1))
     }
@@ -270,8 +292,8 @@ export function priceOption(rawInputs) {
   return latticePrice(inputs)
 }
 
-// Finite-difference Greeks: every one of these comes from repricing the model at
-// a bumped input, never from a closed-form shortcut the lattice does not share.
+// Spatial/volatility/rate Greeks reprice the same model at bumped inputs;
+// local theta follows its continuation PDE (zero inside immediate exercise).
 // That is the point -- the Greeks reported next to a scenario have to be the
 // derivatives of the number actually shown, including across the early-exercise
 // boundary where a closed form has none.
@@ -289,32 +311,30 @@ export function priceWithGreeks(rawInputs, { includeRho = true } = {}) {
     return { price, delta: inTheMoney ? (inputs.type === 'call' ? 1 : -1) : 0, gamma: 0, vega: 0, theta: 0, rho: 0 }
   }
 
-  const bump = Math.max(inputs.spot * 0.005, 0.01)
+  // Span a lattice cell: a smaller bump differentiates the piecewise-linear
+  // interpolation kink instead of the option, producing strike-dependent gamma
+  // spikes. Use relative units so splitting a stock cannot change the Greeks.
+  const logU = inputs.volatility * Math.sqrt(inputs.timeYears / inputs.steps)
+  const bump = inputs.spot * Math.min(0.25, 2 * Math.sinh(logU))
   const up = priceOption({ ...inputs, spot: inputs.spot + bump })
   const downPrice = priceOption({ ...inputs, spot: Math.max(inputs.spot - bump, 1e-8) })
 
-  // Theta moves the VALUATION date, not the expiry: remaining time shrinks and
-  // every remaining ex-date comes one step closer with it. Bumping timeYears
-  // alone would price tomorrow's option against today's dividend calendar.
-  // Centred rather than one-sided because theta accelerates sharply near
-  // expiry, where a forward difference reports the average over the next day
-  // as if it were the rate today.
-  const dayStep = Math.min(1 / DAYS_PER_YEAR, inputs.timeYears / 2)
-  const shiftValuation = (years) => ({
-    ...inputs,
-    timeYears: inputs.timeYears - years,
-    dividends: inputs.dividends
-      .map((dividend) => ({ ...dividend, timeYears: dividend.timeYears - years }))
-      // A dividend the step moves past has been paid by the shifted valuation
-      // date and is no longer part of the option's life. Dropping it here rather
-      // than handing a negative ex-date to the pricer matters in practice: a
-      // horizon that exits the day before an ex-date is completely ordinary.
-      .filter((dividend) => dividend.timeYears > 0),
-  })
-  const theta = (priceOption(shiftValuation(dayStep)) - priceOption(shiftValuation(-dayStep))) / (2 * dayStep * DAYS_PER_YEAR)
+  const delta = (up - downPrice) / (2 * bump)
+  const gamma = (up - 2 * price + downPrice) / (bump * bump)
+  // Between cash-dividend jumps the continuation value satisfies the pricing
+  // PDE. Moving the valuation date on a rounded dividend lattice differentiates
+  // the changing grid as well as time, and can even cross the cash-flow jump.
+  // Recover the local theta from the model's spatial derivatives instead.
+  // Inside immediate exercise the fixed-spot value is intrinsic and theta is 0.
+  const exercising = inputs.exercise === 'american'
+    && price <= intrinsicValue(inputs.type, inputs.spot, inputs.strike) + 1e-10
+  const theta = exercising ? 0 : (inputs.riskFreeRate * price
+    - (inputs.riskFreeRate - inputs.dividendYield) * inputs.spot * delta
+    - 0.5 * inputs.volatility ** 2 * inputs.spot ** 2 * gamma) / DAYS_PER_YEAR
 
-  const volUp = priceOption({ ...inputs, volatility: inputs.volatility + VEGA_BUMP })
-  const volDown = priceOption({ ...inputs, volatility: Math.max(inputs.volatility - VEGA_BUMP, 1e-6) })
+  const volBump = Math.min(VEGA_BUMP, inputs.volatility / 2)
+  const volUp = priceOption({ ...inputs, volatility: inputs.volatility + volBump })
+  const volDown = priceOption({ ...inputs, volatility: inputs.volatility - volBump })
   const rho = includeRho
     ? (priceOption({ ...inputs, riskFreeRate: inputs.riskFreeRate + RATE_BUMP })
       - priceOption({ ...inputs, riskFreeRate: inputs.riskFreeRate - RATE_BUMP })) / (2 * RATE_BUMP) / 100
@@ -322,9 +342,9 @@ export function priceWithGreeks(rawInputs, { includeRho = true } = {}) {
 
   return {
     price,
-    delta: (up - downPrice) / (2 * bump),
-    gamma: (up - 2 * price + downPrice) / (bump * bump),
-    vega: (volUp - volDown) / (2 * VEGA_BUMP) / 100,
+    delta,
+    gamma,
+    vega: (volUp - volDown) / (2 * volBump) / 100,
     theta,
     rho,
   }
@@ -357,18 +377,23 @@ function priceBounds({ type, exercise, spot, strike, timeYears, riskFreeRate, di
   const discount = Math.exp(-riskFreeRate * timeYears)
   const carry = Math.exp(-dividendYield * timeYears)
   const dividendPv = liveDividends(dividends, timeYears)
-    .reduce((total, dividend) => total + dividend.amount * Math.exp(-riskFreeRate * dividend.timeYears), 0)
+    .reduce((total, dividend) => total + dividend.amount * Math.exp(-riskFreeRate * dividend.timeYears)
+      * Math.exp(-dividendYield * (timeYears - dividend.timeYears)), 0)
   if (type === 'call') {
     const european = Math.max(spot * carry - dividendPv - strike * discount, 0)
     return {
       lower: exercise === 'american' ? Math.max(european, intrinsicValue('call', spot, strike)) : european,
-      upper: spot,
+      upper: spot * Math.max(1, carry),
     }
   }
-  const european = Math.max(strike * discount - spot * carry + dividendPv, 0)
+  // The stock is floored at zero after cash jumps. Cash dividends need not be
+  // fully payable in every lattice state, so subtracting their full PV from
+  // the stock forward is NOT a valid put lower bound. Ignoring them gives a
+  // conservative bound; the model's minimum-volatility price tightens it next.
+  const european = Math.max(strike * discount - spot * carry, 0)
   return {
     lower: exercise === 'american' ? Math.max(european, intrinsicValue('put', spot, strike)) : european,
-    upper: exercise === 'american' ? strike : strike * discount,
+    upper: exercise === 'american' ? strike * Math.max(1, discount) : strike * discount,
   }
 }
 
@@ -382,7 +407,7 @@ export function calibrateImpliedVolatility({ targetPrice, ...rawInputs } = {}) {
     status: 'failed', reason, impliedVolatility: null, residual: null, iterations: 0,
     bracket: { min: OPTIONS_IV_SOLVER.minVolatility, max: OPTIONS_IV_SOLVER.maxVolatility }, ...extra,
   })
-  if (!(targetPrice > 0)) return failure('target_price_not_positive')
+  if (!Number.isFinite(targetPrice) || !(targetPrice > 0)) return failure('target_price_not_positive')
   if (inputs.timeYears <= 0) return failure('no_time_to_expiry')
 
   const bounds = priceBounds(inputs)
@@ -394,6 +419,11 @@ export function calibrateImpliedVolatility({ targetPrice, ...rawInputs } = {}) {
   let high = OPTIONS_IV_SOLVER.maxVolatility
   const lowPrice = at(low)
   const highPrice = at(high)
+  // At the exercise floor a whole interval of volatilities can reproduce the
+  // quote. There is no identified IV or meaningful calibrated Greek to rank.
+  if (Math.abs(targetPrice - lowPrice) <= OPTIONS_IV_SOLVER.residualTolerance) {
+    return failure('iv_not_identifiable_at_price_floor', { bounds, floorPrice: lowPrice })
+  }
   if (targetPrice < lowPrice) return failure('price_below_minimum_volatility', { bounds, floorPrice: lowPrice })
   if (targetPrice > highPrice) return failure('price_above_maximum_volatility', { bounds, ceilingPrice: highPrice })
 
@@ -430,7 +460,7 @@ export function calibrateImpliedVolatility({ targetPrice, ...rawInputs } = {}) {
 // the search as if it were a solution.
 export function solveSpotForValue({ targetValue, searchBound = 0.6, ...rawInputs } = {}) {
   const inputs = normalizeInputs(rawInputs)
-  if (!(targetValue > 0)) return { solved: false, reason: 'target_value_not_positive', spot: null, movePct: null }
+  if (!Number.isFinite(targetValue) || !(targetValue > 0)) return { solved: false, reason: 'target_value_not_positive', spot: null, movePct: null }
   if (!(searchBound > 0 && searchBound < 1)) throw new OptionsPricingError('invalid_search_bound', 'searchBound must be a fraction between 0 and 1')
 
   const sign = inputs.type === 'call' ? 1 : -1
