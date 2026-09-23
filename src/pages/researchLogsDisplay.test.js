@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   duration, friendlyTime, isLegacyRun, primaryIssue, publishedTickers, runFunnel, runIssues,
-  runSummary, scheduleAlert, stageName, statusName, statusTone,
+  runSummary, scheduleAlert, stageName, statusName, statusTone, jobName,
 } from './researchLogsDisplay'
 
 describe('research log presentation', () => {
@@ -132,6 +132,19 @@ describe('research log presentation', () => {
       const performance = runSummary({ job: 'track-performance', stages: [{ stage: 'performance_tracking' }] })
       expect(performance.facts).toEqual([])
       expect(performance.note).toContain('Tracks outcomes')
+    })
+
+    it('summarizes the report job in reports written, and flags reports it did not write', () => {
+      const reportRun = (metrics) => ({ job: 'research-reports', status: 'success', stages: [{ stage: 'report_generation', status: 'success', metrics }] })
+      const done = reportRun({ outcome: 'complete', candidates: 8, reports: 8, failed: 0, deferred: 0 })
+      expect(runSummary(done).facts).toEqual(['8 of 8 reports written'])
+      expect(runIssues(done)).toEqual([])
+      const short = reportRun({ outcome: 'partial', candidates: 8, reports: 5, failed: 1, deferred: 2 })
+      expect(runSummary(short).facts).toEqual(['5 of 8 reports written'])
+      expect(primaryIssue(short)).toEqual({ severity: 2, headline: '3 of 8 reports were not written',
+        detail: 'Those picks stay published without a report.' })
+      expect(runSummary(reportRun({ outcome: 'nothing_published', candidates: 0, reports: 0 })).note).toContain('No new picks needed a report')
+      expect(jobName('research-reports')).toBe('Reports')
     })
 
     it('never borrows nightly research metrics for another job', () => {

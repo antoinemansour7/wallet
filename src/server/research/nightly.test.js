@@ -50,27 +50,63 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs() })
 
 describe('nightly foundation integration', () => {
-  it('publishes and archives primary-only picks before awaiting reports', async () => {
+  it('publishes and archives picks with reports pending, and leaves reports to the separate report job', async () => {
     mocks.extract.mockImplementation(async (_s, _a, options) => { options.onPrimaryReview(primary({ 20: [pick('QUIET', 20)], 60: [pick('SLOW', 60)] })); return [] })
-    let finish
-    mocks.reports.mockImplementation((picks) => new Promise((resolve) => { finish = () => resolve(picks.map((p) => ({ ...p, report: 'Done' }))) }))
-    const res = response(), running = handler(request(), res)
-    await vi.waitFor(() => expect(mocks.reports).toHaveBeenCalledOnce())
-    const partial = mocks.values.get('research:latest')
-    expect(partial.picks).toEqual([])
-    expect(partial.picksByHorizon[20][0]).toMatchObject({ ticker: 'QUIET', signalCount: 0, regimeScore: 6 })
-    expect(partial.reportsPending).toBe(true)
+    mocks.reports.mockImplementation(async (picks) => picks.map((p) => ({ ...p, report: 'Done' })))
+    const res = response()
+    await handler(request(), res)
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(mocks.reports).not.toHaveBeenCalled()
+    const published = mocks.values.get('research:latest')
+    expect(published.picks).toEqual([])
+    expect(published.picksByHorizon[20][0]).toMatchObject({ ticker: 'QUIET', signalCount: 0, regimeScore: 6 })
+    expect(published.reportsPending).toBe(true)
     expect(mocks.publications).toHaveLength(1)
     expect(mocks.redis.lpush).toHaveBeenCalledWith('research:history-index', '2026-09-09')
-    finish(); await running
-    expect(mocks.values.get('research:latest').picksByHorizon[20][0].report).toBe('Done')
-    expect(mocks.values.get('research:latest').publicationId).toBe(partial.publicationId)
+
+    vi.setSystemTime(new Date('2026-09-09T14:05:00Z'))
+    const reports = response()
+    await handler(request({ mode: 'reports' }), reports)
+    expect(reports.status).toHaveBeenCalledWith(200)
+    expect(reports.json).toHaveBeenCalledWith(expect.objectContaining({ mode: 'reports', status: 'complete', candidates: 2, written: 2 }))
+    const completed = mocks.values.get('research:latest')
+    expect(completed.picksByHorizon[20][0].report).toBe('Done')
+    expect(completed.picksByHorizon[60][0].report).toBe('Done')
+    expect(completed.reportsPending).toBe(false)
+    expect(completed.publicationId).toBe(published.publicationId)
     expect(mocks.publications[0].picksByHorizon[20][0].report).toBeUndefined()
     expect(mocks.publications).toHaveLength(1)
-    expect(res.status).toHaveBeenCalledWith(200)
   })
 
-  it('orders the durable evaluation handoff before optional report generation', async () => {
+  it('runs the report job when the report cron fires, recognized by its schedule header', async () => {
+    mocks.values.set('research:latest', { generatedAt: '2026-09-09T11:30:00.000Z', picks: [], picksByHorizon: { 5: [], 20: [{ ...pick('QUIET', 20), generatedAt: '2026-09-09T11:30:00.000Z' }], 60: [] }, reportsPending: true })
+    const res = response()
+    await handler({ method: 'GET', headers: { authorization: 'Bearer test', 'x-vercel-cron-schedule': '0 9 * * *' }, query: {} }, res)
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ mode: 'reports', written: 1 }))
+    expect(mocks.extract).not.toHaveBeenCalled()
+    const [, line] = mocks.redis.lpush.mock.calls.find(([key]) => key === 'research:runs:v1')
+    expect(JSON.parse(line)).toMatchObject({ job: 'research-reports', status: 'success',
+      stages: [expect.objectContaining({ stage: 'report_generation', metrics: expect.objectContaining({ outcome: 'complete', reports: 1, candidates: 1 }) })] })
+    expect(mocks.record).toHaveBeenCalledWith('research-reports', expect.any(Number), { errors: [] })
+  })
+
+  it('registers the report cron in vercel.json with the exact schedule the handler recognizes', async () => {
+    const { readFileSync } = await vi.importActual('node:fs')
+    const { REPORTS_CRON_SCHEDULE } = await import('../../../api/nightly-research.js')
+    const crons = JSON.parse(readFileSync(new URL('../../../vercel.json', import.meta.url), 'utf8')).crons
+    const nightly = crons.filter((cron) => cron.path === '/api/nightly-research').map((cron) => cron.schedule)
+    expect(nightly).toEqual(['0 7 * * *', REPORTS_CRON_SCHEDULE])
+  })
+
+  it('does not run the report job while a nightly run holds the publication lock', async () => {
+    mocks.values.set('research:publication:lock:v1', 'nightly-token')
+    const res = response()
+    await handler(request({ mode: 'reports' }), res)
+    expect(res.status).toHaveBeenCalledWith(409)
+    expect(mocks.reports).not.toHaveBeenCalled()
+  })
+
+  it('ends the nightly run at the durable evaluation handoff, with no report stage', async () => {
     mocks.extract.mockImplementation(async (_s, _a, options) => { options.onPrimaryReview(primary()); return [pick('FAST')] })
 
     await handler(request(), response())
@@ -78,14 +114,14 @@ describe('nightly foundation integration', () => {
     const [, line] = mocks.redis.lpush.mock.calls.find(([key]) => key === 'research:runs:v1')
     const stages = JSON.parse(line).stages.map((entry) => entry.stage)
       .filter((stage) => ['publication', 'persistence', 'evaluation_input_freeze', 'report_generation'].includes(stage))
-    expect(stages).toEqual(['publication', 'persistence', 'evaluation_input_freeze', 'report_generation'])
+    expect(stages).toEqual(['publication', 'persistence', 'evaluation_input_freeze'])
+    expect(mocks.reports).not.toHaveBeenCalled()
     expect(mocks.freezeEvaluationJob).toHaveBeenCalledWith(mocks.archive, {
       runId: expect.any(String),
       publicationId: mocks.values.get('research:latest').publicationId,
       decisionAt: '2026-09-09T12:00:00.000Z',
       evaluationInputs: { discoveryHealthy: false },
     })
-    expect(mocks.freezeEvaluationJob.mock.invocationCallOrder[0]).toBeLessThan(mocks.reports.mock.invocationCallOrder[0])
   })
 
   it('carries winners whole, removes vetoes, and reports only new winners', async () => {
@@ -95,24 +131,28 @@ describe('nightly foundation integration', () => {
     const payload = mocks.values.get('research:latest')
     expect(payload.picks).toEqual([])
     expect(payload.picksByHorizon[20][0]).toMatchObject({ report: 'Original', finalScore: 95, generatedAt: '2026-09-09T10:00:00Z' })
+    await handler(request({ mode: 'reports' }), response())
     expect(mocks.reports.mock.calls[0][0].map((p) => p.ticker)).toEqual(['NEW'])
+    expect(mocks.values.get('research:latest').picksByHorizon[20][0].report).toBe('Original')
   })
 
-  it('freezes the evaluation packet before a report failure and retains the published picks', async () => {
+  it('keeps the published picks when the report job fails, and says how many reports are missing', async () => {
     mocks.extract.mockImplementation(async (_s, _a, options) => { options.onPrimaryReview(primary()); return [pick('FAST')] })
     mocks.redis.lpush.mockRejectedValueOnce(new Error('index unavailable'))
-    mocks.reports.mockRejectedValueOnce(new Error('report unavailable'))
     await handler(request(), response())
     expect(mocks.redis.lpush.mock.calls.filter(([key]) => key === 'research:history-index')).toHaveLength(2)
-    expect(mocks.values.get('research:latest')).toMatchObject({ picks: [{ ticker: 'FAST' }], reportsPending: true })
-    expect(mocks.values.get('research:latest').errors.map((e) => e.step)).toEqual(expect.arrayContaining(['store-partial', 'reports']))
+    expect(mocks.values.get('research:latest').errors.map((e) => e.step)).toEqual(expect.arrayContaining(['store-partial']))
     expect(mocks.freezeEvaluationJob).toHaveBeenCalledOnce()
-    expect(mocks.freezeEvaluationJob.mock.invocationCallOrder[0]).toBeLessThan(mocks.reports.mock.invocationCallOrder[0])
 
+    mocks.reports.mockRejectedValueOnce(new Error('report unavailable'))
+    mocks.redis.lpush.mockClear()
+    const res = response()
+    await handler(request({ mode: 'reports' }), res)
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'partial', written: 0, deferred: 1, stopped: 'generation_failed' }))
+    expect(mocks.values.get('research:latest')).toMatchObject({ picks: [{ ticker: 'FAST' }], reportsPending: true })
+    expect(mocks.record).toHaveBeenLastCalledWith('research-reports', expect.any(Number), { errors: [{ step: 'reports', error: '0/1 reports written (generation_failed)' }] })
     const [, line] = mocks.redis.lpush.mock.calls.find(([key]) => key === 'research:runs:v1')
-    const stages = JSON.parse(line).stages
-    expect(stages.find((entry) => entry.stage === 'evaluation_input_freeze')).toMatchObject({ status: 'success' })
-    expect(stages.find((entry) => entry.stage === 'report_generation')).toMatchObject({ status: 'failed' })
+    expect(JSON.parse(line).stages).toEqual([expect.objectContaining({ stage: 'report_generation', metrics: expect.objectContaining({ outcome: 'partial', deferred: 1 }) })])
   })
 
   it('synchronizes only the five-session premarket projection', async () => {
@@ -182,7 +222,6 @@ describe('nightly foundation integration', () => {
     expect(summary.stages).toEqual(expect.arrayContaining([
       expect.objectContaining({ stage: 'contrarian_review', status: 'skipped' }),
       expect.objectContaining({ stage: 'catalyst_verification', status: 'skipped' }),
-      expect.objectContaining({ stage: 'report_generation', status: 'skipped' }),
       expect.objectContaining({ stage: 'evaluation_input_freeze', status: 'success' }),
       expect.objectContaining({ stage: 'persistence', status: 'success' }),
     ]))
