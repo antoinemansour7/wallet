@@ -6,7 +6,7 @@ import { optionsResearchFixture } from '../../test/optionsResearchFixture.js'
 import { OPTIONS_LATEST_POINTER_KEY, archiveOptionsAuditRecord } from './auditStore.js'
 import { evaluateOptionsOutcome } from './evaluation.js'
 import {
-  OPTIONS_CAPTURE_ACTIVE_KEY, captureInstantsFor, forwardCaptureScanId, publishedOutcomePlans,
+  OPTIONS_CAPTURE_ACTIVE_KEY, OPTIONS_EXPERIMENT_LATEST_KEY, captureInstantsFor, forwardCaptureScanId, publishedOutcomePlans,
   rollUpObservationDay, runOptionsForwardCaptureTick,
 } from './forwardCapture.js'
 
@@ -80,6 +80,34 @@ describe('forward capture schedule', () => {
   it('counts a plan once even when a revised morning re-publishes it', async () => {
     const plans = await publishedOutcomePlans({ archive, now: clock })
     expect(captureInstantsFor([...plans, ...plans], '2026-09-22').at(-1).contracts).toHaveLength(2)
+  })
+})
+
+describe('experiment capture plans', () => {
+  // A frozen Step 1 experiment run holding one close-only plan.
+  async function archiveExperiment({ experimentId, availableAt, planId }) {
+    const plan = { ...planFor(fixture.contracts[0].contractId), planId, scanId: '2026-09-22:shadow:options-step1-experiments-v1' }
+    const run = { experimentId, policyVersion: 'options-step1-experiments-v1', tradingDate: '2026-09-22', availableAt, observations: [{ observationId: planId, plan }] }
+    await archive.put('options-experiment', experimentId, run, 'options-experiments', availableAt)
+  }
+
+  it('captures the first frozen experiment run of each date alongside the published plans', async () => {
+    await archiveExperiment({ experimentId: 'exp-a', availableAt: '2026-09-22T13:37:00.000Z', planId: 'experiment-plan-a' })
+    await archiveExperiment({ experimentId: 'exp-b', availableAt: '2026-09-22T13:38:00.000Z', planId: 'experiment-plan-b' })
+    const plans = await publishedOutcomePlans({ archive, now: clock })
+    expect(plans.map((plan) => plan.planId)).toContain('experiment-plan-a')
+    expect(plans.map((plan) => plan.planId)).not.toContain('experiment-plan-b')
+    expect(plans).toHaveLength(3)
+  })
+
+  it('rebuilds the day\'s capture schedule when a new experiment run is frozen', async () => {
+    await tick(fakeAdapter())
+    clock += 60_000
+    expect(await tick(fakeAdapter())).toMatchObject({ rebuilt: false })
+    await archiveExperiment({ experimentId: 'exp-a', availableAt: '2026-09-22T13:37:00.000Z', planId: 'experiment-plan-a' })
+    await redis.set(OPTIONS_EXPERIMENT_LATEST_KEY, 'exp-a')
+    expect(await tick(fakeAdapter())).toMatchObject({ rebuilt: true })
+    expect(JSON.parse(await redis.get(OPTIONS_CAPTURE_ACTIVE_KEY))).toMatchObject({ latestExperimentId: 'exp-a' })
   })
 })
 

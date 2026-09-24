@@ -24,6 +24,7 @@ export const OPTIONS_FORWARD_CAPTURE_POLICY = Object.freeze({
 })
 
 export const OPTIONS_CAPTURE_ACTIVE_KEY = 'research:options:capture:active:v1'
+export const OPTIONS_EXPERIMENT_LATEST_KEY = 'research:options:experiments:latest:v1'
 const INSTANTS_PREFIX = 'research:options:capture:instants:v1'
 const CHECKPOINT_PREFIX = 'research:options:capture:checkpoint:v1'
 const TICK_PREFIX = 'research:options:capture:tick:v1'
@@ -81,6 +82,15 @@ export async function publishedOutcomePlans({ archive, now, readRecord = options
       for (const plan of record?.payload?.outcomes || []) plans.push({ ...plan, scanId: record.scanId })
     }
   }
+  const experiments = await archive.list('options-experiments', now, { since: now - policy.lookbackDays * 86400000 })
+  // One frozen run per date and policy. Failed scheduler retries must not
+  // double-count a cohort or expand the acquisition denominator.
+  const byDate = new Map()
+  for (const run of experiments.sort((a, b) => a.availableAt.localeCompare(b.availableAt))) {
+    const key = `${run.tradingDate}:${run.policyVersion}`
+    if (!byDate.has(key)) byDate.set(key, run)
+  }
+  for (const run of byDate.values()) for (const item of run.observations || []) plans.push(item.plan)
   return uniquePlans(plans)
 }
 
@@ -192,13 +202,14 @@ export async function runOptionsForwardCaptureTick({
   if (!day.known || !day.open) return { status: 'closed', tradingDate }
 
   // The idle path is this single read: most minutes have nothing due.
-  const [activeRaw, pointerRaw, killed] = await redis.mget(OPTIONS_CAPTURE_ACTIVE_KEY, OPTIONS_LATEST_POINTER_KEY, KILL_SWITCH_KEY)
+  const [activeRaw, pointerRaw, killed, latestExperimentId] = await redis.mget(OPTIONS_CAPTURE_ACTIVE_KEY, OPTIONS_LATEST_POINTER_KEY, KILL_SWITCH_KEY, OPTIONS_EXPERIMENT_LATEST_KEY)
   if (killed) return { status: 'disabled', tradingDate }
   const active = parse(activeRaw)
   const latestManifestId = parse(pointerRaw)?.manifestId ?? null
   let instants = active?.instants || []
   let rebuilt = false
-  if (!active || active.tradingDate !== tradingDate || active.latestManifestId !== latestManifestId) {
+  if (!active || active.tradingDate !== tradingDate || active.latestManifestId !== latestManifestId
+    || (active.latestExperimentId || null) !== (latestExperimentId || null)) {
     const schedule = captureInstantsFor(await publishedOutcomePlans({ archive, now: startedAt, readRecord, policy }), tradingDate)
     if (schedule.length) {
       await redis.hset(instantsKey(tradingDate), Object.fromEntries(schedule.map((entry) => [String(Date.parse(entry.scheduledAt)), JSON.stringify(entry)])))
@@ -207,6 +218,7 @@ export async function runOptionsForwardCaptureTick({
     instants = schedule.map((entry) => Date.parse(entry.scheduledAt))
     await redis.set(OPTIONS_CAPTURE_ACTIVE_KEY, JSON.stringify({
       schemaVersion: 'options-capture-active-v1', policyVersion: policy.version, tradingDate, latestManifestId,
+      latestExperimentId: latestExperimentId || null,
       builtAt: new Date(startedAt).toISOString(), instants,
     }), { ex: DAY_TTL_SECONDS })
     rebuilt = true

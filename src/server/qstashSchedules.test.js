@@ -61,6 +61,7 @@ describe('QStash schedule catalog', () => {
     expect(QSTASH_SCHEDULES.map(({ id, cron, method, path, retries }) => ({ id, cron, method, path, retries }))).toEqual([
       { id: 'wallai-options-premarket-v1', cron: 'CRON_TZ=America/New_York 15 9 * * 1-5', method: 'POST', path: '/api/options-scan?mode=premarket', retries: 2 },
       { id: 'wallai-options-opening-v1', cron: 'CRON_TZ=America/New_York 31 9 * * 1-5', method: 'POST', path: '/api/options-scan?mode=opening', retries: 2 },
+      { id: 'wallai-options-shadow-v1', cron: 'CRON_TZ=America/New_York 36 9 * * 1-5', method: 'POST', path: '/api/options-scan?mode=shadow', retries: 2 },
       { id: 'wallai-options-observe-v1', cron: 'CRON_TZ=America/New_York * 9-15 * * 1-5', method: 'POST', path: '/api/options-scan?mode=observe', retries: 0 },
       { id: 'wallai-research-foundation-v1', cron: 'CRON_TZ=UTC 0 1,4,10,13,16,19,22 * * *', method: 'GET', path: '/api/research-foundation', retries: 0 },
       { id: 'wallai-nightly-research-v1', cron: 'CRON_TZ=UTC 0 7 * * *', method: 'GET', path: '/api/nightly-research', retries: 0 },
@@ -97,7 +98,7 @@ describe('QStash schedule catalog', () => {
     const scripts = JSON.parse(readFileSync(repoFile('package.json'), 'utf8')).scripts
     expect(scripts['options:schedule']).toBe('node scripts/qstash-schedule.mjs --only options')
     expect(scripts.schedule).toBe('node scripts/qstash-schedule.mjs')
-    expect(selectSchedules(['options']).map((schedule) => schedule.name)).toEqual(['premarket', 'opening', 'observe'])
+    expect(selectSchedules(['options']).map((schedule) => schedule.name)).toEqual(['premarket', 'opening', 'shadow', 'observe'])
     expect(selectSchedules(['research', 'wallai-options-observe-v1'])).toHaveLength(6)
   })
 })
@@ -146,7 +147,7 @@ describe('runScheduleCommand', () => {
     const { code, text, qstash } = await run(['check'])
     expect(code).toBe(1)
     expect(text.match(/^MISSING /gm)).toHaveLength(QSTASH_SCHEDULES.length)
-    expect(text).toContain('0/8 expected schedules installed and matching')
+    expect(text).toContain('0/9 expected schedules installed and matching')
     expect(qstash.calls.map((call) => call.method)).toEqual(['GET'])
   })
 
@@ -156,21 +157,21 @@ describe('runScheduleCommand', () => {
     expect(first.code).toBe(0)
     const posts = qstash.calls.filter((call) => call.method === 'POST')
     expect(posts.map((call) => call.path)).toEqual(QSTASH_SCHEDULES.map((schedule) => `/v2/schedules/${ORIGIN}${schedule.path}`))
-    expect(first.text.match(/^created /gm)).toHaveLength(8)
+    expect(first.text.match(/^created /gm)).toHaveLength(9)
 
     const second = await run(['apply'], { qstash })
     expect(second.code).toBe(0)
-    expect(second.text.match(/^updated /gm)).toHaveLength(8)
-    const again = qstash.calls.filter((call) => call.method === 'POST').slice(8)
+    expect(second.text.match(/^updated /gm)).toHaveLength(9)
+    const again = qstash.calls.filter((call) => call.method === 'POST').slice(9)
     expect(again).toEqual(posts)
-    expect(qstash.store.size).toBe(8)
+    expect(qstash.store.size).toBe(9)
 
     const check = await run(['check'], { qstash })
     expect(check.code).toBe(0)
-    expect(check.text).toContain('8/8 expected schedules installed and matching; 8 active schedule(s)')
+    expect(check.text).toContain('9/9 expected schedules installed and matching; 9 active schedule(s)')
     // After the November DST change, 12:00 UTC is 07:00 in New York.
     expect(check.text).toContain('next 2026-11-02 12:00 UTC = 2026-11-02 07:00 New York')
-    expect(check.text.match(/auth matches/g)).toHaveLength(8)
+    expect(check.text.match(/auth matches/g)).toHaveLength(9)
   })
 
   it('names each drift without printing the installed credential', async () => {
@@ -189,7 +190,7 @@ describe('runScheduleCommand', () => {
     expect(text).toContain('authorization: expected "Bearer $CRON_SECRET", installed "differs"')
     expect(text).not.toContain('old-secret-value')
     expect(text).toContain('Not in the catalog (left untouched): wallai-options-premarket-v0')
-    expect(text).toContain('6/8 expected schedules installed and matching')
+    expect(text).toContain('7/9 expected schedules installed and matching')
   })
 
   it('refuses before writing anything when apply would exceed the schedule limit', async () => {
@@ -197,12 +198,12 @@ describe('runScheduleCommand', () => {
     const qstash = fakeQStash({ schedules: others })
     const refused = await run(['apply'], { qstash })
     expect(refused.code).toBe(2)
-    expect(refused.text).toContain('apply would leave 14 active schedules, over the limit of 10')
+    expect(refused.text).toContain('apply would leave 15 active schedules, over the limit of 10')
     expect(qstash.calls.filter((call) => call.method === 'POST')).toEqual([])
 
     const allowed = await run(['apply', '--schedule-limit', '20'], { qstash })
     expect(allowed.code).toBe(0)
-    expect(qstash.store.size).toBe(14)
+    expect(qstash.store.size).toBe(15)
   })
 
   it("reports QStash's own reason and status for a rejected schedule, and applies the rest", async () => {
@@ -212,8 +213,8 @@ describe('runScheduleCommand', () => {
     const { code, text } = await run(['apply'], { qstash })
     expect(code).toBe(1)
     expect(text).toContain('QStash apply wallai-nightly-research-v1 failed: HTTP 400 Bad Request: invalid cron expression (sent Bearer [redacted] with [redacted])')
-    expect(text).toContain('1 of 8 schedules failed; the others were applied. Re-running apply is safe.')
-    expect(qstash.store.size).toBe(7)
+    expect(text).toContain('1 of 9 schedules failed; the others were applied. Re-running apply is safe.')
+    expect(qstash.store.size).toBe(8)
   })
 
   it('explains a rejected token and an unreachable QStash', async () => {
@@ -247,12 +248,12 @@ describe('runScheduleCommand', () => {
     const preview = await run(['remove', '--only', 'research'], { qstash })
     expect(preview.code).toBe(0)
     expect(preview.text).toContain('Nothing was deleted. Re-run with --yes to delete.')
-    expect(qstash.store.size).toBe(9)
+    expect(qstash.store.size).toBe(10)
 
     const removed = await run(['remove', '--only', 'research', '--yes'], { qstash })
     expect(removed.code).toBe(0)
     expect(removed.text.match(/^deleted /gm)).toHaveLength(5)
-    expect([...qstash.store.keys()].sort()).toEqual(['someone-else', 'wallai-options-observe-v1', 'wallai-options-opening-v1', 'wallai-options-premarket-v1'])
+    expect([...qstash.store.keys()].sort()).toEqual(['someone-else', 'wallai-options-observe-v1', 'wallai-options-opening-v1', 'wallai-options-premarket-v1', 'wallai-options-shadow-v1'])
     expect((await run(['remove', '--only', 'research', '--yes'], { qstash })).text).toContain('Nothing to remove.')
   })
 

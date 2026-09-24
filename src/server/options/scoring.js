@@ -26,7 +26,7 @@ import { createOptionsAuditRecord } from './audit.js'
 import { OPTIONS_SCENARIO_PRIMARY_HORIZON } from './scenarios.js'
 import { OPTIONS_CHAIN_DELTA_RANGE, optionsContractCohort } from './chainGates.js'
 
-export const OPTIONS_SCORE_POLICY_VERSION = 'options-deterministic-score-v1'
+export const OPTIONS_SCORE_POLICY_VERSION = 'options-deterministic-score-v2'
 export const OPTIONS_SCORE_CODE_VERSION = 'options-scoring-v2'
 
 // Transform identities. They are stored on every feature trace so a score can
@@ -475,7 +475,8 @@ function buildPenalties({ features: record, contract: gated, entry, decay, ivCon
       reason: 'carry_loss_above_horizon_limit' })
   }
 
-  const incompleteEvents = ['earnings', 'catalysts'].some((feed) => record.coverage?.[feed]?.status !== 'complete')
+  const incompleteEvents = ['earnings', 'catalysts'].some((feed) => record.coverage?.[feed]?.status !== 'complete'
+    || (record.coverage[feed].through && record.coverage[feed].through < gated.expirationDate))
   if (events.afterExitBeforeExpiry.length || incompleteEvents) {
     applied.push({ code: 'event_before_expiry_after_exit', points: policy.event_before_expiry_after_exit.points,
       raw: events.afterExitBeforeExpiry[0]?.eventDate ?? null, units: 'event date', threshold: null, transform: DIRECT,
@@ -499,6 +500,11 @@ export function horizonEvents({ features: record, exitDate, expirationDate, trad
     ...(record.events?.earnings || []).map((item) => ({ ...item, kind: 'earnings' })),
     ...(record.events?.catalysts || []).map((item) => ({ ...item, kind: item.kind || 'catalyst' })),
   ].filter((item) => item.eventDate >= tradingDate)
+    // Entry is after the regular open. Today's before-open announcement is
+    // behind the holding window; a verified release already visible at freeze
+    // is also behind it, including an unusual intraday release.
+    .filter((item) => !(item.eventDate === tradingDate && (item.timing === 'before_open'
+      || (item.status === 'reported' && item.publicAt && record.freezeAt && item.publicAt <= record.freezeAt))))
   // The exit is the close of the exit session, so an event dated that day is
   // inside the horizon unless it is known to land after that close. Unknown
   // timing counts as inside: "unknown" is never read as "safely after".
@@ -667,6 +673,8 @@ export function scoreOptionsContract({
     blockers: [],
     missing,
     eventsAfterExit: events.afterExitBeforeExpiry.map((event) => ({ eventId: event.eventId, eventDate: event.eventDate, kind: event.kind })),
+    earnings: record.events?.earnings || [],
+    earningsCoverage: record.coverage?.earnings || null,
     // Everything ranking needs, so the comparator never reaches into a trace.
     tieBreakers: { spreadPct: round(numeric(entry.spreadPct), 6), contractId: gated.contractId },
     interpretation: OPTIONS_SCORE_INTERPRETATION,

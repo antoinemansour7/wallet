@@ -1,9 +1,9 @@
 import { digest } from '../research/archive.js'
 import { createOptionsAuditRecord } from './audit.js'
 
-export const OPTIONS_FEATURE_VERSION = 'options-point-in-time-features-v1'
+export const OPTIONS_FEATURE_VERSION = 'options-point-in-time-features-v2'
 export const OPTIONS_FEATURE_SOURCE_POLICY = Object.freeze({
-  version: 'options-feature-sources-phase0-v1',
+  version: 'options-feature-sources-phase0-v2',
   mode: 'free-validation',
   feeds: Object.freeze({
     underlying: Object.freeze({ providers: ['alpaca'], licenseIds: ['alpaca-basic-indicative'] }),
@@ -11,7 +11,7 @@ export const OPTIONS_FEATURE_SOURCE_POLICY = Object.freeze({
     news: Object.freeze({ providers: ['alpaca', 'fixture'], licenseIds: ['alpaca-basic-news', 'test-fixture'] }),
     sec: Object.freeze({ providers: ['sec'], licenseIds: ['sec-edgar-public'] }),
     analyst: Object.freeze({ providers: ['fixture'], licenseIds: ['test-fixture'] }),
-    earnings: Object.freeze({ providers: ['fixture'], licenseIds: ['test-fixture'] }),
+    earnings: Object.freeze({ providers: ['nasdaq', 'alpaca', 'fixture'], licenseIds: ['nasdaq-public-calendar', 'alpaca-basic-news', 'test-fixture'] }),
     dividends: Object.freeze({ providers: ['alpaca', 'fixture'], licenseIds: ['alpaca-corporate-actions', 'test-fixture'] }),
     rates: Object.freeze({ providers: ['federal-reserve', 'fixture'], licenseIds: ['federal-reserve-public', 'test-fixture'] }),
     catalysts: Object.freeze({ providers: ['issuer', 'sec', 'fixture'], licenseIds: ['issuer-primary', 'sec-edgar-public', 'test-fixture'] }),
@@ -78,6 +78,8 @@ function normalizeCoverage(feed, supplied, hasVisible) {
     reason: supplied?.reason || (status === 'unknown' ? 'feed_coverage_not_reported' : null),
     asOf: supplied?.asOf ? instant(supplied.asOf, `${feed} coverage asOf`) : null,
     source,
+    ...(supplied?.from ? { from: date(supplied.from, 'coverage from') } : {}),
+    ...(supplied?.through ? { through: date(supplied.through, 'coverage through') } : {}),
   }
 }
 
@@ -135,11 +137,20 @@ function technicalFeatures(bars, benchmarkBars) {
   const return5d = change(closes, 5)
   const return20d = change(closes, 20)
   const benchmark20d = change(benchmark, 20)
+  const overnightGaps = bars.slice(-21).slice(1).map((bar, index) => {
+    const previous = bars.slice(-21)[index].close
+    return Number.isFinite(bar.open) && previous > 0 ? (bar.open / previous - 1) * 100 : null
+  }).filter(Number.isFinite)
+  const priorVolumes = bars.slice(-21, -1).map((bar) => bar.volume).filter(Number.isFinite)
+  const volumeMean = priorVolumes.length === 20 ? priorVolumes.reduce((a, b) => a + b, 0) / 20 : null
   return {
     laggedThrough: bars.at(-1)?.date || null,
     historySessions: closes.length,
     return5dPct: round(return5d),
     return20dPct: round(return20d),
+    return60dPct: round(change(closes, 60)),
+    overnightGapRms20dPct: overnightGaps.length === 20 ? round(Math.sqrt(overnightGaps.reduce((sum, gap) => sum + gap * gap, 0) / 20)) : null,
+    priorSessionVolumeRatio: volumeMean > 0 && Number.isFinite(bars.at(-1)?.volume) ? round(bars.at(-1).volume / volumeMean) : null,
     relativeStrength20dPct: return20d == null || benchmark20d == null ? null : round(return20d - benchmark20d),
     realizedVolatility20dPct: round(realizedVolatility(closes)),
     distanceFromSma20Pct: last == null || sma20 == null ? null : round(((last - sma20) / sma20) * 100),
@@ -173,6 +184,7 @@ function newsItems(items, security, freezeTime) {
   }).map((item) => ({
     eventId: item.eventId || item.id,
     headline: item.headline || '',
+    symbolCount: item.symbolCount ?? null,
     publishedAt: instant(item.publishedAt, 'news publishedAt'),
     availableAt: instant(item.availableAt, 'news availableAt'),
     revisionId: item.revisionId,
@@ -202,6 +214,8 @@ function genericEvents(feed, items, security, freezeTime) {
     .map((item) => ({
     eventId: item.eventId || item.id,
     eventDate: date(item.eventDate, `${feed} eventDate`),
+    // Only the three states horizonEvents reads; anything else is unknown.
+    timing: ['before_open', 'after_close'].includes(item.timing) ? item.timing : 'unknown',
     kind: item.kind || feed,
     label: item.label || '',
     publicAt: item.publicAt ? instant(item.publicAt, `${feed} publicAt`) : null,
@@ -224,6 +238,8 @@ function earningsEvents(items, security, freezeTime) {
       eventDate: date(item.eventDate, 'earnings eventDate'),
       timing,
       status: item.status || 'scheduled',
+      confirmation: item.confirmation || 'unknown',
+      ...(item.headline ? { headline: item.headline } : {}),
       publicAt: item.publicAt ? instant(item.publicAt, 'earnings publicAt') : null,
       availableAt: instant(item.availableAt, 'earnings availableAt'),
       revisionId: item.revisionId,

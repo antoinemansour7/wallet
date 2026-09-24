@@ -299,7 +299,7 @@ describe('OPTIONS_OPERATIONS_POLICY_VERSION', () => {
 })
 
 describe('schedule policy stages stay the ones this report understands', () => {
-  it('covers premarket and opening', () => {
-    expect(Object.keys(OPTIONS_SCHEDULE_POLICY.stages)).toEqual(['premarket', 'opening'])
+  it('covers premarket, opening and the shadow experiment stage', () => {
+    expect(Object.keys(OPTIONS_SCHEDULE_POLICY.stages)).toEqual(['premarket', 'opening', 'shadow'])
   })
 })

@@ -88,6 +88,7 @@ export async function buildOptionsResearchView({ archive, manifest, contractId, 
       drivers: [...(score?.components || [])].filter((item) => item.points > 0).sort((a, b) => b.points - a.points).slice(0, 2)
         .map(({ component, points, max }) => ({ component, points, max })),
       risk: risk?.code || 'full_premium_at_risk', riskReason: risk?.reason || null,
+      earnings: score?.earnings || [], earningsCoverage: score?.earningsCoverage || null,
       detailsAvailable: Boolean(contract && set && score),
     }
   })

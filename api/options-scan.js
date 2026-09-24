@@ -7,6 +7,8 @@ import { archiveOptionsAuditRecord, commitOptionsScan } from '../src/server/opti
 import { instrumentRedisCommandCount } from '../src/server/options/operations.js'
 import { runOptionsForwardCaptureTick } from '../src/server/options/forwardCapture.js'
 import { createAlpacaOptionsAdapter } from '../src/server/options/alpaca.js'
+import { runOptionsExperimentStage, archiveOptionsExperiment } from '../src/server/options/experimentScan.js'
+import { OPTIONS_EXPERIMENT_LATEST_KEY } from '../src/server/options/forwardCapture.js'
 
 function authorized(req) {
   return Boolean(process.env.CRON_SECRET) && req.headers.authorization === `Bearer ${process.env.CRON_SECRET}`
@@ -34,6 +36,7 @@ export function createOptionsScanHandler({
   runStage = runOptionsScheduledStage,
   runPremarketStage = defaultRunPremarketStage,
   runOpeningStage = defaultRunOpeningStage,
+  runShadowStage = runOptionsExperimentStage,
   archiveRecord = archiveOptionsAuditRecord,
   commitScan = commitOptionsScan,
   enabled = () => process.env.OPTIONS_SCANNER_ENABLED === 'true',
@@ -45,7 +48,7 @@ export function createOptionsScanHandler({
     if (!['GET', 'POST'].includes(req.method)) return res.status(405).json({ error: 'Method not allowed' })
     if (!authorized(req)) return res.status(401).json({ error: 'Unauthorized' })
     const stage = req.query?.mode
-    if (!['premarket', 'opening', 'observe'].includes(stage)) return res.status(400).json({ error: 'Invalid options scan mode' })
+    if (!['premarket', 'opening', 'shadow', 'observe'].includes(stage)) return res.status(400).json({ error: 'Invalid options scan mode' })
     if (stage === 'observe') {
       // Per-minute outcome capture is not a once-a-day stage: it has no window,
       // deadline or completion record, so it does not go through runStage.
@@ -79,12 +82,19 @@ export function createOptionsScanHandler({
       const result = await runStage({
         redis, archive, stage, requestId: requestId(req), enabled: enabled(),
         execute: async (context) => {
-          const outcome = stage === 'premarket' ? await runPremarketStage({ ...context, archive }) : await runOpeningStage({ ...context, archive, redis })
+          const outcome = stage === 'premarket' ? await runPremarketStage({ ...context, archive })
+            : stage === 'shadow' ? await runShadowStage({ ...context, archive, redis }) : await runOpeningStage({ ...context, archive, redis })
           if (!outcome.metrics) return outcome
           const r2Bytes = (outcome.records || []).reduce((sum, record) => sum + (Number.isFinite(record.byteLength) ? record.byteLength : 0), 0)
           return { ...outcome, metrics: { ...outcome.metrics, r2Bytes, redisCommandCount: counted?.counter.count ?? null } }
         },
         publish: async (result, lease) => {
+          if (stage === 'shadow') {
+            if (!result.experiment) throw new Error('Shadow result is missing its frozen experiment')
+            await archiveOptionsExperiment(archive, result.experiment)
+            await redis.set(OPTIONS_EXPERIMENT_LATEST_KEY, result.experiment.experimentId)
+            return null
+          }
           if (stage === 'opening') {
             if (!result.scanId || !result.availableAt) throw new Error('Opening result is missing publication identity')
             return commitScan({

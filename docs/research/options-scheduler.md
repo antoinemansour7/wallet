@@ -6,6 +6,7 @@ The free validation schedule's two morning triggers use two of QStash Free's ten
 
 - `CRON_TZ=America/New_York 15 9 * * 1-5` dispatches the premarket freeze. The handler accepts premarket work from 08:00 through 09:20 ET and labels anything later as missed.
 - `CRON_TZ=America/New_York 31 9 * * 1-5` dispatches the opening scan. The handler accepts opening work from 09:31 through 09:35 ET.
+- `CRON_TZ=America/New_York 36 9 * * 1-5` dispatches the Step 1 experiment scan (`mode=shadow`). It never publishes picks. The handler accepts it from 09:36 through 09:50 ET. Pricing roughly 3,000 contracts is CPU-bound, so a run that outgrows one function invocation checkpoints the chains it finished and continues on the QStash retries. See [options-step1-experiments.md](options-step1-experiments.md).
 
 The versioned Cboe calendar still rejects holidays and handles early-close dates. The timezone schedule handles DST directly; server-side ET guards remain authoritative.
 

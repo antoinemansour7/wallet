@@ -8,10 +8,11 @@ import { getMarketRegime } from '../marketRegime.js'
 import { buildOptionsShortlist } from './shortlist.js'
 import { gatherOptionsSecEvidence } from './secCatalystEvidence.js'
 import { accumulateProviderStats, emptyProviderStats, finalizeProviderStats } from './operations.js'
+import { gatherOptionsEventEvidence } from './eventEvidence.js'
 
 const BENCHMARK_SECURITY = Object.freeze({ securityId: 'benchmark:SPY', issuerId: 'benchmark:SPY', ticker: 'SPY' })
 const ALPACA_UNDERLYING_URL = 'https://data.alpaca.markets/v2/stocks/snapshots'
-const BAR_LOOKBACK_DAYS = 45
+const BAR_LOOKBACK_DAYS = 100
 // evaluateNonEventHorizon (features.js) counts calendar days, not trading
 // sessions, so this must be wider than shortlist.js's local HOLDING_DAYS=3
 // (the labeled session horizon) to actually cover it — 3 trading sessions
@@ -95,11 +96,15 @@ export async function runOptionsPremarketStage({
   loadMaster = loadSecurityMaster,
   buildShortlist = buildOptionsShortlist,
   gatherSec = gatherOptionsSecEvidence,
+  gatherEvents = gatherOptionsEventEvidence,
   now = () => new Date().toISOString(),
 } = {}) {
   const freezeAt = window.deadlineAt
   const tradingDate = window.tradingDate
   const securities = watchlist.securities
+  // Start bounded event requests while the existing market-data work runs.
+  const eventPromise = gatherEvents({ securities, tradingDate, freezeAt, deadlineAt })
+    .catch((error) => { logFailure('events', error); return { earnings: [], news: [], coverage: {}, metrics: {} } })
 
   let alpaca = null, alpacaAvailable = true
   try { alpaca = createAlpaca() } catch (error) { alpacaAvailable = false; logFailure('alpaca-construct', error) }
@@ -126,9 +131,12 @@ export async function runOptionsPremarketStage({
   // Same coverage determination applies to both feeds: a successful (or
   // failed, or unresolved) EDGAR check for an issuer says as much about
   // "any 8-K filed" (catalysts) as it does about "any filing at all" (sec).
-  const coverageOverride = Object.fromEntries(Object.entries(secCoverage).map(([securityId, status]) => [securityId, { sec: status, catalysts: status }]))
+  const eventEvidence = await eventPromise
+  const coverageOverride = { ...eventEvidence.coverage,
+    ...Object.fromEntries(Object.entries(secCoverage).map(([securityId, status]) => [securityId, { sec: status, catalysts: status }])) }
 
-  const inputs = { underlyings, bars, regime: mapRegimeInput(regime, securities, now), sec: secItems, catalysts: catalystItems, news: [], analyst: [], earnings: [], dividends: [], rates: [] }
+  const inputs = { underlyings, bars, regime: mapRegimeInput(regime, securities, now), sec: secItems, catalysts: catalystItems,
+    news: eventEvidence.news, analyst: [], earnings: eventEvidence.earnings, dividends: [], rates: [] }
   const snapshot = createOptionsFeatureSnapshot({ securities, freezeAt, tradingDate, inputs, coverage: coverageOverride, benchmarkSecurityId: BENCHMARK_SECURITY.securityId, nonEventHoldingDays: NON_EVENT_HOLDING_DAYS, mode: 'live' })
   const scanId = `${tradingDate}:premarket:${window.policyVersion}`
   const evidenceRecord = createOptionsFeatureAuditRecord({ snapshot, scanId })
@@ -156,6 +164,7 @@ export async function runOptionsPremarketStage({
       shortlistId: shortlist.shortlistId, candidateCount: shortlist.candidates.length, rejectedCount: shortlist.rejected.length,
       alpacaAvailable, underlyingAvailable, barsAvailable, regimeAvailable: regime != null, secCompletedCount: secCompleted.length,
       decisionRecordId: decisionRecord.recordId, scoreRecordId: scoreRecord.recordId, evidenceRecordId: evidenceRecord.recordId,
+      events: eventEvidence.metrics,
       ...finalizeProviderStats(providerStats),
     },
   }

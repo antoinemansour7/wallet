@@ -29,6 +29,25 @@ describe('gatherOptionsSecEvidence', () => {
     expect(result.completed).toEqual(['cik:0000320193'])
   })
 
+  it('dates each 8-K on the New York calendar with its session timing', async () => {
+    const secMaster = master({ EX: [{ issuerId: 'cik:0000320193' }] })
+    const client = { request: vi.fn(async () => ({
+      filings: { recent: {
+        accessionNumber: ['0000320193-26-000011', '0000320193-26-000012', '0000320193-26-000013'],
+        form: ['8-K', '8-K', '8-K/A'],
+        // 8:30 p.m. ET on the 21st (the 22nd in UTC), 7:05 a.m. ET on the 22nd, 11:00 a.m. ET on the 21st.
+        acceptanceDateTime: ['2026-09-22T00:30:00.000Z', '2026-09-22T11:05:00.000Z', '2026-09-21T15:00:00.000Z'],
+        filingDate: ['2026-09-21', '2026-09-22', '2026-09-21'], reportDate: ['', '', ''], primaryDocument: ['a.htm', 'b.htm', 'c.htm'], items: ['2.02', '8.01', '7.01'],
+      } },
+    })) }
+    const result = await gatherOptionsSecEvidence({ securityMaster: secMaster, securities: [security], freezeAt: '2026-09-22T13:20:00.000Z', client, deadline: Date.now() + 60000 })
+    expect(result.catalystItems.map(({ eventDate, timing }) => ({ eventDate, timing }))).toEqual([
+      { eventDate: '2026-09-21', timing: 'after_close' },
+      { eventDate: '2026-09-22', timing: 'before_open' },
+      { eventDate: '2026-09-21', timing: 'unknown' },
+    ])
+  })
+
   it('marks a ticker unresolved in the security master as unavailable without throwing', async () => {
     const secMaster = master({})
     const client = { request: vi.fn() }

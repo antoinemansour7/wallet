@@ -10,6 +10,9 @@ export const OPTIONS_SCHEDULE_POLICY = Object.freeze({
   stages: Object.freeze({
     premarket: Object.freeze({ windowStart: '08:00', scheduled: '09:15', deadline: '09:20', maxConcurrency: 4 }),
     opening: Object.freeze({ windowStart: '09:31', scheduled: '09:31', deadline: '09:35', maxConcurrency: 3 }),
+    // Experiments only. The wider deadline lets a CPU-bound scan resume on
+    // QStash retries; it never delays or competes with the 09:31 live scan.
+    shadow: Object.freeze({ windowStart: '09:36', scheduled: '09:36', deadline: '09:50', maxConcurrency: 2 }),
   }),
   provider: Object.freeze({
     name: 'upstash-qstash',
@@ -17,6 +20,7 @@ export const OPTIONS_SCHEDULE_POLICY = Object.freeze({
     schedules: Object.freeze({
       premarket: 'CRON_TZ=America/New_York 15 9 * * 1-5',
       opening: 'CRON_TZ=America/New_York 31 9 * * 1-5',
+      shadow: 'CRON_TZ=America/New_York 36 9 * * 1-5',
     }),
   }),
   maxDurationMs: 300000,

@@ -12,6 +12,7 @@ The catalog lives in `src/server/qstashSchedules.js`. Research times come from `
 |---|---|---|---|
 | `wallai-options-premarket-v1` | `CRON_TZ=America/New_York 15 9 * * 1-5` | POST `/api/options-scan?mode=premarket` | 2, 30s apart |
 | `wallai-options-opening-v1` | `CRON_TZ=America/New_York 31 9 * * 1-5` | POST `/api/options-scan?mode=opening` | 2, 30s apart |
+| `wallai-options-shadow-v1` | `CRON_TZ=America/New_York 36 9 * * 1-5` | POST `/api/options-scan?mode=shadow` | 2, 30s apart |
 | `wallai-options-observe-v1` | `CRON_TZ=America/New_York * 9-15 * * 1-5` | POST `/api/options-scan?mode=observe` | 0 |
 | `wallai-research-foundation-v1` | `CRON_TZ=UTC 0 1,4,10,13,16,19,22 * * *` | GET `/api/research-foundation` | 0 |
 | `wallai-nightly-research-v1` | `CRON_TZ=UTC 0 7 * * *` | GET `/api/nightly-research` | 0 |
@@ -24,7 +25,7 @@ The catalog lives in `src/server/qstashSchedules.js`. Research times come from `
 **Why the research jobs look the way they do:**
 
 - **GET with no body, and no retries.** That is exactly how Vercel cron called them. A retried nightly run would publish a second board. The other jobs already pick up whatever a failed run left behind on their next slot.
-- **One foundation schedule for seven hours.** QStash Free allows 10 active schedules. The catalog uses 8.
+- **One foundation schedule for seven hours.** QStash Free allows 10 active schedules. The catalog uses 9.
 - **Reports as `?mode=reports`.** Vercel identified the 09:00 run by its `x-vercel-cron-schedule` header, which QStash does not send.
 - **Reports four times an hour.** Reports are written one at a time, because three concurrent web-search reports exceeded OpenAI's 200k tokens-per-minute limit, and eight don't fit one 300s run. Each of the 09:00, 09:15, 09:30 and 09:45 runs resumes whatever is still pending, including earlier failures; once none are pending, a run exits straight away.
 
@@ -33,7 +34,7 @@ The catalog lives in `src/server/qstashSchedules.js`. Research times come from `
 - **Timeout.** Every schedule has `Upstash-Timeout: 300s`, the same as the functions' `maxDuration`. QStash waits that long; it does not let a function run longer.
 - **Authentication.** QStash forwards `Authorization: Bearer $CRON_SECRET` (via `Upstash-Forward-Authorization`). It is redacted with `Upstash-Redact-Fields: header[Authorization]`, so the QStash console and API show `REDACTED:<sha256>` rather than the secret. Deliveries still carry the real value.
 
-**Message budget.** About 436 of QStash Free's 1,000 daily messages on a weekday (420 of them are observe ticks) and 14 at weekends. Every delivery attempt, including retries, counts as a message.
+**Message budget.** About 437 of QStash Free's 1,000 daily messages on a weekday (420 of them are observe ticks), up to 439 when the shadow scan resumes on both retries, and 14 at weekends. Every delivery attempt, including retries, counts as a message.
 
 ## Environment
 
@@ -86,7 +87,7 @@ Deploying this change removes the Vercel crons, and `apply` installs their repla
 - A gap only loses the runs that fall inside it.
 
 1. Merge and let Vercel deploy. Confirm in the Vercel dashboard (Settings → Cron Jobs) that no cron jobs remain.
-2. `npm run schedule -- check`, `npm run schedule -- apply`, then `npm run schedule -- check` again. It should report `8/8 expected schedules installed and matching`.
+2. `npm run schedule -- check`, `npm run schedule -- apply`, then `npm run schedule -- check` again. It should report `9/9 expected schedules installed and matching`.
 3. After the next slot, confirm the run appears in `/research/logs` and in the QStash console's logs as a 2xx.
 
 **Rolling back:** restore the `crons` block in `vercel.json`, the reports header check in `api/nightly-research.js`, and the tests from this change. Deploy, then run `npm run schedule -- remove --only research --yes`.
