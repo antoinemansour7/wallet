@@ -11,7 +11,7 @@ function underlying({ marketAt = '2026-09-22T13:31:00.000Z', ageMs = 2000 } = {}
 function contract({
   expirationDate = '2026-10-16', // 24 DTE from trading date
   bid = 2, ask = 2.1, bidSize = 5, askSize = 5, quoteAgeMs = 5000, marketAt = '2026-09-22T13:31:02.000Z',
-  openInterest = 200, openInterestDate = '2026-09-19', todayVolume = 10, priorVolume = null,
+  openInterest = 200, openInterestDate = '2026-09-19', todayVolume = 10, priorVolume = null, volumeDate = TRADING_DATE,
   delta = -0.35, analyticsAge = 'unknown',
 } = {}) {
   return {
@@ -19,7 +19,7 @@ function contract({
     strikePrice: 100, expirationDate,
     quote: bid == null ? null : { bid, ask, bidSize, askSize, marketAt, ageMs: quoteAgeMs },
     trade: null,
-    volume: { value: todayVolume, session: 'rth', sessionDate: TRADING_DATE },
+    volume: { value: todayVolume, session: 'rth', sessionDate: volumeDate },
     previousDailyBar: priorVolume == null ? null : { volume: priorVolume },
     openInterest: openInterest == null ? { value: null, asOfDate: null } : { value: openInterest, asOfDate: openInterestDate },
     analytics: { greeks: { delta }, age: analyticsAge },
@@ -149,7 +149,7 @@ describe('buildOptionsChain', () => {
 
 describe('policy version', () => {
   it('is exported for versioning the gate/cohort policy in audit records', () => {
-    expect(OPTIONS_CHAIN_GATE_POLICY_VERSION).toBe('options-opening-chain-gates-v2')
+    expect(OPTIONS_CHAIN_GATE_POLICY_VERSION).toBe('options-opening-chain-gates-v3')
   })
 })
 
@@ -163,5 +163,44 @@ describe('operational skew tracing (#215)', () => {
       optionChainObservation: { contracts: [contract({ marketAt: '2026-09-22T13:31:02.000Z' })], underlying: underlying({ marketAt: '2026-09-22T13:31:00.000Z' }) },
     })
     expect(chain.contracts[0].skewMs).toBe(2000)
+  })
+})
+
+// Until a contract trades in today's session, Alpaca's daily bar is still the
+// last session it traded in. On 2026-09-24 the new session-date check rejected
+// all 1,273 contracts that had passed the spread and open-interest gates at
+// 09:31, before the prior-session volume rule could apply.
+describe('volume before a contract first trades in the session', () => {
+  it('accepts on previous-session volume, with zero traded today', () => {
+    const noTradeYet = contract({ todayVolume: 150, volumeDate: '2026-09-21' })
+    expect(evaluateOpeningContractGates(noTradeYet, context())).toMatchObject({ status: 'accepted' })
+    const chain = buildOptionsChain({ security: { securityId: 'figi:EX', issuerId: 'cik:1', ticker: 'EX' }, direction: 'call',
+      tradingDate: TRADING_DATE, optionChainObservation: { underlying: underlying(), contracts: [noTradeYet] } })
+    const [accepted] = chain.contracts
+    // Yesterday's volume is never reported as today's: scoring sees zero traded
+    // today and charges its existing penalty for passing on prior volume alone.
+    expect(accepted.volume).toMatchObject({ value: 0, sessionDate: TRADING_DATE })
+    expect(accepted.previousVolume).toBe(150)
+  })
+
+  it('still requires enough previous-session volume', () => {
+    expect(evaluateOpeningContractGates(contract({ todayVolume: 40, volumeDate: '2026-09-21' }), context()))
+      .toMatchObject({ status: 'rejected', reason: 'insufficient_volume' })
+  })
+
+  it('credits no prior volume when the last trade was before the previous session', () => {
+    expect(evaluateOpeningContractGates(contract({ todayVolume: 500, volumeDate: '2026-09-18' }), context()))
+      .toMatchObject({ status: 'rejected', reason: 'insufficient_volume' })
+  })
+
+  it('finds the previous session across a weekend', () => {
+    const monday = { ...contract({ todayVolume: 150, volumeDate: '2026-09-18', marketAt: '2026-09-21T13:31:02.000Z' }), fetchedAt: '2026-09-21T13:31:31.000Z' }
+    expect(evaluateOpeningContractGates(monday, context({ tradingDate: '2026-09-21', regularOpenAt: '2026-09-21T13:30:00.000Z',
+      underlying: underlying({ marketAt: '2026-09-21T13:31:00.000Z' }) }))).toMatchObject({ status: 'accepted' })
+  })
+
+  it('rejects a daily bar dated after the trading date', () => {
+    expect(evaluateOpeningContractGates(contract({ volumeDate: '2026-09-23' }), context()))
+      .toMatchObject({ status: 'rejected', reason: 'volume_session_mismatch' })
   })
 })
