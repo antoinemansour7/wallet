@@ -51,4 +51,55 @@ describe('frozen options research projection', () => {
   it('does not substitute a different scenario if the fixed selection is absent', () => {
     expect(selectedResearchScenario({ scenarios: [{ horizonId: '3_sessions', movePct: 8, ivMultiplier: 1, midReturnPct: 100 }] }, 'call')).toBeNull()
   })
+  it('names why the main risk applies, so an unknown input is not shown as an observed one', async () => {
+    const penalties = [{ code: 'wide_spread', points: 1, reason: 'spread_in_upper_gate_band' },
+      { code: 'iv_above_90th_percentile', points: 5, reason: 'missing_input_uses_existing_worst_case_penalty' }]
+    const readRecord = async (archive, type, id) => {
+      const record = await fixture.readRecord(archive, type, id)
+      return type === 'score' ? { ...record, payload: { ...record.payload, scores: record.payload.scores.map((score) => ({ ...score, penalties })) } } : record
+    }
+    const [candidate] = (await view({ readRecord })).candidates
+    expect(candidate).toMatchObject({ risk: 'iv_above_90th_percentile', riskReason: 'missing_input_uses_existing_worst_case_penalty' })
+    expect((await view()).candidates[0]).toMatchObject({ risk: 'full_premium_at_risk', riskReason: null })
+  })
+})
+
+describe("today's opening scan status", () => {
+  const at = (time) => () => Date.parse(`2026-09-23T${time}Z`)
+  const attempt = (status, endedAt) => ({ payload: { stage: 'opening', tradingDate: '2026-09-23', status, endedAt: `2026-09-23T${endedAt}Z` } })
+  const archive = (records) => ({ calls: 0, async list(index, asOf, options) { this.calls += 1; this.args = { index, asOf, options }; return records } })
+
+  it('says a published morning is published without reading attempts', async () => {
+    const store = archive([])
+    const result = await view({ archive: store })
+    expect(result.opening).toMatchObject({ tradingDate: '2026-09-22', status: 'published', deadlineAt: '2026-09-22T13:35:00.000Z' })
+    expect(store.calls).toBe(0)
+  })
+  it('reports a scan that is not due, due, failed, late or missed from archived attempts', async () => {
+    const early = archive([])
+    expect((await view({ archive: early, now: at('12:00:00') })).opening.status).toBe('scheduled')
+    expect(early.calls).toBe(0)
+    expect((await view({ archive: archive([]), now: at('13:32:00') })).opening.status).toBe('due')
+    const failed = archive([attempt('incomplete', '13:33:10')])
+    const result = await view({ archive: failed, now: at('13:40:00') })
+    expect(result.opening).toMatchObject({ status: 'failed', at: '2026-09-23T13:33:10Z' })
+    expect(failed.args).toEqual({ index: 'options-records:scan', asOf: Date.parse('2026-09-23T13:40:00Z'), options: { since: '2026-09-23T13:31:00.000Z', count: Infinity } })
+    expect((await view({ archive: archive([attempt('late', '13:36:00')]), now: at('13:40:00') })).opening.status).toBe('late')
+    expect((await view({ archive: archive([attempt('missed', '13:36:00')]), now: at('13:40:00') })).opening.status).toBe('missed')
+    expect((await view({ archive: archive([]), now: at('13:40:00') })).opening.status).toBe('missed')
+  })
+  it('lets a later successful attempt win, and ignores other stages and days', async () => {
+    const records = [attempt('incomplete', '13:32:00'), attempt('complete', '13:34:00'),
+      { payload: { stage: 'premarket', tradingDate: '2026-09-23', status: 'incomplete', endedAt: '2026-09-23T13:40:00Z' } }]
+    expect((await view({ archive: archive(records), now: at('13:40:00') })).opening.status).toBe('published')
+    const other = [{ payload: { stage: 'opening', tradingDate: '2026-09-22', status: 'incomplete', endedAt: '2026-09-23T13:33:00Z' } }]
+    expect((await view({ archive: archive(other), now: at('13:40:00') })).opening.status).toBe('missed')
+  })
+  it('degrades to unknown when attempts cannot be read, and is absent on closed days and detail reads', async () => {
+    const broken = { list: async () => { throw new Error('quota') } }
+    expect((await view({ archive: broken, now: at('13:40:00') })).opening.status).toBe('unknown')
+    expect((await view({ archive: {}, now: at('13:40:00') })).opening.status).toBe('unknown')
+    expect((await view({ now: () => Date.parse('2026-09-26T14:00:00Z') })).opening).toBeNull()
+    expect((await view({ contractId: fixture.contracts[0].contractId })).opening).toBeUndefined()
+  })
 })
