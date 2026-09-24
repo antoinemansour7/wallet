@@ -116,26 +116,47 @@ export async function replayEvidence(archive, decisionTime, options = {}) {
   return output
 }
 
+// Each item is two R2 uploads and about eight Redis round trips. Awaited one at
+// a time, a night's 250-350 items took ~0.9s each and used the whole nightly
+// budget before admission (2026-09-23 and -24). The writes are content-addressed
+// and NX, so items can safely overlap.
+const ATTENTION_ARCHIVE_CONCURRENCY = 8
+
 // Dated attention evidence is archived too, while the legacy signal counters
 // remain internal to the baseline strategy's score.
 export async function archiveAttentionSignals(signals, master, archive, now = new Date().toISOString()) {
-  const evidence = []
+  const items = []
   for (const signal of signals) for (const ticker of new Set(signal.tickers || [])) {
     const matches = master.resolve({ ticker, asOf: now })
-    if (matches.length !== 1) continue
-    const security = matches[0]
-    const published = Number.isFinite(Date.parse(signal.createdAt)) ? signal.createdAt : now
-    const sourceUrl = signal.url || (signal.sourceType === 'screener' ? 'https://finviz.com/screener.ashx' : 'https://x.com/')
-    const document = await archive.putDocument({ issuerId: security.issuerId, eventId: signal.id || digest(signal), url: sourceUrl,
-      publicAt: iso(published, 'publicAt'), firstSeenAt: now, mediaType: 'application/json',
-      availabilityBasis: signal.createdAt ? 'source_timestamp' : 'first_observed', bytes: JSON.stringify(signal) })
-    const item = createEvidence({ security, strategyFamily: 'attention', source: { documentId: document.id, eventId: document.eventId, url: sourceUrl,
-      type: signal.sourceType || null, labels: signal.sourceLabels || [], excerpt: signal.text || 'Structured screener observation' },
-      publicAt: document.publicAt, firstSeenAt: document.firstSeenAt, extractionCompletedAt: now,
-      interpretation: { thesis: signal.text || '', role: signal.sourceRole || 'conviction' },
-      measurements: { attention: { mentions: 1, publisher: signal.username || null, sourceLabels: signal.sourceLabels || [] } },
-      priority: (signal.score || 0) * 10 })
-    evidence.push(await archiveEvidence(archive, item))
+    if (matches.length === 1) items.push({ signal, security: matches[0] })
   }
+  // Results keep signal order. After a failure no further item starts; the ones
+  // in flight finish, then the first error is thrown, as the sequential loop did.
+  const evidence = new Array(items.length)
+  let cursor = 0, failure = null
+  const worker = async () => {
+    while (!failure && cursor < items.length) {
+      const index = cursor++
+      try { evidence[index] = await archiveAttentionItem(items[index], archive, now) }
+      catch (error) { failure ||= error }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(ATTENTION_ARCHIVE_CONCURRENCY, items.length) }, worker))
+  if (failure) throw failure
   return evidence
+}
+
+async function archiveAttentionItem({ signal, security }, archive, now) {
+  const published = Number.isFinite(Date.parse(signal.createdAt)) ? signal.createdAt : now
+  const sourceUrl = signal.url || (signal.sourceType === 'screener' ? 'https://finviz.com/screener.ashx' : 'https://x.com/')
+  const document = await archive.putDocument({ issuerId: security.issuerId, eventId: signal.id || digest(signal), url: sourceUrl,
+    publicAt: iso(published, 'publicAt'), firstSeenAt: now, mediaType: 'application/json',
+    availabilityBasis: signal.createdAt ? 'source_timestamp' : 'first_observed', bytes: JSON.stringify(signal) })
+  const item = createEvidence({ security, strategyFamily: 'attention', source: { documentId: document.id, eventId: document.eventId, url: sourceUrl,
+    type: signal.sourceType || null, labels: signal.sourceLabels || [], excerpt: signal.text || 'Structured screener observation' },
+    publicAt: document.publicAt, firstSeenAt: document.firstSeenAt, extractionCompletedAt: now,
+    interpretation: { thesis: signal.text || '', role: signal.sourceRole || 'conviction' },
+    measurements: { attention: { mentions: 1, publisher: signal.username || null, sourceLabels: signal.sourceLabels || [] } },
+    priority: (signal.score || 0) * 10 })
+  return archiveEvidence(archive, item)
 }

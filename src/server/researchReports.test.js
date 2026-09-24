@@ -168,7 +168,9 @@ describe('generateResearchReports', () => {
     ])
   })
 
-  it('uses OpenAI web search with a three-call default concurrency in production mode', async () => {
+  // Three concurrent web-search reports exceeded the 200k tokens-per-minute
+  // limit in production (2026-09-24), so OpenAI reports run one at a time.
+  it('uses OpenAI web search, one report at a time, in production mode', async () => {
     process.env.RESEARCH_MODEL_PROVIDER = 'openai'
     process.env.OPENAI_API_KEY = 'openai-test-key'
     let inFlight = 0
@@ -176,7 +178,7 @@ describe('generateResearchReports', () => {
     createResponse.mockImplementation(async ({ input }) => {
       inFlight += 1
       peak = Math.max(peak, inFlight)
-      await Promise.resolve()
+      await new Promise((resolve) => setTimeout(resolve, 1))
       inFlight -= 1
       return {
         status: 'completed', output_text: input.includes('AAA') ? 'AAA report' : 'report',
@@ -184,7 +186,7 @@ describe('generateResearchReports', () => {
       }
     })
     const results = await generateResearchReports(tickerList('AAA', 'BBB', 'CCC'))
-    expect(peak).toBe(3)
+    expect(peak).toBe(1)
     expect(results[0]).toMatchObject({ ticker: 'AAA', report: 'AAA report', citations: ['https://example.com/source'] })
     expect(createResponse.mock.calls[0][0].tools).toEqual([{ type: 'web_search' }])
     expect(createMessage).not.toHaveBeenCalled()

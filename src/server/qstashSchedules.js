@@ -38,9 +38,9 @@ export const QSTASH_SCHEDULES = Object.freeze([
   // kept. A retried nightly run would publish a second board, and the other jobs
   // already resume whatever a failed run left on their next slot. One schedule
   // per job, not per hour: seven foundation schedules would not fit the plan.
-  ...RESEARCH_SCHEDULES.map(({ job, path, hours }) => ({
+  ...RESEARCH_SCHEDULES.map(({ job, path, hours, minutes = [0] }) => ({
     id: `wallai-${job}-v1`, group: 'research', name: job,
-    cron: `CRON_TZ=UTC 0 ${hours.join(',')} * * *`, path, method: 'GET', retries: 0,
+    cron: `CRON_TZ=UTC ${minutes.join(',')} ${hours.join(',')} * * *`, path, method: 'GET', retries: 0,
   })),
 ].map((schedule) => Object.freeze(schedule)))
 

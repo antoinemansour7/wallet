@@ -1425,10 +1425,11 @@ Based on everything above, give ${ticker} an overall Buy Score out of 10. Break 
 - **Overall Buy Score**: X/10 — one sentence verdict.`
 }
 
-// Web reports are the longest and largest model calls. Three concurrent OpenAI
-// requests leave headroom under the Tier 1 token-per-minute gate; the legacy
-// Anthropic test path retains its previous concurrency.
-const DEFAULT_OPENAI_REPORT_CONCURRENCY = 3
+// Web reports are the longest and largest model calls. Every web-search round
+// feeds 30-55k tokens back into the model, so three concurrent reports exceeded
+// the 200k tokens-per-minute limit and got 429s (2026-09-24); they run one at a
+// time. The legacy Anthropic test path retains its previous concurrency.
+const DEFAULT_OPENAI_REPORT_CONCURRENCY = 1
 const DEFAULT_ANTHROPIC_REPORT_CONCURRENCY = 5
 
 function reportConcurrency(useOpenAI) {

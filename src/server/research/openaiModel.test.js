@@ -117,6 +117,9 @@ describe('OpenAI research model', () => {
     })
     expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
       tools: [{ type: 'web_search' }],
+      // Reasoning and search-call tokens share this cap with the report itself;
+      // 3000 cut long reports off in production (2026-09-24).
+      max_output_tokens: 6000,
       store: false,
     }), undefined)
   })

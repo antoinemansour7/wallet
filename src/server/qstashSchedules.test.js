@@ -64,7 +64,7 @@ describe('QStash schedule catalog', () => {
       { id: 'wallai-options-observe-v1', cron: 'CRON_TZ=America/New_York * 9-15 * * 1-5', method: 'POST', path: '/api/options-scan?mode=observe', retries: 0 },
       { id: 'wallai-research-foundation-v1', cron: 'CRON_TZ=UTC 0 1,4,10,13,16,19,22 * * *', method: 'GET', path: '/api/research-foundation', retries: 0 },
       { id: 'wallai-nightly-research-v1', cron: 'CRON_TZ=UTC 0 7 * * *', method: 'GET', path: '/api/nightly-research', retries: 0 },
-      { id: 'wallai-research-reports-v1', cron: 'CRON_TZ=UTC 0 9 * * *', method: 'GET', path: '/api/nightly-research?mode=reports', retries: 0 },
+      { id: 'wallai-research-reports-v1', cron: 'CRON_TZ=UTC 0,15,30,45 9 * * *', method: 'GET', path: '/api/nightly-research?mode=reports', retries: 0 },
       { id: 'wallai-track-performance-v1', cron: 'CRON_TZ=UTC 0 9 * * *', method: 'GET', path: '/api/track-performance', retries: 0 },
       { id: 'wallai-research-evaluation-v1', cron: 'CRON_TZ=UTC 0 11 * * *', method: 'GET', path: '/api/research-evaluation', retries: 0 },
     ])
@@ -129,7 +129,7 @@ describe('scheduleRequest', () => {
       path: '/v2/schedules/https://wallai.test/api/nightly-research?mode=reports',
       method: 'POST',
       headers: {
-        'Upstash-Cron': 'CRON_TZ=UTC 0 9 * * *',
+        'Upstash-Cron': 'CRON_TZ=UTC 0,15,30,45 9 * * *',
         'Upstash-Schedule-Id': 'wallai-research-reports-v1',
         'Upstash-Method': 'GET',
         'Upstash-Retries': '0',
