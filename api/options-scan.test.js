@@ -47,6 +47,36 @@ describe('options scan dispatcher', () => {
     }))
   })
 
+  it('dispatches the shadow stage, archives its frozen experiment and points capture at it without publishing a scan', async () => {
+    const experiment = { experimentId: 'e'.repeat(64), availableAt: '2026-09-22T13:37:30.000Z', tradingDate: '2026-09-22' }
+    const runShadowStage = vi.fn(async () => ({ status: 'complete', scanId: 'shadow-scan', availableAt: experiment.availableAt, records: [], experiment, metrics: { selectedContracts: 4 } }))
+    const redis = { set: vi.fn(async () => 'OK') }
+    const archive = { put: vi.fn(async (kind, id, record) => record) }
+    const commitScan = vi.fn()
+    const runStage = vi.fn(async ({ stage, execute, publish }) => {
+      const outcome = await execute({ checkpoint: null })
+      await publish(outcome, { lockKey: 'lease-key', lockToken: 'lease-token' })
+      return { status: 'complete', stage, tradingDate: '2026-09-22', attempt: 1 }
+    })
+    const handler = createOptionsScanHandler({ getRedis: () => redis, makeArchive: () => archive, runStage, enabled: () => true, runShadowStage, commitScan })
+    const res = response()
+    await handler(request({ query: { mode: 'shadow' } }), res)
+    expect(res.statusCode).toBe(200)
+    // The stage receives the command-counting proxy over this same client.
+    expect(runShadowStage).toHaveBeenCalledWith(expect.objectContaining({ archive, redis: expect.anything() }))
+    expect(archive.put).toHaveBeenCalledWith('options-experiment', experiment.experimentId, experiment, 'options-experiments', experiment.availableAt)
+    expect(redis.set).toHaveBeenCalledWith('research:options:experiments:latest:v1', experiment.experimentId)
+    expect(commitScan).not.toHaveBeenCalled()
+
+    const missing = createOptionsScanHandler({ getRedis: () => redis, makeArchive: () => archive, enabled: () => true, commitScan,
+      runShadowStage: async () => ({ status: 'complete', records: [], metrics: {} }),
+      runStage: async ({ execute, publish }) => { await publish(await execute({ checkpoint: null }), {}) } })
+    const failed = response()
+    await missing(request({ query: { mode: 'shadow' } }), failed)
+    expect(failed.statusCode).toBe(503)
+    expect(failed.body).toMatchObject({ category: 'schedule_dispatch_failed' })
+  })
+
   it('counts Redis commands through the whole stage attempt and totals archived bytes into the metrics (#215)', async () => {
     const records = [{ recordId: 'r1', byteLength: 1200 }, { recordId: 'r2', byteLength: 800 }]
     const runOpeningStage = vi.fn(async ({ redis }) => {

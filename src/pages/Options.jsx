@@ -36,6 +36,8 @@ function CandidateRow({ candidate: row, manifestId, request }) {
     </div>
     <div id={detailId} className="om-detail" hidden={!open}>
       <dl className="om-facts">
+        <div><dt>Earnings at selection</dt><dd>{row.earnings?.length ? row.earnings.map((event) => <span key={event.eventId}>{event.eventDate} · {words(event.timing)} · {words(event.confirmation)}<br /></span>) : 'No date observed'}
+          <small>{row.earningsCoverage ? `${words(row.earningsCoverage.status)} coverage${row.earningsCoverage.through ? ` through ${row.earningsCoverage.through}` : ''}` : 'Coverage unknown'}</small></dd></div>
         <div><dt>Observed quote</dt><dd>Bid {money(row.observed.bid)} · Mid {money(row.observed.mid)} · Ask {money(row.observed.ask)}<small>{timestamp(row.observed.marketAt)}</small></dd></div>
         <div><dt>Modeled scenario</dt><dd>{scenario ? <>Stock {money(scenario.underlyingPrice)} after {number(scenario.calendarElapsedDays, 1)} calendar days · IV {iv(scenario.startingImpliedVolatility)} → {iv(scenario.endingImpliedVolatility)}<small>{otmLabel(scenario, row.contract)} · ask entry, modeled bid exit</small></> : 'Unavailable'}</dd></div>
         <div><dt>Downside</dt><dd>Worst case in the scenario matrix {percent(row.worstReturnPct)}<small>{money(row.premiumAtRisk)} at risk per contract</small></dd></div>

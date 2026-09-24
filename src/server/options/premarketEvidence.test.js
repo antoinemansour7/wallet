@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { runOptionsPremarketStage } from './premarketEvidence.js'
 import { OPTIONS_WATCHLIST_SNAPSHOT } from './watchlist.js'
 
+vi.mock('./eventEvidence.js', () => ({ gatherOptionsEventEvidence: async () => ({ earnings: [], news: [], coverage: {}, metrics: {} }) }))
+
 const window = { stage: 'premarket', tradingDate: '2026-09-22', deadlineAt: '2026-09-22T13:20:00.000Z', policyVersion: 'options-morning-schedule-v1' }
 
 function alpacaSnapshotFor(securities) {
@@ -63,7 +65,7 @@ describe('runOptionsPremarketStage', () => {
     expect(result.records).toHaveLength(3)
     expect(result.records.map((r) => r.recordType).sort()).toEqual(['decision', 'evidence', 'score'])
     expect(result.metrics.candidateCount).toBeGreaterThan(0)
-    expect(result.metrics.candidateCount).toBeLessThanOrEqual(10)
+    expect(result.metrics.candidateCount).toBeLessThanOrEqual(15)
     expect(result.metrics.alpacaAvailable).toBe(true)
     expect(result.metrics.regimeAvailable).toBe(true)
     const decision = result.records.find((r) => r.recordType === 'decision')

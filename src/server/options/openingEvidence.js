@@ -48,6 +48,7 @@ export async function resolvePremarketContext({ redis, archive, tradingDate, pol
   if (!decisionRecord?.payload?.candidates || !evidenceRecord?.payload?.securities) return null
   return {
     candidates: decisionRecord.payload.candidates,
+    snapshot: { schemaVersion: 'options-feature-snapshot-v1', ...evidenceRecord.payload },
     featuresBySecurity: new Map(evidenceRecord.payload.securities.map((record) => [record.security.securityId, record])),
     recordIds: [completion.auditRecordId, decisionRecordId, evidenceRecordId],
   }

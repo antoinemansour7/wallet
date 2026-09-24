@@ -2,6 +2,7 @@ import { optionsAuditRecord } from './auditStore.js'
 import { OPTIONS_CALENDAR_2026, marketDay, optionsLocalParts } from './calendar.js'
 import { OPTIONS_EVALUATION_POLICY, evaluateOptionsOutcome } from './evaluation.js'
 import { forwardCaptureScanId } from './forwardCapture.js'
+import { buildExperimentComparison } from './experimentView.js'
 
 // Observational only: every value below is read from frozen morning records and
 // archived forward observations, then passed through #214's evaluator on read.
@@ -162,12 +163,14 @@ export async function buildOptionsShadowView({
   const asOf = new Date(at).toISOString()
   const today = optionsLocalParts(asOf).date
   const manifests = await archive.list('options-manifests', at, { since: at - policy.lookbackDays * DAY_MS })
+  const experimentRuns = await archive.list('options-experiments', at, { since: at - policy.lookbackDays * DAY_MS })
   const byDate = latestPerTradingDate(manifests)
   const base = { policyVersion: policy.version, evaluationPolicyVersion: OPTIONS_EVALUATION_POLICY.version,
     checkedAt: asOf, targetSessions: policy.targetSessions, checkpoints: OPTIONS_SHADOW_CHECKPOINTS, limitations: OPTIONS_SHADOW_LIMITATIONS }
-  if (!byDate.size) return { ...base, window: null, days: [], rows: [] }
+  if (!byDate.size && !experimentRuns.length) return { ...base, window: null, days: [], rows: [],
+    experiments: buildExperimentComparison({ runs: [], observationsByPlan: new Map(), asOf }) }
 
-  const startDate = [...byDate.keys()].sort()[0]
+  const startDate = [...byDate.keys(), ...experimentRuns.map((run) => run.tradingDate)].sort()[0]
   const sessions = openDates(startDate, today, calendar)
   const days = sessions.map((date) => {
     const manifest = byDate.get(date)
@@ -202,6 +205,7 @@ export async function buildOptionsShadowView({
     .map((point) => optionsLocalParts(point.at).date).sort()
   return {
     ...base,
+    experiments: buildExperimentComparison({ runs: experimentRuns, observationsByPlan: plansByPlanDates, asOf }),
     window: {
       startDate, today, session: sessions.length, completed: sessions.length >= policy.targetSessions,
       latestObservationDate: observedDates.at(-1) || null,

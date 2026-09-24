@@ -1,6 +1,7 @@
 import { filingRows } from '../research/secDisclosures.js'
 import { planCurrentDaySecRefresh } from './features.js'
 import { runBounded } from './scheduler.js'
+import { optionsLocalParts } from './calendar.js'
 
 export const OPTIONS_SEC_EVIDENCE_SOURCE = Object.freeze({ provider: 'sec', licenseId: 'sec-edgar-public' })
 const CATALYST_FORMS = new Set(['8-K', '8-K/A'])
@@ -24,8 +25,14 @@ function mapRow(row, request, fetchedAt) {
   const documentId = `sec:${request.secIssuerId}:${row.accession}`
   const source = { ...OPTIONS_SEC_EVIDENCE_SOURCE, url: submissionsUrl(request.secIssuerId) }
   const secItem = { documentId, issuerId: request.issuerId, ticker: request.ticker, accession: row.accession, form: row.form, publicAt, availableAt: fetchedAt, source }
+  // Dated in New York time with its session timing: an 8-K accepted at 8 p.m.
+  // ET belongs to that evening, not to the next UTC date, and one filed before
+  // the open is already public when the morning's position is entered.
+  const local = optionsLocalParts(publicAt)
+  const minutes = local.hour * 60 + local.minute
+  const timing = minutes < 9 * 60 + 30 ? 'before_open' : minutes >= 16 * 60 ? 'after_close' : 'unknown'
   const catalystItem = CATALYST_FORMS.has(row.form)
-    ? { eventId: documentId, issuerId: request.issuerId, ticker: request.ticker, eventDate: publicAt.slice(0, 10), kind: 'sec_8k', label: `${row.form} filing ${row.accession}`, publicAt, availableAt: fetchedAt, source }
+    ? { eventId: documentId, issuerId: request.issuerId, ticker: request.ticker, eventDate: local.date, timing, kind: 'sec_8k', label: `${row.form} filing ${row.accession}`, publicAt, availableAt: fetchedAt, source }
     : null
   return { secItem, catalystItem }
 }

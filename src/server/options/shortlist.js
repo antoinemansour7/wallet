@@ -2,8 +2,8 @@ import { digest } from '../research/archive.js'
 import { resolveOptionsHoldingExit } from './scenarios.js'
 import { horizonEvents } from './scoring.js'
 
-export const OPTIONS_SHORTLIST_POLICY_VERSION = 'options-premarket-shortlist-v2'
-export const OPTIONS_SHORTLIST_MAX_CANDIDATES = 10
+export const OPTIONS_SHORTLIST_POLICY_VERSION = 'options-premarket-shortlist-v3'
+export const OPTIONS_SHORTLIST_MAX_CANDIDATES = 15
 const HOLDING_DAYS = 3 // fixed primary horizon (epic #201 section 10)
 
 function round(value, digits = 3) {
@@ -120,6 +120,7 @@ export function buildOptionsShortlist({ snapshot, watchlist, maxCandidates = OPT
     securityId: security.securityId, ticker: security.ticker, direction: best.direction,
     score: best.total, maxScore: best.max, catalystCoverage: horizonCoverage,
     holdingHorizonSessions: HOLDING_DAYS, holdingExitAt: holdingExit.exitAt, featureVersion: record.featureVersion, featureRecordId: record.recordId,
+    earnings: record.events?.earnings || [],
   }))
   const scores = scored.map(({ security, best, other }) => ({ securityId: security.securityId, ticker: security.ticker, scores: [best, other] }))
 

@@ -64,6 +64,15 @@ describe('options morning scheduler', () => {
     })
     expect(optionsStageWindow('2026-07-15T13:31:00.000Z', 'opening')).toMatchObject({ state: 'on_time', localTime: '09:31:00' })
     expect(optionsStageWindow('2026-07-15T13:35:00.000Z', 'opening')).toMatchObject({ state: 'late' })
+    // The experiment scan starts only after the live scan's deadline, so the
+    // two never compete for the same minutes or provider budget.
+    expect(optionsStageWindow('2026-07-15T13:35:30.000Z', 'shadow')).toMatchObject({ state: 'early' })
+    // Its deadline leaves room for QStash retries to resume a CPU-bound scan.
+    expect(optionsStageWindow('2026-07-15T13:36:00.000Z', 'shadow')).toMatchObject({
+      state: 'on_time', scheduledAt: '2026-07-15T13:36:00.000Z', deadlineAt: '2026-07-15T13:50:00.000Z',
+    })
+    expect(optionsStageWindow('2026-07-15T13:47:00.000Z', 'shadow')).toMatchObject({ state: 'on_time' })
+    expect(optionsStageWindow('2026-07-15T13:50:00.000Z', 'shadow')).toMatchObject({ state: 'late' })
   })
 
   it('uses the versioned calendar for holidays and early-close trading days', () => {
@@ -180,6 +189,7 @@ describe('options morning scheduler', () => {
     expect(OPTIONS_SCHEDULE_POLICY.provider.schedules).toEqual({
       premarket: 'CRON_TZ=America/New_York 15 9 * * 1-5',
       opening: 'CRON_TZ=America/New_York 31 9 * * 1-5',
+      shadow: 'CRON_TZ=America/New_York 36 9 * * 1-5',
     })
   })
 })

@@ -44,6 +44,31 @@ describe('buildOptionsShortlist', () => {
     expect(buildOptionsShortlist({ snapshot: snapshot([entry]), watchlist: watchlist(['AAA']) }).candidates).toHaveLength(1)
   })
 
+  it('treats an event already public before the entry as behind the hold, and a later one today as inside it', () => {
+    const eligible = (events) => {
+      const entry = { ...record({ ticker: 'AAA' }), freezeAt: '2026-09-22T13:20:00.000Z',
+        coverage: { earnings: { status: 'complete' }, catalysts: { status: 'complete' } }, events: { earnings: [], catalysts: [], ...events } }
+      return buildOptionsShortlist({ snapshot: snapshot([entry]), watchlist: watchlist(['AAA']) }).candidates.length === 1
+    }
+    expect(eligible({ earnings: [{ eventDate: '2026-09-22', timing: 'before_open', status: 'scheduled' }] })).toBe(true)
+    expect(eligible({ earnings: [{ eventDate: '2026-09-22', timing: 'unknown', status: 'reported', publicAt: '2026-09-22T12:00:00.000Z' }] })).toBe(true)
+    expect(eligible({ catalysts: [{ eventDate: '2026-09-22', timing: 'before_open', kind: 'sec_8k' }] })).toBe(true)
+    // Last night's release is dated yesterday, so it was never in the window.
+    expect(eligible({ catalysts: [{ eventDate: '2026-09-21', timing: 'after_close', kind: 'sec_8k' }] })).toBe(true)
+    expect(eligible({ earnings: [{ eventDate: '2026-09-22', timing: 'after_close', status: 'scheduled' }] })).toBe(false)
+    expect(eligible({ earnings: [{ eventDate: '2026-09-22', timing: 'unknown', status: 'scheduled' }] })).toBe(false)
+    expect(eligible({ earnings: [{ eventDate: '2026-09-22', timing: 'unknown', status: 'reported', publicAt: '2026-09-22T14:00:00.000Z' }] })).toBe(false)
+    expect(eligible({ catalysts: [{ eventDate: '2026-09-22', timing: 'unknown', kind: 'sec_8k' }] })).toBe(false)
+  })
+
+  it('shortlists up to fifteen stocks by default', () => {
+    const tickers = Array.from({ length: 18 }, (_, index) => `T${String(index).padStart(2, '0')}`)
+    const result = buildOptionsShortlist({ snapshot: snapshot(tickers.map((ticker, index) => record({ ticker, relativeStrength: 1 + index }))), watchlist: watchlist(tickers) })
+    expect(result.candidates).toHaveLength(15)
+    expect(result.maxCandidates).toBe(15)
+    expect(result.rejected.filter((item) => item.reason === 'not_top_n')).toHaveLength(3)
+  })
+
   it('includes the holiday weekend in the exclusion window and rejects no-evidence call ties', () => {
     const entry = record({ ticker: 'AAA' })
     entry.events = { earnings: [{ eventDate: '2026-11-30', timing: 'before_open' }], catalysts: [] }

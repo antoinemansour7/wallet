@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { OPTIONS_API, useOptionsResource } from './options/useOptionsResource'
 import { money, number, percent, iv, stateLabel, timestamp, words } from './options/display'
 import CandidateDetails from './options/CandidateDetails'
+import Step1Experiments from './options/Step1Experiments'
 import { DTE_COHORTS, ROW_STATUSES, SCORE_BANDS, checkpointFor, filterShadowRows, summarizeShadowRows } from './options/shadowSummary'
 import '../components/landing/tokens.css'
 import './Options.css'
@@ -131,6 +132,7 @@ function Dashboard({ user }) {
     <p className="options-notice" role="note">Experimental. Observed returns are historical research outcomes from indicative quotes. They are not live recommendations, fills or proof of profitability, and {data?.targetSessions || 20} sessions cannot establish an edge.</p>
     <div className="options-toolbar"><p>Checked {timestamp(data?.checkedAt)} · read-only</p><button type="button" onClick={reload} disabled={busy}>{busy ? 'Loading…' : 'Reload'}</button></div>
     {error && <p className="options-notice" role="alert">{error.message}{error.referenceId && <small>Reference: {error.referenceId}</small>}</p>}
+    <Step1Experiments data={data?.experiments} />
     {data && !data.window && <div className="options-empty"><h2>The shadow test has not started</h2><p>No published morning is archived yet. Progress, outcomes and summaries appear after the first published scan.</p></div>}
     {data?.window && <>
       <Progress data={data} />
