@@ -64,7 +64,7 @@ describe('owner-only Options workspace', () => {
     expect(row).toHaveTextContent('Spread 1.8%')
     expect(row).toHaveTextContent(`+${call.selectedScenario.askEntryModeledBidReturnPct.toFixed(1)}%`)
     expect(row).toHaveTextContent('if stock +5% in 3 sessions')
-    expect(row).toHaveTextContent('Risk: Full premium at risk')
+    expect(row).toHaveTextContent('Risk: IV history unknown')
     expect(row).toHaveTextContent(call.score.toFixed(1))
     expect(screen.getByRole('article', { name: 'EX put candidate' })).toHaveTextContent('if stock −5% in 3 sessions')
     expect(screen.getAllByText(/they are not probabilities/)).toHaveLength(1)

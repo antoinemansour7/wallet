@@ -200,14 +200,47 @@ function Evidence({ candidate }) {
   </details>
 }
 
+function holdingPeriodOutcomes(candidate) {
+  return Object.entries(candidate.outcomesByHorizon || {}).sort(([a], [b]) => Number(a) - Number(b))
+}
+
+function outcomeScoreLabel(outcome) {
+  if (!Number.isFinite(outcome.score)) return null
+  return `${outcome.scoreKind === 'composite' ? 'Final composite' : 'Model'} score ${outcome.score}`
+}
+
+function HoldingPeriodOutcomes({ candidate }) {
+  const entries = holdingPeriodOutcomes(candidate)
+  if (!entries.length) {
+    if (!Number.isFinite(candidate.finalScore) && !candidate.rank && candidate.catalystVerified === undefined) return '—'
+    return <span className="logs-subline">Holding period unavailable in this older log · {Number.isFinite(candidate.finalScore) ? `Recorded score ${candidate.finalScore}` : 'Score —'}
+      {candidate.rank ? ` · Recorded rank #${candidate.rank}` : ''}
+      {candidate.catalystVerified === undefined ? '' : ` · Catalyst ${candidate.catalystVerified ? 'verified' : 'unverified'}`}</span>
+  }
+  return <>{entries.map(([horizon, outcome]) => <span className="logs-subline" key={horizon}>
+    {horizon} sessions · {outcome.status === 'accepted' ? 'Accepted' : outcome.status === 'rejected' ? 'Rejected' : outcome.status === 'not_sent' ? 'Not sent to model' : 'Reviewed'}
+    {outcomeScoreLabel(outcome) ? ` · ${outcomeScoreLabel(outcome)}` : ''}
+    {outcome.published ? Number.isFinite(outcome.rank) ? ` · Published #${outcome.rank}` : ' · Published (rank unavailable)' : ' · Not published'}
+    {outcome.catalystVerified === undefined ? '' : ` · Catalyst ${outcome.catalystVerified ? 'verified' : 'unverified'}`}
+  </span>)}</>
+}
+
 // The scannable line: only facts this candidate actually carries.
 function candidateFacts(candidate) {
   const facts = []
   const strategies = (candidate.strategies || []).map(title).filter(Boolean)
   if (strategies.length) facts.push(strategies.join(' · '))
   if (Number.isFinite(candidate.priority)) facts.push(`priority ${candidate.priority}`)
-  if (Number.isFinite(candidate.finalScore)) facts.push(`model ${candidate.finalScore}`)
-  if (candidate.rank) facts.push(`final #${candidate.rank}`)
+  const outcomes = holdingPeriodOutcomes(candidate)
+  if (outcomes.length) {
+    for (const [horizon, outcome] of outcomes) {
+      const parts = [outcomeScoreLabel(outcome), outcome.published && Number.isFinite(outcome.rank) ? `#${outcome.rank}` : null].filter(Boolean)
+      if (parts.length) facts.push(`${horizon}s ${parts.join(' · ')}`)
+    }
+  } else {
+    if (Number.isFinite(candidate.finalScore)) facts.push(`recorded score ${candidate.finalScore}`)
+    if (candidate.rank) facts.push(`recorded #${candidate.rank}`)
+  }
   return facts.join(' · ')
 }
 
@@ -231,15 +264,14 @@ function Candidate({ candidate }) {
     </summary>
     <dl className="logs-facts">
       <div><dt>Strategy / source</dt><dd>{(candidate.strategies || []).map(title).join(' · ') || '—'}<span className="logs-subline">{(candidate.sources || []).join(' · ') || '—'}</span>
-        {candidate.horizons?.length > 0 && <span className="logs-subline">{candidate.horizons.join(', ')} sessions</span>}
+        {candidate.horizons?.length > 0 && <span className="logs-subline">Declared evaluation: {candidate.horizons.join(', ')} sessions</span>}
         {candidate.duplicateAcrossStreams && <span className="logs-subline">One security across multiple streams</span>}</dd></div>
       <div><dt>Priority</dt><dd>{number(candidate.priority)}</dd></div>
       <div><dt>Admission rank</dt><dd><Rank candidate={candidate} /></dd></div>
       <div><dt>Admitted to review budget</dt><dd>{admitted}{candidate.admission && <span className="logs-subline">{title(candidate.admission.stream)} · {friendlyName(candidate.admission.kind)}</span>}</dd></div>
       <div><dt>Sent to model</dt><dd>{sentToClaude ? 'Yes' : 'No'}</dd></div>
-      <div><dt>Model result / score</dt><dd>{claudeLabel}<span className="logs-subline">Score {number(candidate.finalScore)}</span></dd></div>
-      <div><dt>Catalyst</dt><dd>{candidate.catalystVerified === undefined ? 'Unknown' : candidate.catalystVerified ? 'Verified' : 'Unverified'}</dd></div>
-      <div><dt>Final rank</dt><dd>{candidate.rank ? `#${candidate.rank}` : '—'}</dd></div>
+      <div><dt>Review result</dt><dd>{claudeLabel}</dd></div>
+      <div><dt>Holding-period outcomes</dt><dd><HoldingPeriodOutcomes candidate={candidate} /></dd></div>
       <div><dt>Published</dt><dd>{candidate.outcome === 'published' ? 'Yes' : 'No'}</dd></div>
       <div><dt>Evidence</dt><dd><Evidence candidate={candidate} /></dd></div>
     </dl>
@@ -248,7 +280,9 @@ function Candidate({ candidate }) {
       <summary>Technical details</summary>
       <dl className="logs-facts">
         <div><dt>Security ID</dt><dd><code>{candidate.securityId || '—'}</code></dd></div>
-        <div><dt>Reason</dt><dd>{candidate.reason || '—'}</dd></div>
+        <div><dt>Reason</dt><dd>{holdingPeriodOutcomes(candidate).length
+          ? holdingPeriodOutcomes(candidate).map(([horizon, outcome]) => <span className="logs-subline" key={horizon}>{horizon} sessions · {outcome.reason || '—'}</span>)
+          : candidate.reason || '—'}</dd></div>
         <div><dt>Review priority model</dt><dd><PriorityModel candidate={candidate} /></dd></div>
         <div><dt>Legacy priority</dt><dd>{number(candidate.legacyPriority)}</dd></div>
         {candidate.legacyOverallRank && <div><dt>Legacy admission rank</dt><dd>Overall #{candidate.legacyOverallRank}<span className="logs-subline">{Object.entries(candidate.legacyStreamRanks || {}).map(([stream, rank]) => `${title(stream)} #${rank}`).join(' · ')}</span></dd></div>}

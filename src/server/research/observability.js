@@ -192,7 +192,7 @@ function traceMetadata(candidate = {}) {
 // review and publication facts upgrade that same row. Ticker fallback joins a
 // pick that omitted its stable ID, while two different stable IDs are never
 // merged merely because a ticker was reused.
-export function candidateTraces({ board = [], admission, primaryReview, accepted = [], published = [] } = {}) {
+export function candidateTraces({ board = [], admission, primaryReview, accepted = [], published = [], publishedBoard = published } = {}) {
   const audit = admission?.audit || {}
   const traces = [], bySecurity = new Map(), byTicker = new Map()
   const add = (candidate, outcome = {}) => {
@@ -227,6 +227,17 @@ export function candidateTraces({ board = [], admission, primaryReview, accepted
     }
     if (traces[index].securityId) bySecurity.set(traces[index].securityId, index)
     if (traces[index].ticker) byTicker.set(traces[index].ticker, index)
+    return index
+  }
+  const addHorizon = (candidate, outcome, details) => {
+    const index = add(candidate, outcome)
+    const horizon = candidate.horizon || 5
+    const current = traces[index]
+    current.outcomesByHorizon = {
+      ...current.outcomesByHorizon,
+      [horizon]: { ...current.outcomesByHorizon?.[horizon], ...Object.fromEntries(Object.entries(details)
+        .filter(([, value]) => value !== undefined)) },
+    }
   }
 
   const selected = audit.selected?.length ? audit.selected : admission?.candidates || []
@@ -254,16 +265,21 @@ export function candidateTraces({ board = [], admission, primaryReview, accepted
   ;(primaryReview?.decisions || []).forEach((decision) => {
     const sentToClaude = primarySent.has(decision.securityId) || Boolean(decision.completedAt)
     const acceptedByClaude = sentToClaude && decision.status === 'accepted'
-    add(decision, {
+    const outcome = {
       outcome: acceptedByClaude ? 'accepted' : sentToClaude ? 'reviewed_rejected' : 'discovered',
       reviewed: sentToClaude,
       sentToClaude,
       claudeStatus: acceptedByClaude ? 'accepted' : sentToClaude ? 'reviewed_not_selected' : 'not_sent',
       reason: decision.reason,
       finalScore: decision.score,
+    }
+    if (decision.horizon) addHorizon(decision, outcome, {
+      status: sentToClaude ? decision.status : 'not_sent', sentToModel: sentToClaude,
+      score: decision.score, scoreKind: 'model', reason: decision.reason,
     })
+    else add(decision, outcome)
   })
-  Object.values(primaryReview?.picksByHorizon || {}).flat().forEach((pick) => add(pick, {
+  Object.values(primaryReview?.picksByHorizon || {}).flat().forEach((pick) => addHorizon(pick, {
     outcome: 'accepted',
     reviewed: true,
     sentToClaude: true,
@@ -271,20 +287,33 @@ export function candidateTraces({ board = [], admission, primaryReview, accepted
     reason: pick.reason,
     finalScore: pick.finalScore,
     catalystVerified: pick.catalystVerified,
-  }))
-  accepted.forEach((pick) => add(pick, {
+  }, { status: 'accepted', sentToModel: true, score: pick.finalScore, scoreKind: 'model', reason: pick.reason,
+    ...catalystMetadata(pick) }))
+  accepted.forEach((pick) => addHorizon(pick, {
     outcome: 'accepted', reviewed: true, sentToClaude: true, claudeStatus: 'accepted',
     reason: pick.reason, finalScore: pick.finalScore, ...catalystMetadata(pick),
-  }))
-  const horizonRanks = new Map()
-  published.forEach((pick) => {
+  }, { status: 'accepted', sentToModel: true, score: pick.finalScore, scoreKind: 'composite', reason: pick.reason,
+    ...catalystMetadata(pick) }))
+  // Count positions on the complete published boards. `published` below is
+  // only this run's winners, so counting that subset understates their ranks
+  // whenever an earlier pick was carried forward in the same cycle.
+  const boardRanks = new Map(), horizonRanks = new Map()
+  publishedBoard.forEach((pick) => {
     const horizon = pick.horizon || 5
     const rank = (horizonRanks.get(horizon) || 0) + 1
     horizonRanks.set(horizon, rank)
-    add(pick, {
+    if (pick.securityId) boardRanks.set(`${horizon}:${pick.securityId}`, rank)
+    if (pick.ticker) boardRanks.set(`${horizon}:${pick.ticker}`, rank)
+  })
+  published.forEach((pick) => {
+    const horizon = pick.horizon || 5
+    const rank = boardRanks.get(`${horizon}:${pick.securityId}`) ?? boardRanks.get(`${horizon}:${pick.ticker}`)
+    addHorizon(pick, {
       outcome: 'published', reviewed: true, sentToClaude: true, claudeStatus: 'accepted',
       rank, reason: pick.reason, finalScore: pick.finalScore, ...catalystMetadata(pick),
-    })
+    }, { status: 'accepted', sentToModel: true, score: pick.finalScore,
+      scoreKind: horizon === 5 ? 'composite' : 'model', rank, published: true,
+      reason: pick.reason, ...catalystMetadata(pick) })
   })
 
   return traces.sort((a, b) => (OUTCOME_PRIORITY[b.outcome] || 0) - (OUTCOME_PRIORITY[a.outcome] || 0)

@@ -40,6 +40,7 @@ const run = (extra = {}) => ({
   },
   candidates: [
     { ticker: 'RKLB', securityId: 'figi:RKLB', name: 'Rocket Lab USA', outcome: 'published', sentToClaude: true, claudeStatus: 'accepted', rank: 2, finalScore: 84, catalystVerified: true,
+      outcomesByHorizon: { 5: { status: 'accepted', score: 84, scoreKind: 'composite', rank: 2, published: true, catalystVerified: true } },
       sources: ['X / attention'], strategies: ['attention'], priority: 68, legacyPriority: 100,
       priorityModel: { version: 'attention-review-priority-v2', usedForAdmission: true, score: 68, streamScores: { attention: 68 },
         components: { evidenceQuality: 20, sourceIndependence: 16, repetitionPenalty: -8 } } },
@@ -396,7 +397,7 @@ describe('research activity page', () => {
     expect(within(candidate).getByText('Overall #18')).toBeVisible()
     expect(within(candidate).getByText('Fundamentals #11')).toBeVisible()
     expect(within(candidate).getByText('SEC')).toBeVisible()
-    expect(within(candidate).getByText('5, 20 sessions')).toBeVisible()
+    expect(within(candidate).getByText('Declared evaluation: 5, 20 sessions')).toBeVisible()
     expect(within(candidate).getByText('Admitted to review budget').nextElementSibling).toHaveTextContent('No')
     expect(within(candidate).getByText('Sent to model').nextElementSibling).toHaveTextContent('No')
     expect(within(candidate).getByText('Published').nextElementSibling).toHaveTextContent('No')
@@ -419,19 +420,57 @@ describe('research activity page', () => {
     await openRun()
     openTab(/Candidates/)
     const row = screen.getByText('RKLB', { selector: '.logs-symbol' }).closest('summary')
-    expect(row).toHaveTextContent('Attention · priority 68 · model 84 · final #2')
+    expect(row).toHaveTextContent('Attention · priority 68 · 5s Final composite score 84 · #2')
     expect(row).toHaveTextContent('Published')
 
     const candidate = candidateCard('RKLB')
     expect(within(candidate).getByText('Sent to model').nextElementSibling).toHaveTextContent('Yes')
     expect(within(candidate).getByText('Accepted')).toBeVisible()
-    expect(within(candidate).getByText('Score 84')).toBeVisible()
-    expect(within(candidate).getByText('Verified')).toBeVisible()
+    expect(within(candidate).getByText('Holding-period outcomes').nextElementSibling).toHaveTextContent('5 sessions · Accepted · Final composite score 84 · Published #2 · Catalyst verified')
     fireEvent.click(within(candidate).getByText('Technical details'))
     expect(within(candidate).getByText(/Evidence quality \+20/)).toBeVisible()
     expect(within(candidate).getByText('Legacy priority').nextElementSibling).toHaveTextContent('100')
     fireEvent.click(within(candidate).getByText('Complete candidate record'))
     expect(within(candidate).getByText(/"securityId": "figi:RKLB"/)).toBeVisible()
+  })
+
+  it('shows attention and fundamentals scores, ranks, catalysts, and reasons in their own holding periods', async () => {
+    serve([run({ candidates: [{ ticker: 'PANW', securityId: 'figi:PANW', outcome: 'published',
+      strategies: ['attention', 'fundamentals'], horizons: [5, 20], priority: 61,
+      outcomesByHorizon: {
+        5: { status: 'accepted', score: 32, scoreKind: 'composite', rank: 3, published: true,
+          catalystVerified: false, reason: 'Attention setup' },
+        20: { status: 'accepted', score: 82, scoreKind: 'model', rank: 1, published: true,
+          reason: 'Fundamentals improved' },
+      },
+    }] })])
+    renderLogs()
+    await openRun()
+    openTab(/Candidates/)
+    const row = screen.getByText('PANW', { selector: '.logs-symbol' }).closest('summary')
+    expect(row).toHaveTextContent('5s Final composite score 32 · #3')
+    expect(row).toHaveTextContent('20s Model score 82 · #1')
+
+    const candidate = candidateCard('PANW')
+    const periods = within(candidate).getByText('Holding-period outcomes').nextElementSibling
+    expect(periods).toHaveTextContent('5 sessions · Accepted · Final composite score 32 · Published #3 · Catalyst unverified')
+    expect(periods).toHaveTextContent('20 sessions · Accepted · Model score 82 · Published #1')
+    expect(periods).not.toHaveTextContent('20 sessions · Accepted · Model score 82 · Published #1 · Catalyst')
+    fireEvent.click(within(candidate).getByText('Technical details'))
+    expect(within(candidate).getByText('Reason').nextElementSibling).toHaveTextContent('5 sessions · Attention setup')
+    expect(within(candidate).getByText('Reason').nextElementSibling).toHaveTextContent('20 sessions · Fundamentals improved')
+  })
+
+  it('does not invent a holding period or model score type for an older log', async () => {
+    serve([run({ candidates: [{ ticker: 'OLD', securityId: 'figi:OLD', outcome: 'published',
+      finalScore: 74, rank: 2, catalystVerified: false }] })])
+    renderLogs()
+    await openRun()
+    openTab(/Candidates/)
+    const candidate = candidateCard('OLD')
+    expect(within(candidate).getByText('Holding-period outcomes').nextElementSibling)
+      .toHaveTextContent('Holding period unavailable in this older log · Recorded score 74 · Recorded rank #2 · Catalyst unverified')
+    expect(candidate.querySelector('summary')).toHaveTextContent('recorded score 74 · recorded #2')
   })
 
   /* ------------------------------------------------------ keyboard / structure */

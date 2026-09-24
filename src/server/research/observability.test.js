@@ -205,7 +205,33 @@ describe('candidateTraces', () => {
       catalystConfidence: 9,
       catalystInWindow: true,
       catalystSources: ['https://example.com/earnings'],
+      outcomesByHorizon: { 5: { score: 84, scoreKind: 'composite', rank: 1, published: true, catalystVerified: true } },
     })
+  })
+
+  it('keeps each holding-period score separate and ranks new picks against the full carried board', () => {
+    const attention = { ticker: 'PANW', securityId: 'figi:PANW', horizon: 5, finalScore: 32, catalystVerified: false }
+    const fundamentals = { ticker: 'PANW', securityId: 'figi:PANW', horizon: 20, finalScore: 82 }
+    const immr = { ticker: 'IMMR', securityId: 'figi:IMMR', horizon: 20, finalScore: 74 }
+    const traces = candidateTraces({
+      accepted: [attention],
+      primaryReview: { picksByHorizon: { 20: [fundamentals, immr] } },
+      published: [attention, fundamentals, immr],
+      publishedBoard: [
+        { ticker: 'CARRIED5', horizon: 5, finalScore: 40 }, attention,
+        { ticker: 'CARRIED20', horizon: 20, finalScore: 90 }, fundamentals, immr,
+      ],
+    })
+
+    expect(traces.find((trace) => trace.ticker === 'PANW').outcomesByHorizon).toMatchObject({
+      5: { score: 32, scoreKind: 'composite', rank: 2, published: true, catalystVerified: false },
+      20: { score: 82, scoreKind: 'model', rank: 2, published: true },
+    })
+    expect(traces.find((trace) => trace.ticker === 'PANW').outcomesByHorizon[20]).not.toHaveProperty('catalystVerified')
+    expect(traces.find((trace) => trace.ticker === 'IMMR').outcomesByHorizon[20]).toMatchObject({
+      score: 74, scoreKind: 'model', rank: 3, published: true,
+    })
+    expect(traces).toHaveLength(2)
   })
 
   it('keeps a reviewed candidate that lost its slot distinct from one that was published', () => {
