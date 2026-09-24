@@ -138,7 +138,12 @@ export async function generateWebReport({
     model: OPENAI_RESEARCH_MODEL,
     instructions,
     input,
-    tools: [{ type: 'web_search' }],
+    // Every search round feeds its results back into the model. At the default
+    // context size one report used ~175k of the org's 200k tokens per minute
+    // and was then rejected (2026-09-24); low context and at most four searches
+    // keep a report inside the limit.
+    tools: [{ type: 'web_search', search_context_size: 'low' }],
+    max_tool_calls: 4,
     max_output_tokens: maxOutputTokens,
     reasoning: { effort: reasoningEffort },
     text: { verbosity: 'medium' },
