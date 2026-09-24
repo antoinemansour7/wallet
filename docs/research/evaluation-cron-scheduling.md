@@ -1,5 +1,7 @@
 # Evaluation cron scheduling — implementation notes
 
+> These notes predate the move from Vercel Hobby cron to Upstash QStash. The UTC hours below are unchanged, but QStash now fires them on the minute rather than anywhere in the hour; see [qstash-scheduling.md](qstash-scheduling.md).
+
 ## Vercel Hobby constraints (confirmed, as of this change)
 
 - Up to 100 cron jobs per project.

@@ -78,10 +78,13 @@ describe('nightly foundation integration', () => {
     expect(mocks.publications).toHaveLength(1)
   })
 
-  it('runs the report job when the report cron fires, recognized by its schedule header', async () => {
+  it('runs the report job for the request its QStash schedule sends', async () => {
+    const { RESEARCH_SCHEDULES } = await import('./scheduleHealth.js')
+    const scheduled = new URL(RESEARCH_SCHEDULES.find((entry) => entry.job === 'research-reports').path, 'https://wallai.test')
     mocks.values.set('research:latest', { generatedAt: '2026-09-09T11:30:00.000Z', picks: [], picksByHorizon: { 5: [], 20: [{ ...pick('QUIET', 20), generatedAt: '2026-09-09T11:30:00.000Z' }], 60: [] }, reportsPending: true })
     const res = response()
-    await handler({ method: 'GET', headers: { authorization: 'Bearer test', 'x-vercel-cron-schedule': '0 9 * * *' }, query: {} }, res)
+    expect(scheduled.pathname).toBe('/api/nightly-research')
+    await handler({ method: 'GET', headers: { authorization: 'Bearer test' }, query: Object.fromEntries(scheduled.searchParams) }, res)
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ mode: 'reports', written: 1 }))
     expect(mocks.extract).not.toHaveBeenCalled()
     const [, line] = mocks.redis.lpush.mock.calls.find(([key]) => key === 'research:runs:v1')
@@ -90,12 +93,11 @@ describe('nightly foundation integration', () => {
     expect(mocks.record).toHaveBeenCalledWith('research-reports', expect.any(Number), { errors: [] })
   })
 
-  it('registers the report cron in vercel.json with the exact schedule the handler recognizes', async () => {
-    const { readFileSync } = await vi.importActual('node:fs')
-    const { REPORTS_CRON_SCHEDULE } = await import('../../../api/nightly-research.js')
-    const crons = JSON.parse(readFileSync(new URL('../../../vercel.json', import.meta.url), 'utf8')).crons
-    const nightly = crons.filter((cron) => cron.path === '/api/nightly-research').map((cron) => cron.schedule)
-    expect(nightly).toEqual(['0 7 * * *', REPORTS_CRON_SCHEDULE])
+  it('schedules the report job two hours after the nightly run, so the nightly lock is long released', async () => {
+    const { RESEARCH_SCHEDULES } = await import('./scheduleHealth.js')
+    const hours = (job) => RESEARCH_SCHEDULES.find((entry) => entry.job === job).hours
+    expect(hours('nightly-research')).toEqual([7])
+    expect(hours('research-reports')).toEqual([9])
   })
 
   it('does not run the report job while a nightly run holds the publication lock', async () => {

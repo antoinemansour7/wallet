@@ -13,7 +13,8 @@
 export const DEFAULT_CYCLE_HOUR_UTC = 7
 
 /**
- * The scheduled hour that opens a cycle, matching the cron in vercel.json.
+ * The scheduled hour that opens a cycle, matching the nightly-research
+ * schedule in src/server/research/scheduleHealth.js.
  *
  * The empty string is checked before the conversion because Number('') is 0,
  * which is a valid hour — an unset or blank variable would otherwise move every

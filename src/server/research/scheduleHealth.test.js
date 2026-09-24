@@ -1,6 +1,5 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import config from '../../../vercel.json'
 import { RESEARCH_SCHEDULE_GRACE_MS, RESEARCH_SCHEDULES, researchScheduleHealth } from './scheduleHealth.js'
 
 const at = (iso) => Date.parse(iso)
@@ -42,21 +41,19 @@ describe('researchScheduleHealth', () => {
     expect(RESEARCH_SCHEDULE_GRACE_MS).toBe(90 * 60 * 1000)
   })
 
-  it('stays aligned with every research cron declared in vercel.json', () => {
-    const expected = RESEARCH_SCHEDULES.flatMap(({ job, hours }) => hours.map((hour) => ({
-      path: {
-        'research-foundation': '/api/research-foundation',
-        'nightly-research': '/api/nightly-research',
-        'research-reports': '/api/nightly-research',
-        'track-performance': '/api/track-performance',
-        'research-evaluation': '/api/research-evaluation',
-      }[job],
-      schedule: `0 ${hour} * * *`,
-    })))
-    const actual = config.crons.filter((entry) => entry.path.startsWith('/api/research-'))
-      .concat(config.crons.filter((entry) => entry.path === '/api/nightly-research' || entry.path === '/api/track-performance'))
+  it('keeps every research job on the UTC hour and route it had as a Vercel cron', () => {
+    // The eleven vercel.json entries these replaced, one per (path, hour).
+    const former = [
+      ...[1, 4, 10, 13, 16, 19, 22].map((hour) => ['/api/research-foundation', hour]),
+      ['/api/nightly-research', 7], ['/api/nightly-research?mode=reports', 9],
+      ['/api/track-performance', 9], ['/api/research-evaluation', 11],
+    ]
+    expect(RESEARCH_SCHEDULES.flatMap(({ path, hours }) => hours.map((hour) => [path, hour]))).toEqual(former)
+    expect(RESEARCH_SCHEDULES.map((entry) => entry.job)).toEqual(['research-foundation', 'nightly-research', 'research-reports', 'track-performance', 'research-evaluation'])
+  })
 
-    expect(expected).toEqual(expect.arrayContaining(actual))
-    expect(actual).toEqual(expect.arrayContaining(expected))
+  it('opens the research cycle at the nightly run', async () => {
+    const { DEFAULT_CYCLE_HOUR_UTC } = await import('../researchCycle.js')
+    expect(RESEARCH_SCHEDULES.find((entry) => entry.job === 'nightly-research').hours).toEqual([DEFAULT_CYCLE_HOUR_UTC])
   })
 })

@@ -289,7 +289,10 @@ and keeps its persistence check in memory, so it cannot replace the published
 ## Deploying
 
 Vercel hosts both the static build and the functions in `api/`. `vercel.json`
-holds the SPA rewrite and four cron schedules.
+holds the SPA rewrite and function limits. Scheduled jobs are triggered by
+Upstash QStash, not Vercel cron: after deploying a schedule change, run
+`npm run schedule -- apply` and then `npm run schedule -- check`
+(see `docs/research/qstash-scheduling.md`).
 
 Two deploy paths exist and only one of them works:
 
