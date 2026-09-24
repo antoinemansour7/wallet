@@ -116,7 +116,10 @@ describe('OpenAI research model', () => {
       report: 'Grounded report', citations: ['https://example.com/filing'],
     })
     expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
-      tools: [{ type: 'web_search' }],
+      // One report at the default context size used ~175k of the org's 200k
+      // tokens per minute and was rejected (2026-09-24).
+      tools: [{ type: 'web_search', search_context_size: 'low' }],
+      max_tool_calls: 4,
       // Reasoning and search-call tokens share this cap with the report itself;
       // 3000 cut long reports off in production (2026-09-24).
       max_output_tokens: 6000,

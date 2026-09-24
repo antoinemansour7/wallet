@@ -188,7 +188,7 @@ describe('generateResearchReports', () => {
     const results = await generateResearchReports(tickerList('AAA', 'BBB', 'CCC'))
     expect(peak).toBe(1)
     expect(results[0]).toMatchObject({ ticker: 'AAA', report: 'AAA report', citations: ['https://example.com/source'] })
-    expect(createResponse.mock.calls[0][0].tools).toEqual([{ type: 'web_search' }])
+    expect(createResponse.mock.calls[0][0].tools).toEqual([{ type: 'web_search', search_context_size: 'low' }])
     expect(createMessage).not.toHaveBeenCalled()
   })
 })
