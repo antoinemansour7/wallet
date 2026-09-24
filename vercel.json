@@ -1,51 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "crons": [
-    {
-      "path": "/api/research-foundation",
-      "schedule": "0 1 * * *"
-    },
-    {
-      "path": "/api/research-foundation",
-      "schedule": "0 4 * * *"
-    },
-    {
-      "path": "/api/research-foundation",
-      "schedule": "0 10 * * *"
-    },
-    {
-      "path": "/api/research-foundation",
-      "schedule": "0 13 * * *"
-    },
-    {
-      "path": "/api/research-foundation",
-      "schedule": "0 16 * * *"
-    },
-    {
-      "path": "/api/research-foundation",
-      "schedule": "0 19 * * *"
-    },
-    {
-      "path": "/api/research-foundation",
-      "schedule": "0 22 * * *"
-    },
-    {
-      "path": "/api/nightly-research",
-      "schedule": "0 7 * * *"
-    },
-    {
-      "path": "/api/nightly-research",
-      "schedule": "0 9 * * *"
-    },
-    {
-      "path": "/api/research-evaluation",
-      "schedule": "0 11 * * *"
-    },
-    {
-      "path": "/api/track-performance",
-      "schedule": "0 9 * * *"
-    }
-  ],
   "functions": {
     "api/nightly-research.js": {
       "maxDuration": 300

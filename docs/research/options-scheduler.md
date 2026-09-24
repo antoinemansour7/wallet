@@ -2,7 +2,7 @@
 
 Story #207 uses the existing Vercel function deployment for execution and Upstash QStash for the two precise triggers. Vercel Hobby cron is deliberately not used: its daily jobs may arrive at any point in the configured hour, outside the scanner's four-minute opening window.
 
-The free validation schedule's two morning triggers use two of QStash Free's ten active schedules and two of its 1,000 daily messages:
+The free validation schedule's two morning triggers use two of QStash Free's ten active schedules and two of its 1,000 daily messages (the whole WallAI catalog uses eight; see [qstash-scheduling.md](qstash-scheduling.md)):
 
 - `CRON_TZ=America/New_York 15 9 * * 1-5` dispatches the premarket freeze. The handler accepts premarket work from 08:00 through 09:20 ET and labels anything later as missed.
 - `CRON_TZ=America/New_York 31 9 * * 1-5` dispatches the opening scan. The handler accepts opening work from 09:31 through 09:35 ET.
@@ -23,7 +23,7 @@ Capture follows `OPTIONS_SCANNER_ENABLED` unless `OPTIONS_FORWARD_CAPTURE_ENABLE
 
 ## Deployment
 
-Set `QSTASH_TOKEN`, `CRON_SECRET`, and `OPTIONS_SCAN_BASE_URL` in the operator shell. `OPTIONS_SCAN_BASE_URL` is the production origin, such as `https://example.com`. Then run:
+These three schedules are part of the WallAI QStash catalog, which is installed, checked and removed together with the research schedules: see [qstash-scheduling.md](qstash-scheduling.md) for the environment and cutover. Set `QSTASH_TOKEN`, `CRON_SECRET`, and `SCHEDULE_BASE_URL` (the production origin, such as `https://example.com`; `OPTIONS_SCAN_BASE_URL` is still read) in the operator shell. To act on the options schedules alone:
 
 ```sh
 npm run options:schedule -- apply
@@ -32,10 +32,10 @@ npm run options:schedule -- check
 
 Set `OPTIONS_SCANNER_ENABLED=true` only when the stage worker for that story is installed. The default is disabled. The Redis key `research:options:kill:v1` is the runtime kill switch; any value disables new work without deleting checkpoints or audit history.
 
-`remove` deletes the three QStash schedules. It does not delete Redis state or R2 audit records:
+`remove` deletes the three QStash schedules once `--yes` is given; without it, it only lists them. It does not delete Redis state or R2 audit records:
 
 ```sh
-npm run options:schedule -- remove
+npm run options:schedule -- remove --yes
 ```
 
 ## Runtime guarantees

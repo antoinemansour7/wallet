@@ -128,10 +128,11 @@ export function quietCondition({ attention, repricingPercent } = {}) {
  * runs to hundreds a day, so five drained leaves the backlog growing and the
  * fundamentals stream never receives a forward observation — a filing ingested
  * more than 14 days after it was filed is past the candidate-eligibility window
- * and is archived without ever becoming a pick. `vercel.json` now schedules
- * several staggered daily foundation runs, and this budget is raised to match,
- * so the drain rate clears the 927-deep backlog in weeks rather than months and
- * then keeps pace with arrivals.
+ * and is archived without ever becoming a pick. The research schedule
+ * (research/scheduleHealth.js) now runs several staggered daily foundation
+ * runs, and this budget is raised to match, so the drain rate clears the
+ * 927-deep backlog in weeks rather than months and then keeps pace with
+ * arrivals.
  *
  * The per-run loop is still bounded by the 240s work deadline and its 45s
  * guard, so this is a ceiling the run reaches only when the queued issuers are

@@ -1,19 +1,22 @@
 const HOUR_MS = 60 * 60 * 1000
 const DAY_MS = 24 * HOUR_MS
 
-// Vercel invokes cron schedules in UTC. Production runs have arrived as much
-// as an hour after their declared minute, so absence is actionable only after
-// a deliberately wider grace period.
+// Every research job fires at minute 0 of its hours, in UTC. The grace period
+// dates from Vercel Hobby cron, whose runs arrived up to an hour late; QStash
+// now fires on the minute, but absence stays actionable only after the same
+// window so a slow run is not reported as a missing one.
 export const RESEARCH_SCHEDULE_GRACE_MS = 90 * 60 * 1000
 
-// Keep this small operational view beside the run log. The deployment test
-// below protects it from drifting away from vercel.json.
+// The one definition of when each research job runs and which route it calls.
+// src/server/qstashSchedules.js installs a QStash schedule from each entry, and
+// the health check below reads the same hours, so the two cannot drift.
 export const RESEARCH_SCHEDULES = Object.freeze([
-  { job: 'research-foundation', hours: [1, 4, 10, 13, 16, 19, 22] },
-  { job: 'nightly-research', hours: [7] },
-  { job: 'research-reports', hours: [9] },
-  { job: 'track-performance', hours: [9] },
-  { job: 'research-evaluation', hours: [11] },
+  { job: 'research-foundation', path: '/api/research-foundation', hours: [1, 4, 10, 13, 16, 19, 22] },
+  { job: 'nightly-research', path: '/api/nightly-research', hours: [7] },
+  // Same function as the nightly run; the mode is what selects the report job.
+  { job: 'research-reports', path: '/api/nightly-research?mode=reports', hours: [9] },
+  { job: 'track-performance', path: '/api/track-performance', hours: [9] },
+  { job: 'research-evaluation', path: '/api/research-evaluation', hours: [11] },
 ])
 
 function latestExpectedAt(hours, cutoff) {

@@ -175,8 +175,8 @@ describe('experiment arm is assigned at decision time', () => {
 
 // The backlog, not the code path, is what decides whether the experiment ever
 // gets forward observations. With several staggered daily runs scheduled in
-// vercel.json, the default budget is sized to drain that backlog rather than to
-// the one-run-a-day pilot rate.
+// scheduleHealth.js, the default budget is sized to drain that backlog rather
+// than to the one-run-a-day pilot rate.
 describe('ingestion budget', () => {
   it('defaults to a backlog-draining rate', () => {
     expect(ingestIssuerBudget(undefined)).toBe(DEFAULT_INGEST_MAX_ISSUERS)

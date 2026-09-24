@@ -165,8 +165,8 @@ growing across recent attempts.
 or the stage's own work routinely running close enough to `deadlineAt` that
 `runOptionsScheduledStage`'s deadline race cuts it off before completion.
 
-**Remediation:** `npm run options:schedule -- check` verifies the two QStash
-schedules are still configured as expected
+**Remediation:** `npm run options:schedule -- check` verifies the three options
+QStash schedules are still configured as expected
 (`docs/research/options-scheduler.md`). If schedules are correct but
 `startedLatencyMs` is still elevated, the stage's own work is the bottleneck,
 not dispatch -- check `stageTimings[].attempt` for repeated retries of the

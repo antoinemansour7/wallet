@@ -6,7 +6,7 @@ Automated daily research run.
 
 ## Schedule
 
-Configured as a Vercel Cron Job hitting `/api/nightly-research`.
+Triggered daily at 07:00 UTC by the `wallai-nightly-research-v1` Upstash QStash schedule, which calls `/api/nightly-research` with `CRON_SECRET`. Reports follow at 09:00 UTC via `?mode=reports`. See `docs/research/qstash-scheduling.md`.
 
 ## What Runs
 

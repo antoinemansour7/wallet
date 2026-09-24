@@ -27,11 +27,10 @@ const RESEARCH_TTL = 48 * 60 * 60 // 48 hours
 const HISTORY_TTL = HISTORY_RETENTION_SECONDS
 const HISTORY_MAX_ENTRIES = HISTORY_LIMIT
 const AGENT_MINIMUM_MS = 70_000
-// Reports run in their own invocation from this cron, not at the tail of the
-// nightly run, where they only ever got the seconds it had left. Hobby crons
-// fire anywhere within their hour, so this is two hours after the nightly
-// schedule: a late nightly run can never still hold the lock.
-export const REPORTS_CRON_SCHEDULE = '0 9 * * *'
+// Reports run in their own invocation (?mode=reports), not at the tail of the
+// nightly run, where they only ever got the seconds it had left. The
+// research-reports schedule (src/server/research/scheduleHealth.js) fires two
+// hours after the nightly one, so a nightly run can never still hold the lock.
 // Freezing the packet is one archive write with no model calls — the six-arm
 // review that used to need ~90s here now runs in the separate
 // research-evaluation cron, which has its own full 300s budget.
@@ -122,7 +121,7 @@ export default async function handler(req, res) {
   const startedAt = Date.now()
   const budget = createCronBudget({ startedAt })
   const { recordRun } = await import('../src/server/runLog.js')
-  const reportsRequested = req.query?.mode === 'reports' || req.headers?.['x-vercel-cron-schedule'] === REPORTS_CRON_SCHEDULE
+  const reportsRequested = req.query?.mode === 'reports'
   const job = req.query?.mode === 'premarket' ? 'premarket-check' : reportsRequested ? 'research-reports' : 'nightly-research'
   const redis = getRedis()
   if (!redis) {
@@ -505,7 +504,7 @@ async function runDiscovery(res, startedAt, recordRun, foundation, budget) {
   }
 
   // Step 4: reports for this run's new picks are written by the separate
-  // REPORTS_CRON_SCHEDULE invocation, with a full budget of its own. A carried
+  // research-reports invocation, with a full budget of its own. A carried
   // pick already has the report its own run wrote.
   if (reportCandidates.length > 0) {
     researchLog({ event: 'reports_deferred', stage: STAGES.report_generation, metrics: { candidates: reportCandidates.length } })

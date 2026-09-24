@@ -68,6 +68,6 @@ Stores to:
 
 | Method | Notes |
 |--------|-------|
-| Vercel Cron | Nightly via `api/nightly-research.js` |
+| Upstash QStash schedule | Nightly via `api/nightly-research.js` (`docs/research/qstash-scheduling.md`) |
 | Local `run-research.mjs` | Manual run with `.env` vars |
 | Vercel curl with CRON_SECRET | `Authorization: Bearer <secret>` header |
