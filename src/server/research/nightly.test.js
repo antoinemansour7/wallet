@@ -138,6 +138,22 @@ describe('nightly foundation integration', () => {
     expect(mocks.values.get('research:latest').picksByHorizon[20][0].report).toBe('Original')
   })
 
+  it('records a new pick at its rank on the full published board, after a carried pick', async () => {
+    mocks.values.set('research:latest', { generatedAt: '2026-09-09T10:00:00Z', picks: [],
+      picksByHorizon: { 20: [{ ...pick('CARRIED', 20, 90), generatedAt: '2026-09-09T10:00:00Z' }] } })
+    mocks.extract.mockImplementation(async (_s, _a, options) => {
+      options.onPrimaryReview(primary({ 20: [pick('FRESH', 20, 80)], 60: [] }))
+      return []
+    })
+
+    await handler(request(), response())
+
+    const [, line] = mocks.redis.lpush.mock.calls.find(([key]) => key === 'research:runs:v1')
+    const fresh = JSON.parse(line).candidates.find((candidate) => candidate.ticker === 'FRESH')
+    expect(fresh).toMatchObject({ outcome: 'published', rank: 2,
+      outcomesByHorizon: { 20: { score: 80, scoreKind: 'model', rank: 2, published: true } } })
+  })
+
   it('keeps the published picks when the report job fails, and says how many reports are missing', async () => {
     mocks.extract.mockImplementation(async (_s, _a, options) => { options.onPrimaryReview(primary()); return [pick('FAST')] })
     mocks.redis.lpush.mockRejectedValueOnce(new Error('index unavailable'))

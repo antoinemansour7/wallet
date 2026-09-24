@@ -53,14 +53,14 @@ describe('frozen options research projection', () => {
   })
   it('names why the main risk applies, so an unknown input is not shown as an observed one', async () => {
     const penalties = [{ code: 'wide_spread', points: 1, reason: 'spread_in_upper_gate_band' },
-      { code: 'iv_above_90th_percentile', points: 5, reason: 'missing_input_uses_existing_worst_case_penalty' }]
+      { code: 'iv_above_90th_percentile', points: 5, reason: 'implied_volatility_rich_against_own_history' }]
     const readRecord = async (archive, type, id) => {
       const record = await fixture.readRecord(archive, type, id)
       return type === 'score' ? { ...record, payload: { ...record.payload, scores: record.payload.scores.map((score) => ({ ...score, penalties })) } } : record
     }
     const [candidate] = (await view({ readRecord })).candidates
-    expect(candidate).toMatchObject({ risk: 'iv_above_90th_percentile', riskReason: 'missing_input_uses_existing_worst_case_penalty' })
-    expect((await view()).candidates[0]).toMatchObject({ risk: 'full_premium_at_risk', riskReason: null })
+    expect(candidate).toMatchObject({ risk: 'iv_above_90th_percentile', riskReason: 'implied_volatility_rich_against_own_history' })
+    expect((await view()).candidates[0]).toMatchObject({ risk: 'iv_above_90th_percentile', riskReason: 'missing_input_uses_existing_worst_case_penalty' })
   })
 })
 

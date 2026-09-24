@@ -433,6 +433,7 @@ async function runDiscovery(res, startedAt, recordRun, foundation, budget) {
     primaryReview,
     accepted: tickers,
     published: publishedThisRun,
+    publishedBoard: Object.values(picksByHorizon).flat(),
   })
   recordCandidates(traces, primaryReview?.admission)
 
