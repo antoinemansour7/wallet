@@ -1,6 +1,6 @@
-import { OPTIONS_CALENDAR_2026, optionsLocalParts, zonedMarketInstant } from './calendar.js'
+import { OPTIONS_CALENDAR_2026, marketDay, optionsLocalParts, zonedMarketInstant } from './calendar.js'
 
-export const OPTIONS_CHAIN_GATE_POLICY_VERSION = 'options-opening-chain-gates-v2'
+export const OPTIONS_CHAIN_GATE_POLICY_VERSION = 'options-opening-chain-gates-v3'
 export const OPTIONS_CHAIN_DTE_RANGE = Object.freeze({ min: 7, max: 60 })
 export const OPTIONS_CHAIN_PRIMARY_DTE_RANGE = Object.freeze({ min: 14, max: 45 })
 export const OPTIONS_CHAIN_DELTA_RANGE = Object.freeze({ min: 0.15, max: 0.60 })
@@ -25,6 +25,34 @@ function within(value, range) {
   return value != null && value >= range.min && value <= range.max
 }
 
+// The session before `date`, or null when the calendar cannot say, so prior
+// volume is never credited on a guess.
+function previousSessionDate(date, calendar) {
+  for (let back = 1; back <= 10; back += 1) {
+    const candidate = new Date(Date.parse(`${date}T12:00:00Z`) - back * 86400000).toISOString().slice(0, 10)
+    const day = marketDay(candidate, calendar)
+    if (!day.known) return null
+    if (day.open) return candidate
+  }
+  return null
+}
+
+// Until a contract trades in today's session, the provider's daily bar is still
+// the last session it traded in. That is not today's volume: nothing has traded
+// today. It is the prior session's volume only when it is the session right
+// before today; an older bar means nothing traded then either. Rejecting such a
+// bar outright removed every not-yet-traded contract at 09:31 (2026-09-24).
+function sessionVolumes(contract, tradingDate, calendar) {
+  const bar = contract.volume
+  if (bar?.sessionDate > tradingDate) return { reason: 'volume_session_mismatch' }
+  if (contract.previousDailyBar?.sessionDate >= tradingDate) return { reason: 'prior_volume_session_mismatch' }
+  if (!bar?.sessionDate || bar.sessionDate === tradingDate) return { volume: bar ?? null, previousVolume: contract.previousDailyBar?.volume ?? null }
+  return {
+    volume: { value: 0, session: bar.session ?? 'rth', sessionDate: tradingDate, observedSessionDate: bar.sessionDate },
+    previousVolume: bar.sessionDate === previousSessionDate(tradingDate, calendar) ? bar.value ?? null : 0,
+  }
+}
+
 export function optionsContractCohort(dte, absDelta) {
   return within(dte, OPTIONS_CHAIN_PRIMARY_DTE_RANGE) && within(absDelta, OPTIONS_CHAIN_PRIMARY_DELTA_RANGE) ? 'primary' : 'edge'
 }
@@ -34,7 +62,7 @@ export function optionsContractCohort(dte, absDelta) {
 // is enforced after local calibration in scoring, not on provider analytics.
 // A contract failing only "quote after regular open" is 'pending', not
 // 'rejected' -- the caller may retry it before the stage deadline.
-export function evaluateOpeningContractGates(contract, { tradingDate, regularOpenAt, underlying, policy = OPTIONS_CHAIN_LIQUIDITY_POLICY } = {}) {
+export function evaluateOpeningContractGates(contract, { tradingDate, regularOpenAt, underlying, policy = OPTIONS_CHAIN_LIQUIDITY_POLICY, calendar = OPTIONS_CALENDAR_2026 } = {}) {
   const reject = (reason) => ({ status: 'rejected', reason, cohort: null, dte: null, absDelta: null, analyticsAgeUnknown: null })
   const quote = contract.quote
   if (!quote) return reject('quote_unavailable')
@@ -84,10 +112,10 @@ export function evaluateOpeningContractGates(contract, { tradingDate, regularOpe
   if (!Number.isFinite(contract.openInterest.value) || !(contract.openInterest.value >= policy.minOpenInterest)) return reject('insufficient_open_interest')
   if (contract.openInterest.asOfDate > tradingDate) return reject('future_open_interest')
 
-  const todayVolume = contract.volume?.value ?? null
-  const priorVolume = contract.previousDailyBar?.volume ?? null
-  if (contract.volume?.sessionDate && contract.volume.sessionDate !== tradingDate) return reject('volume_session_mismatch')
-  if (contract.previousDailyBar?.sessionDate >= tradingDate) return reject('prior_volume_session_mismatch')
+  const sessions = sessionVolumes(contract, tradingDate, calendar)
+  if (sessions.reason) return reject(sessions.reason)
+  const todayVolume = sessions.volume?.value ?? null
+  const priorVolume = sessions.previousVolume
   const volumeOk = (Number.isFinite(todayVolume) && todayVolume >= policy.minTodayVolume)
     || (Number.isFinite(priorVolume) && priorVolume >= policy.minPriorVolume)
   if (!volumeOk) return reject('insufficient_volume')
@@ -104,6 +132,8 @@ export function evaluateOpeningContractGates(contract, { tradingDate, regularOpe
     dte,
     absDelta: absDelta == null ? null : Number(absDelta.toFixed(4)),
     analyticsAgeUnknown: contract.analytics?.age === 'unknown',
+    volume: sessions.volume,
+    previousVolume: priorVolume,
     // Carried forward for operational diagnostics (#215): quote/underlying
     // synchronization quality across the whole accepted set, not just the
     // pass/fail line at maxSkewMs.
@@ -127,10 +157,12 @@ function flattenContract(contract, evaluation) {
     openInterestDate: contract.openInterest?.asOfDate ?? null,
     quote: contract.quote,
     trade: contract.trade,
-    volume: contract.volume,
+    // Today's and the prior session's volume as the gate read them, so scoring
+    // never takes a not-yet-traded contract's last bar for today's volume.
+    volume: evaluation.volume,
     // Carried forward because the volume gate can be cleared on prior-session
     // volume alone, and scoring (#211) charges a penalty for exactly that.
-    previousVolume: contract.previousDailyBar?.volume ?? null,
+    previousVolume: evaluation.previousVolume,
     // Carried forward for operational diagnostics (#215): lets a reader see
     // the quote/underlying skew distribution across an accepted set, not just
     // whether any single contract crossed the gate threshold.
@@ -155,7 +187,7 @@ export function buildOptionsChain({
       rejected.push({ rawId: contract.rawId, contractId: contract.contractId, reason: 'contract_direction_mismatch' })
       continue
     }
-    const evaluation = evaluateOpeningContractGates(contract, { tradingDate, regularOpenAt, underlying, policy })
+    const evaluation = evaluateOpeningContractGates(contract, { tradingDate, regularOpenAt, underlying, policy, calendar })
     if (evaluation.status === 'accepted') accepted.push(flattenContract(contract, evaluation))
     else if (evaluation.status === 'pending') pending.push(contract)
     else rejected.push({ rawId: contract.rawId, contractId: contract.contractId, osiSymbol: contract.osiSymbol, reason: evaluation.reason })
