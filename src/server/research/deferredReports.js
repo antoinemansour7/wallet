@@ -4,10 +4,13 @@ import { withinCronBudget } from './runtimeBudget.js'
 // Reports are written by their own daily invocation, after the nightly run has
 // published its picks, so they get a full function budget instead of whatever
 // the nightly run had left. They enrich the stored projection only; the frozen
-// publication and its evaluation sample never change.
+// publication and its evaluation sample never change. Reports are written one
+// at a time (see researchEngine.js), so each is stored as it finishes: a time
+// cutoff loses only the report in flight, and the next scheduled run resumes
+// with whatever is left.
 export const DEFERRED_REPORTS_POLICY = Object.freeze({
   maxAgeMs: 20 * 60 * 60 * 1000,
-  batchSize: 3,
+  batchSize: 1,
   batchMinimumMs: 60_000,
 })
 

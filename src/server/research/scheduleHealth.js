@@ -14,7 +14,9 @@ export const RESEARCH_SCHEDULES = Object.freeze([
   { job: 'research-foundation', path: '/api/research-foundation', hours: [1, 4, 10, 13, 16, 19, 22] },
   { job: 'nightly-research', path: '/api/nightly-research', hours: [7] },
   // Same function as the nightly run; the mode is what selects the report job.
-  { job: 'research-reports', path: '/api/nightly-research?mode=reports', hours: [9] },
+  // Reports are written one at a time and eight do not fit one 300s run, so the
+  // job fires four times in its hour; each run resumes whatever is still pending.
+  { job: 'research-reports', path: '/api/nightly-research?mode=reports', hours: [9], minutes: [0, 15, 30, 45] },
   { job: 'track-performance', path: '/api/track-performance', hours: [9] },
   { job: 'research-evaluation', path: '/api/research-evaluation', hours: [11] },
 ])

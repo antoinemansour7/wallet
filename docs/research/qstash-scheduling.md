@@ -15,7 +15,7 @@ The catalog lives in `src/server/qstashSchedules.js`. Research times come from `
 | `wallai-options-observe-v1` | `CRON_TZ=America/New_York * 9-15 * * 1-5` | POST `/api/options-scan?mode=observe` | 0 |
 | `wallai-research-foundation-v1` | `CRON_TZ=UTC 0 1,4,10,13,16,19,22 * * *` | GET `/api/research-foundation` | 0 |
 | `wallai-nightly-research-v1` | `CRON_TZ=UTC 0 7 * * *` | GET `/api/nightly-research` | 0 |
-| `wallai-research-reports-v1` | `CRON_TZ=UTC 0 9 * * *` | GET `/api/nightly-research?mode=reports` | 0 |
+| `wallai-research-reports-v1` | `CRON_TZ=UTC 0,15,30,45 9 * * *` | GET `/api/nightly-research?mode=reports` | 0 |
 | `wallai-track-performance-v1` | `CRON_TZ=UTC 0 9 * * *` | GET `/api/track-performance` | 0 |
 | `wallai-research-evaluation-v1` | `CRON_TZ=UTC 0 11 * * *` | GET `/api/research-evaluation` | 0 |
 
@@ -26,13 +26,14 @@ The catalog lives in `src/server/qstashSchedules.js`. Research times come from `
 - **GET with no body, and no retries.** That is exactly how Vercel cron called them. A retried nightly run would publish a second board. The other jobs already pick up whatever a failed run left behind on their next slot.
 - **One foundation schedule for seven hours.** QStash Free allows 10 active schedules. The catalog uses 8.
 - **Reports as `?mode=reports`.** Vercel identified the 09:00 run by its `x-vercel-cron-schedule` header, which QStash does not send.
+- **Reports four times an hour.** Reports are written one at a time, because three concurrent web-search reports exceeded OpenAI's 200k tokens-per-minute limit, and eight don't fit one 300s run. Each of the 09:00, 09:15, 09:30 and 09:45 runs resumes whatever is still pending, including earlier failures; once none are pending, a run exits straight away.
 
 **Delivery settings:**
 
 - **Timeout.** Every schedule has `Upstash-Timeout: 300s`, the same as the functions' `maxDuration`. QStash waits that long; it does not let a function run longer.
 - **Authentication.** QStash forwards `Authorization: Bearer $CRON_SECRET` (via `Upstash-Forward-Authorization`). It is redacted with `Upstash-Redact-Fields: header[Authorization]`, so the QStash console and API show `REDACTED:<sha256>` rather than the secret. Deliveries still carry the real value.
 
-**Message budget.** About 433 of QStash Free's 1,000 daily messages on a weekday (420 of them are observe ticks) and 11 at weekends. Every delivery attempt, including retries, counts as a message.
+**Message budget.** About 436 of QStash Free's 1,000 daily messages on a weekday (420 of them are observe ticks) and 14 at weekends. Every delivery attempt, including retries, counts as a message.
 
 ## Environment
 
