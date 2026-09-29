@@ -110,6 +110,9 @@ async function fetchYahooChartQuote(symbol) {
       changePercent,
       previousClose,
       marketTime: meta.regularMarketTime ?? null,
+      volume: Number.isFinite(meta.regularMarketVolume) ? meta.regularMarketVolume : null,
+      bid: Number.isFinite(meta.bid) ? meta.bid : null,
+      ask: Number.isFinite(meta.ask) ? meta.ask : null,
     }
   }
 

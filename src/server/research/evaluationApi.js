@@ -1,8 +1,7 @@
 import { Redis } from '@upstash/redis'
 import { getApps, initializeApp, cert } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
-import { createArchive } from './archive.js'
-import { evaluationReport } from './evaluationPerformance.js'
+import { readEvaluationSummary } from './evaluationSummary.js'
 
 // The owner is configured either as a Firebase UID or as the account's email
 // address. An email only counts when Firebase reports it verified, since an
@@ -57,7 +56,7 @@ export default async function evaluationHandler(req, res) {
     return res.status(503).json({ error: 'Evaluation storage is unavailable' })
   }
   try {
-    const data = await evaluationReport(createArchive(Redis.fromEnv()))
+    const data = await readEvaluationSummary(Redis.fromEnv())
     return res.status(200).json(data)
   } catch {
     return res.status(503).json({ error: 'Evaluation data is unavailable' })

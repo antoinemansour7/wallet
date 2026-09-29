@@ -1,6 +1,7 @@
 import { digest } from './archive.js'
 import { latestEvaluationJob } from './evaluationJob.js'
 import { ARMS, COST_SCENARIOS, EVALUATION_ID, finalSealed } from './evaluationPolicy.js'
+import { evaluationOutcomeRecords } from './evaluationOutcomeIndex.js'
 
 export const SECTOR_BENCHMARKS = Object.freeze({ Technology: 'XLK', Healthcare: 'XLV', 'Health Care': 'XLV',
   Financials: 'XLF', 'Financial Services': 'XLF', Energy: 'XLE', Industrials: 'XLI', Utilities: 'XLU',
@@ -121,7 +122,8 @@ export async function trackEvaluation(archive, { master, candlesFor, prefetch, n
       const options = { interimPath: observation.status === 'accepted' }
       if (result.status !== 'completed' && previous && outcomeFingerprint(previous, options) === outcomeFingerprint(result, options)) continue
       const id = result.status === 'completed' ? digest([observation.id, result.horizon, 'completed']) : digest(result)
-      await archive.put('evaluation-outcome', id, { ...result, id }, 'evaluation-outcomes', result.availableAt)
+      await archive.put('evaluation-outcome', id, { ...result, id }, observation.status === 'accepted'
+        ? ['evaluation-outcomes', 'evaluation-accepted-outcomes'] : 'evaluation-outcomes', result.availableAt)
       tracked++
     }
   }
@@ -216,9 +218,10 @@ export function portfolioSummary(observations, outcomes) {
     equity, status: 'Preliminary' }
 }
 
-export async function evaluationReport(archive, now = Date.now()) {
+export async function evaluationReport(archive, now = Date.now(), { includeObservations = true } = {}) {
   const [definition, { runs, observations }, results, currentJob] = await Promise.all([
-    archive.get('evaluation-definition', EVALUATION_ID), evaluationObservations(archive, now), archive.list('evaluation-outcomes', now),
+    archive.get('evaluation-definition', EVALUATION_ID), evaluationObservations(archive, now),
+    evaluationOutcomeRecords(archive, now, { acceptedOnly: !includeObservations }),
     latestEvaluationJob(archive, now),
   ])
   const sealed = finalSealed(definition, now)
@@ -230,6 +233,8 @@ export async function evaluationReport(archive, now = Date.now()) {
       const periods = [...new Set(rows.map((r) => r.period))]
       return { ...arm, observations: rows.length, accepted: rows.filter((r) => r.status === 'accepted').length,
         rejected: rows.filter((r) => r.status === 'rejected').length,
+        version: new Set(rows.map((r) => r.armVersion)).size > 1 ? null : rows[0]?.armVersion || arm.version,
+        dataLimited: rows.filter((r) => r.rejectionReason === 'execution_or_sector_data_unavailable').length,
         // Versions and periods are never pooled. Delivered model versions may change.
         cohorts: [...new Set(rows.map((r) => r.armVersion))].flatMap((version) => periods.map((period) => {
           const sample = rows.filter((r) => r.period === period && r.armVersion === version)
@@ -240,16 +245,20 @@ export async function evaluationReport(archive, now = Date.now()) {
         }).filter((c) => c.observations)),
         emptyHorizons: [5, 20].map((h) => horizonSummary([], outcomes, h)) }
     })
-  return { experimentId: EVALUATION_ID, definition: definition || null, variantsTried: definition?.variantsTried || 6,
-    status: runs.length ? 'Collecting data' : 'Insufficient data', latestRun: runs.at(-1) ? {
+  return { experimentId: EVALUATION_ID, definition: definition || null,
+    variantsTried: Math.max(definition?.variantsTried || 6, new Set(observations.filter((o) => o.cohort === 'shadow').map((o) => o.armVersion)).size),
+    status: currentJob?.status === 'failed' ? 'Evaluation failed'
+      : runs.at(-1)?.failures?.some(Boolean) ? 'Partially blocked'
+      : runs.length ? 'Collecting data' : 'Insufficient data', latestRun: runs.at(-1) ? {
       id: runs.at(-1).id, availableAt: runs.at(-1).availableAt, status: runs.at(-1).status, failures: runs.at(-1).failures,
     } : null, finalSealed: sealed, arms: groups,
     // A job that already completed is already reflected in latestRun/arms
     // above; only surface it here while it is still pending, in progress or
     // failed, so /research/evaluation shows why nothing new has appeared yet.
     currentJob: currentJob && currentJob.status !== 'completed' ? currentJob : null,
-    // The API provides stock-level inspection, including retained rejections.
-    observations: observations.map((o) => ({ ...o, outcomes: o.horizons.map((h) => hidden.has(o.id)
+    // Operator reports can still inspect archived stocks. The page only needs
+    // aggregates; do not build or serialize thousands of evidence/outcome rows.
+    ...(includeObservations ? { observations: observations.map((o) => ({ ...o, outcomes: o.horizons.map((h) => hidden.has(o.id)
       ? { horizon: h, status: 'sealed', reason: 'Untouched evaluation' }
-      : outcomes.get(`${o.id}:${h}`) || { horizon: h, status: 'pending' }) })) }
+      : outcomes.get(`${o.id}:${h}`) || { horizon: h, status: 'pending' }) })) } : {}) }
 }

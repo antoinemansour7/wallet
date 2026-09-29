@@ -153,6 +153,29 @@ describe('provider gaps and outcome growth', () => {
 })
 
 describe('cohort reporting and uncertainty', () => {
+  it('omits stock details from a summary while preserving the same aggregates and archive', async () => {
+    const redis = evaluationTestStore(), archive = createArchive(redis)
+    await archive.put('evaluation-run', 'run', { id: 'run', availableAt: at,
+      observations: [observation(), observation('rejected', { status: 'rejected' })] }, 'evaluation-runs', at)
+    for (const result of evaluated()) await archive.put('evaluation-outcome', `${result.horizon}`, result, 'evaluation-outcomes', result.availableAt)
+    const writes = redis.writes.length
+    const full = await evaluationReport(archive, now)
+    const summary = await evaluationReport(archive, now, { includeObservations: false })
+    const { observations, ...aggregates } = full
+    expect(observations).toHaveLength(2)
+    expect(summary).not.toHaveProperty('observations')
+    expect(summary).toEqual(aggregates)
+    expect(summary.arms.find((a) => a.id === 'combined').cohorts[0].horizons[0].completed).toBe(1)
+    expect(redis.writes).toHaveLength(writes)
+  })
+
+  it('reports a partial review failure instead of unqualified collection', async () => {
+    const archive = createArchive(evaluationTestStore())
+    await archive.put('evaluation-run', 'run', { id: 'run', availableAt: at,
+      failures: ['Anthropic credit balance is too low', null], observations: [observation()] }, 'evaluation-runs', at)
+    expect((await evaluationReport(archive, now)).status).toBe('Partially blocked')
+  })
+
   it('groups uncertainty by decision date and reports finite-only means, medians and losses', () => {
     const rows = [observation('a'), observation('b'), observation('c', { decisionAt: '2026-09-05T22:00:00Z' })]
     const outcomes = rows.map((o, i) => ({ ...evaluated(o)[0], observationId: o.id, netReturn: [-10, 4, 9][i], excessReturn: [1, 3, 6][i] }))
@@ -245,6 +268,7 @@ describe('surfacing pending/failed evaluation jobs', () => {
 
     const report = await evaluationReport(archive, Date.now())
     expect(report.currentJob).toMatchObject({ status: 'failed', error: 'anthropic unavailable', retryState: 'pending' })
+    expect(report.status).toBe('Evaluation failed')
   })
 
   it('clears currentJob once the job has completed, since latestRun already reflects it', async () => {

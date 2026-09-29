@@ -631,8 +631,16 @@ async function getRankedSignalBoard(signals, articles, { discoveryHealthy = true
 
   if (candidateTickers.length > 0) {
     try {
-      const quoteResult = await fetchMarketQuotes([...candidateTickers, ...ALL_SECTOR_ETFS], { forceRefresh: true })
-      quotesByTicker = buildQuoteMap(quoteResult.quotes)
+      // The quote adapter accepts at most 100 symbols. The live pool plus the
+      // independent baseline and sector ETFs can exceed that; never silently
+      // drop the tail of the evaluation's inputs.
+      const quoteSymbols = [...new Set([...candidateTickers, ...ALL_SECTOR_ETFS])]
+      const quotes = []
+      for (let start = 0; start < quoteSymbols.length; start += 100) {
+        const result = await fetchMarketQuotes(quoteSymbols.slice(start, start + 100), { forceRefresh: true })
+        quotes.push(...result.quotes)
+      }
+      quotesByTicker = buildQuoteMap(quotes)
 
       // Build sector trend map from ETF performance
       for (const etf of ALL_SECTOR_ETFS) {

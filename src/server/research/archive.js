@@ -65,8 +65,11 @@ export function createArchive(redis, { objectStore } = {}) {
     for (let cursor = offset; cursor - offset < count;) {
       const size = Math.min(500, count - (cursor - offset))
       const keys = await redis.zrange(`${PREFIX}:index:${index}`, minimum, new Date(asOf).getTime(), { byScore: true, offset: cursor, count: size })
+      // One bounded Redis read per page instead of one REST request per record.
+      // Keep object-store decoding at 50 records to bound concurrent R2 reads.
+      const page = keys.length && redis.mget ? await redis.mget(...keys) : null
       for (let i = 0; i < keys.length; i += 50) {
-        const stored = await Promise.all(keys.slice(i, i + 50).map((key) => redis.get(key)))
+        const stored = page ? page.slice(i, i + 50) : await Promise.all(keys.slice(i, i + 50).map((key) => redis.get(key)))
         // A single unreadable object (transient R2 fetch failure, or a
         // corrupt record) should thin the results, not fail the whole batch
         // via Promise.all.

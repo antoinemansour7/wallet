@@ -39,9 +39,13 @@ Rules:
 
 export async function runCatalystAgent(picks, options = {}) {
   const exaKey = process.env.EXA_API_KEY
-  const useOpenAI = usesOpenAIResearch()
+  const useOpenAI = options.provider === 'openai' || usesOpenAIResearch()
   const modelKey = useOpenAI ? process.env.OPENAI_API_KEY : process.env.ANTHROPIC_API_KEY
-  if (!exaKey) { console.warn('[catalystAgent] EXA_API_KEY not set, skipping'); return picks }
+  if (!picks || picks.length === 0) return []
+  if (!exaKey) {
+    if (options.requireComplete) throw new Error('EXA_API_KEY is required for evaluation catalyst verification')
+    console.warn('[catalystAgent] EXA_API_KEY not set, skipping'); return picks
+  }
   if (!modelKey) throw new Error(`${useOpenAI ? 'OPENAI' : 'ANTHROPIC'}_API_KEY is not set`)
   if (!picks || picks.length === 0) return []
 
@@ -72,6 +76,7 @@ export async function runCatalystAgent(picks, options = {}) {
         })),
       }
     } catch (err) {
+      if (options.requireComplete) throw err
       console.error(`[catalystAgent] Exa search failed for ${pick.ticker}:`, err.message)
       return { ticker: pick.ticker, results: [] }
     }
@@ -130,10 +135,16 @@ export async function runCatalystAgent(picks, options = {}) {
       parsed = JSON.parse(raw)
     }
     if (!Array.isArray(parsed)) {
+      if (options.requireComplete) throw new Error('Invalid catalyst review response')
       console.error('[catalystAgent] parsed response is not an array:', typeof parsed)
       return picks
     }
 
+    if (options.requireComplete && (parsed.length !== picks.length
+      || new Set(parsed.map((p) => p.ticker)).size !== picks.length
+      || picks.some((pick) => !parsed.some((p) => p.ticker === pick.ticker)))) {
+      throw new Error('Catalyst review did not cover every pick')
+    }
     console.log(`[catalystAgent] parsed ${parsed.length} catalyst entries:`, parsed.map((c) => c.ticker))
     const catalystMap = new Map(parsed.filter((c) => c && typeof c.ticker === 'string').map((c) => [c.ticker.trim().toUpperCase(), c]))
     return picks.map((pick) => {
@@ -156,6 +167,7 @@ export async function runCatalystAgent(picks, options = {}) {
       }
     })
   } catch (err) {
+    if (options.requireComplete) throw err
     console.error('[catalystAgent] failed to verify catalysts:', err.message)
     return picks
   }

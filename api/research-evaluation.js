@@ -13,6 +13,7 @@ import {
 } from '../src/server/research/evaluationJob.js'
 import { STAGES, recordResearchRun, researchLog, skipStage, stage } from '../src/server/research/observability.js'
 import { createCronBudget, withinCronBudget } from '../src/server/research/runtimeBudget.js'
+import { refreshEvaluationSummary } from '../src/server/research/evaluationSummary.js'
 
 // Same headroom the six-arm review always needed — it just no longer has to
 // fit inside nightly-research's own budget. This cron has the full 300s.
@@ -77,7 +78,14 @@ async function runPending(redis, budget, res) {
     results.push(await processJob(archive, master, budget, job))
   }
   console.log(`[research-evaluation] processed ${results.length} job(s)`)
-  return res.status(200).json({ processed: results.length, results })
+  let summaryError
+  try {
+    await withinCronBudget(budget, 'Evaluation summary', () => refreshEvaluationSummary(redis, { archive }))
+  } catch (error) {
+    summaryError = error.message
+    console.error('[research-evaluation] summary refresh failed:', error.message)
+  }
+  return res.status(200).json({ processed: results.length, results, ...(summaryError ? { summaryError } : {}) })
 }
 
 async function processJob(archive, master, budget, job) {
@@ -89,9 +97,14 @@ async function processJob(archive, master, budget, job) {
     if (!publication) throw new Error('Publication record unavailable for this evaluation job')
     const evaluationInputs = deserializeEvaluationInputs(input.evaluationInputs)
 
-    const evaluationRun = await stage(STAGES.evaluation_snapshot, () => withinCronBudget(budget, 'Evaluation snapshot', async (signal, timeout) => {
+    const evaluationRun = await archive.latest(`evaluation-job-runs:${job.jobId}`)
+      || await stage(STAGES.evaluation_snapshot, () => withinCronBudget(budget, 'Evaluation snapshot', async (signal, timeout) => {
       const snapshot = await prepareEvaluation(evaluationInputs, { archive, master, requestOptions: { signal, timeout } })
-      return freezeEvaluation(archive, snapshot, publication)
+      signal.throwIfAborted()
+      // A partial model review is retryable work, never a completed daily run
+      // full of artificial rejections. Keep failed snapshots for diagnostics.
+      if (snapshot.failures?.some(Boolean)) throw new Error(snapshot.failures.filter(Boolean).join(' · '))
+      return freezeEvaluation(archive, snapshot, publication, { jobId: job.jobId })
     }), { metrics: (run) => ({ jobId: job.jobId, observations: run.observations.length }) })
 
     await archive.put('evaluation-delivery', evaluationRun.id, { runId: evaluationRun.id, availableAt: new Date().toISOString() }, 'evaluation-deliveries')

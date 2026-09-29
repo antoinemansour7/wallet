@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({ verify: vi.fn(), report: vi.fn(), redis: vi.fn
 vi.mock('firebase-admin/app', () => ({ getApps: () => [{ name: 'research-evaluation' }], initializeApp: vi.fn(), cert: vi.fn() }))
 vi.mock('firebase-admin/auth', () => ({ getAuth: () => ({ verifyIdToken: mocks.verify }) }))
 vi.mock('@upstash/redis', () => ({ Redis: { fromEnv: mocks.redis } }))
-vi.mock('./evaluationPerformance.js', () => ({ evaluationReport: mocks.report }))
+vi.mock('./evaluationSummary.js', () => ({ readEvaluationSummary: mocks.report }))
 vi.mock('../runLog.js', () => ({ withRunLog: (_name, handler) => (...args) => { mocks.runLog(); return handler(...args) } }))
 import handler from '../../../api/get-research.js'
 const response = () => ({ status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis(), setHeader: vi.fn() })
@@ -22,6 +22,7 @@ describe('private read-only evaluation API', () => {
     const res = response(); await handler(request(), res)
     expect(mocks.verify).toHaveBeenCalledWith('signed-token', true)
     expect(mocks.report).toHaveBeenCalledOnce()
+    expect(mocks.report).toHaveBeenCalledWith(mocks.redis.mock.results[0].value)
     expect(res.status).toHaveBeenCalledWith(200)
     expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, no-store')
     expect(res.setHeader).toHaveBeenCalledWith('Vary', 'Authorization')
