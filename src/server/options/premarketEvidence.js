@@ -164,7 +164,11 @@ export async function runOptionsPremarketStage({
       shortlistId: shortlist.shortlistId, candidateCount: shortlist.candidates.length, rejectedCount: shortlist.rejected.length,
       alpacaAvailable, underlyingAvailable, barsAvailable, regimeAvailable: regime != null, secCompletedCount: secCompleted.length,
       decisionRecordId: decisionRecord.recordId, scoreRecordId: scoreRecord.recordId, evidenceRecordId: evidenceRecord.recordId,
-      events: eventEvidence.metrics,
+      // Flat scalars: the scan audit record keeps only scalar metrics, so a
+      // nested object here was silently dropped from the operations view.
+      earningsCoverage: eventEvidence.coverage?.earnings?.status ?? null,
+      newsCoverage: eventEvidence.coverage?.news?.status ?? null,
+      ...Object.fromEntries(Object.entries(eventEvidence.metrics || {}).map(([key, value]) => [`events${key[0].toUpperCase()}${key.slice(1)}`, value])),
       ...finalizeProviderStats(providerStats),
     },
   }

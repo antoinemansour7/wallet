@@ -50,6 +50,20 @@ describe('runOptionsPremarketStage', () => {
     expect(result.metrics).toMatchObject({ providerRequestCount: 2, providerPagesFetched: 1, provider429Count: 1, providerServerErrorCount: 0 })
   })
 
+  it('reports earnings and news fetch health as flat metrics the scan record keeps', async () => {
+    const result = await runOptionsPremarketStage({
+      window, deadlineAt: window.deadlineAt, checkpoint: null, saveCheckpoint: vi.fn(), archive: { put: vi.fn() },
+      now: () => '2026-09-22T13:10:00.000Z', createAlpaca: stubAlpaca(),
+      fetchRegime: async () => ({ asOf: '2026-09-22', score: 7, label: 'constructive' }),
+      loadMaster: async () => ({ resolve: () => [] }), createSec: () => ({ request: vi.fn() }),
+      gatherEvents: async () => ({ earnings: [], news: [], coverage: { earnings: { status: 'complete' }, news: { status: 'partial' } },
+        metrics: { calendarDatesChecked: 5, calendarDatesRequired: 5, newsRequests: 32 } }),
+    })
+    expect(result.metrics).toMatchObject({ earningsCoverage: 'complete', newsCoverage: 'partial',
+      eventsCalendarDatesChecked: 5, eventsCalendarDatesRequired: 5, eventsNewsRequests: 32 })
+    expect(Object.values(result.metrics).some((value) => value && typeof value === 'object')).toBe(false)
+  })
+
   it('produces a complete, frozen shortlist from live-shaped inputs', async () => {
     const archive = { put: vi.fn(async (kind, id, record) => record) }
     const saveCheckpoint = vi.fn()

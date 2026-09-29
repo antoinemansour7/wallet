@@ -11,6 +11,9 @@ export const STEP1_EXPERIMENT_POLICY = Object.freeze({
   // Scoring is CPU-bound, so a scan that outgrows one function run continues
   // on QStash's retries (2, 30 s apart) while the window has room for one.
   maxAttempts: 3, minRetryWindowMs: 90000,
+  // Stop scanning this long before the attempt's deadline so the checkpoint
+  // is returned (and saved) before the scheduler's timer abandons it.
+  returnReserveMs: 30000,
   note: 'Exploratory, correlated comparisons. No automatic promotion or probability-of-profit claim.',
 })
 

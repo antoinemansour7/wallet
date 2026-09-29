@@ -112,7 +112,7 @@ describe('runOptionsExperimentStage', () => {
 describe('resuming a scan that outgrows one function run', () => {
   const both = { ...OPTIONS_WATCHLIST_SNAPSHOT, securities: [security, second] }
   // Each chain takes 30 simulated seconds, so only the first two of four fit.
-  function slowRun({ checkpoint = null, attempt = 1, deadlineAt = '2026-09-22T13:37:30.000Z', snapshotId = 'snap' } = {}) {
+  function slowRun({ checkpoint = null, attempt = 1, deadlineAt = '2026-09-22T13:38:00.000Z', snapshotId = 'snap' } = {}) {
     let clock = Date.parse('2026-09-22T13:36:05.000Z')
     const optionChain = vi.fn(async ({ security: owner, type }) => { clock += 30_000; return chain(type, owner) })
     const window50 = { ...window, deadlineAt: '2026-09-22T13:50:00.000Z' }
@@ -128,6 +128,26 @@ describe('resuming a scan that outgrows one function run', () => {
     expect(result.checkpoint).toMatchObject({ featureSnapshotId: 'snap' })
     expect(result.checkpoint.entries).toHaveLength(2)
     expect(result.experiment).toBeUndefined()
+  })
+
+  it('hands back its checkpoint well before the attempt deadline, even when a chain request uses all its time', async () => {
+    // Production 2026-09-28/29: an in-flight request ran to the attempt deadline,
+    // the scheduler's timer fired first, and the finished chains were lost.
+    // Each request takes 10 s: two chains finish, the third runs into the scan deadline.
+    let clock = Date.parse('2026-09-22T13:39:50.000Z')
+    const deadlineAt = '2026-09-22T13:40:45.000Z'
+    const optionChain = vi.fn(async ({ security: owner, type, deadline }) => {
+      const reply = chain(type, owner)
+      clock = Math.max(clock, Math.min(clock + 10_000, Date.parse(deadline)))
+      if (clock >= Date.parse(deadline)) throw Object.assign(new Error('deadline'), { code: 'stage_deadline' })
+      return reply
+    })
+    const result = await runOptionsExperimentStage({ window: { ...window, deadlineAt: '2026-09-22T13:50:00.000Z' }, deadlineAt, redis: {}, archive: {},
+      watchlist: both, resolveContext: async () => context([security, second]), scoreContract, createAlpaca: () => ({ optionChain }), now: () => clock })
+    expect(optionChain.mock.calls.every(([args]) => Date.parse(args.deadline) <= Date.parse(deadlineAt) - 30_000)).toBe(true)
+    expect(clock).toBeLessThanOrEqual(Date.parse(deadlineAt) - 30_000)
+    expect(result).toMatchObject({ status: 'incomplete', reason: 'shadow_scan_continues' })
+    expect(result.checkpoint.entries).toHaveLength(2)
   })
 
   it('continues from the checkpoint on the retry and freezes one experiment covering both runs', async () => {

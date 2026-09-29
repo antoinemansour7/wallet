@@ -50,18 +50,23 @@ export async function runOptionsExperimentStage({ window, deadlineAt, redis, arc
   // resumes; failed or unscanned chains are tried again.
   const resumed = checkpoint?.featureSnapshotId === frozen.featureSnapshotId ? checkpoint.entries || [] : []
   const done = new Map(resumed.map((entry) => [keyFor(entry), entry]))
+  // The scheduler abandons the attempt, checkpoint and all, at `deadlineAt`.
+  // Scanning (including in-flight chain requests) therefore ends early enough
+  // to hand back the checkpoint; a 10 s margin was overrun on 2026-09-28/29.
+  const scanDeadline = new Date(Date.parse(deadlineAt) - policy.returnReserveMs).toISOString()
+  const outOfTime = () => now() >= Date.parse(scanDeadline)
   const scanned = await runBounded(universe.filter((item) => !done.has(keyFor(item))), policy.maxConcurrency, async (candidate) => {
     const security = watchlist.securities.find((item) => item.securityId === candidate.securityId)
     const missing = (reason) => ({ ...candidate, status: 'unavailable', reason, selections: {} })
-    if (now() >= Date.parse(deadlineAt) - 10000) return missing('shadow_budget_exhausted')
+    if (outOfTime()) return missing('shadow_budget_exhausted')
     try {
       const observation = await adapter.optionChain({ security, type: candidate.direction,
-        expirationDateGte: dateOffset(tradingDate, 7), expirationDateLte: dateOffset(tradingDate, 60), deadline: deadlineAt })
+        expirationDateGte: dateOffset(tradingDate, 7), expirationDateLte: dateOffset(tradingDate, 60), deadline: scanDeadline })
       accumulateProviderStats(stats, observation)
       const chain = buildOptionsChain({ security, direction: candidate.direction, tradingDate, optionChainObservation: observation })
       const scored = [], contracts = new Map()
       for (const item of chain.contracts) {
-        if (now() >= Date.parse(deadlineAt) - 10000) return missing('shadow_scoring_budget_exhausted')
+        if (outOfTime()) return missing('shadow_scoring_budget_exhausted')
         const contract = { ...item, securityId: security.securityId, issuerId: security.issuerId, underlyingTicker: security.ticker }
         const result = scoreContract({ security, direction: candidate.direction, contract, underlying: observation.underlying,
           feature: context.featuresBySecurity.get(security.securityId), tradingDate })
