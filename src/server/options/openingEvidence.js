@@ -295,6 +295,7 @@ export async function runOptionsOpeningStage({
     scanId, tradingDate, availableAt, ranking, scenarios: [...initialScenarios, ...fullScenarios],
     chainRecordIds: chainRecords.map((record) => record.recordId), premarketRecordIds: premarket.recordIds,
     observations, completeness: entries.some((entry) => !entry.available) ? 'partial' : 'complete',
+    securities: new Map(entries.map((entry) => [entry.security.securityId, entry.security])),
   })
   const records = [...chainRecords, built.scenarioRecord, built.scoreRecord, built.decisionRecord, built.outcomeRecord, built.publicationRecord]
 

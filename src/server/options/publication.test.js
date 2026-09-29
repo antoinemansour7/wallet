@@ -105,6 +105,25 @@ describe('opening publication records', () => {
     })
   })
 
+  // Chain contracts carry no security identity of their own (only the chain's
+  // `underlying` does), so plans built from the contract alone were all
+  // dropped: Sep 25-29 published 59 picks with zero outcome plans, and the
+  // forward capture never observed any of them.
+  it('plans an outcome for every published contract from the resolved security identity', () => {
+    const result = evaluated()
+    const observations = new Map([[contract().contractId, { contract: contract(), underlying: underlying(), revalidation: { status: 'confirmed' } }]])
+    const records = createOpeningAuditRecords({
+      scanId: 'scan', tradingDate: TRADING_DATE, availableAt: AVAILABLE_AT,
+      ranking: result.ranking, scenarios: result.scenarios, observations,
+      securities: new Map([[security.securityId, security]]),
+    })
+
+    expect(records.outcomeRecord.payload.outcomes).toHaveLength(1)
+    expect(records.outcomeRecord.payload.outcomes[0].contract).toMatchObject({
+      contractId: contract().contractId, securityId: security.securityId, issuerId: security.issuerId,
+    })
+  })
+
   it('publishes an all-rejected result as valid empty rather than unavailable', () => {
     const ranking = { ...evaluated().ranking, ranked: [], displayed: [], suppressed: [], ineligible: [],
       metrics: { scoredCount: 0, ineligibleCount: 0, displayedCount: 0, suppressedCount: 0, topScore: null, blockerCodes: [] } }
