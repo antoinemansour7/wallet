@@ -7,11 +7,11 @@ export const OPTIONS_SCAN_LOCK_KEY = 'research:options:scan:lock:v1'
 
 const PUBLISH_LUA = "if redis.call('get', KEYS[1]) ~= ARGV[1] then return 0 end local prior = redis.call('get', KEYS[3]) if prior then if prior == ARGV[3] then return 2 else return -1 end end redis.call('set', KEYS[2], ARGV[2]) redis.call('set', KEYS[3], ARGV[3]) return 1"
 
-export async function archiveOptionsAuditRecord(archive, record) {
+export async function archiveOptionsAuditRecord(archive, record, { indexes = [] } = {}) {
   validateOptionsAuditRecord(record)
   const definition = OPTIONS_RECORD_TYPES[record.recordType]
   return archive.put(definition.kind, record.recordId, record,
-    [`options-records:${record.recordType}`, `options-records:scan:${record.scanId}`], record.availableAt)
+    [`options-records:${record.recordType}`, `options-records:scan:${record.scanId}`, ...indexes], record.availableAt)
 }
 export async function commitOptionsScan({
   archive, redis, records, scanId, availableAt, lockKey = OPTIONS_SCAN_LOCK_KEY, lockToken, requirePublication = false,

@@ -5,6 +5,8 @@ import { memoryObjectStore, memoryRedis } from '../../test/memoryRedis.js'
 import { optionsResearchFixture } from '../../test/optionsResearchFixture.js'
 import { OPTIONS_LATEST_POINTER_KEY, archiveOptionsAuditRecord } from './auditStore.js'
 import { evaluateOptionsOutcome } from './evaluation.js'
+import { createOutcomeCaptureAuditRecord } from './observations.js'
+import { OUTCOME_RECOVERY_FEED, archiveOutcomeRecovery } from './outcomeRecovery.js'
 import {
   OPTIONS_CAPTURE_ACTIVE_KEY, OPTIONS_EXPERIMENT_LATEST_KEY, captureInstantsFor, forwardCaptureScanId, publishedOutcomePlans,
   rollUpObservationDay, runOptionsForwardCaptureTick,
@@ -80,6 +82,21 @@ describe('forward capture schedule', () => {
   it('counts a plan once even when a revised morning re-publishes it', async () => {
     const plans = await publishedOutcomePlans({ archive, now: clock })
     expect(captureInstantsFor([...plans, ...plans], '2026-09-22').at(-1).contracts).toHaveLength(2)
+  })
+})
+
+describe('recovered capture plans', () => {
+  it('captures plans recovered for a morning that was stored without any', async () => {
+    archive = createArchive(memoryRedis(now), { objectStore: memoryObjectStore() })
+    const outcome = fixture.records.find((record) => record.recordType === 'outcome')
+    await publish({ ...fixture.manifest, records: fixture.manifest.records.filter((ref) => ref.type !== 'outcome') })
+    expect(await publishedOutcomePlans({ archive, now: clock })).toEqual([])
+    await archiveOutcomeRecovery(archive, createOutcomeCaptureAuditRecord({
+      scanId: fixture.manifest.scanId, availableAt: '2026-09-22T14:00:00.000Z', plans: outcome.payload.outcomes, feed: OUTCOME_RECOVERY_FEED,
+    }))
+    const plans = await publishedOutcomePlans({ archive, now: clock })
+    expect(plans.map((plan) => plan.planId).sort()).toEqual(outcome.payload.outcomes.map((plan) => plan.planId).sort())
+    expect(plans[0].scanId).toBe(fixture.manifest.scanId)
   })
 })
 

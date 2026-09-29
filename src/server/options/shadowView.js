@@ -2,6 +2,7 @@ import { optionsAuditRecord } from './auditStore.js'
 import { OPTIONS_CALENDAR_2026, marketDay, optionsLocalParts } from './calendar.js'
 import { OPTIONS_EVALUATION_POLICY, evaluateOptionsOutcome } from './evaluation.js'
 import { forwardCaptureScanId } from './forwardCapture.js'
+import { recoveredOutcomePlans } from './outcomeRecovery.js'
 import { buildExperimentComparison } from './experimentView.js'
 
 // Observational only: every value below is read from frozen morning records and
@@ -187,7 +188,7 @@ export async function buildOptionsShadowView({
     const refs = manifest.records || []
     const read = async (type) => (await Promise.all(refs.filter((ref) => ref.type === type).map((ref) => readRecord(archive, type, ref.id)))).filter(Boolean)
     const [chains, outcomes] = await Promise.all([read('chain'), read('outcome')])
-    const plans = outcomes.flatMap((record) => record.payload.outcomes || [])
+    const plans = [...outcomes.flatMap((record) => record.payload.outcomes || []), ...await recoveredOutcomePlans(archive, manifest.scanId, at)]
     for (const selected of [...publication.selected].sort((a, b) => a.rank - b.rank)) {
       const chain = selected.revalidation?.chainRecordId
         ? chains.find((record) => record.recordId === selected.revalidation.chainRecordId)

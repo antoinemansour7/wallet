@@ -4,6 +4,8 @@ import { createArchive } from '../research/archive.js'
 import { memoryObjectStore, memoryRedis } from '../../test/memoryRedis.js'
 import { SHADOW_CALL as CALL, SHADOW_PUT as PUT, optionsShadowFixture } from '../../test/optionsShadowFixture.js'
 import { optionsAuditRecord } from './auditStore.js'
+import { createOutcomeCaptureAuditRecord } from './observations.js'
+import { OUTCOME_RECOVERY_FEED, archiveOutcomeRecovery } from './outcomeRecovery.js'
 import { OPTIONS_SHADOW_CHECKPOINTS, buildOptionsShadowView } from './shadowView.js'
 import { filterShadowRows, summarizeShadowRows } from '../../pages/options/shadowSummary.js'
 
@@ -68,6 +70,18 @@ describe('frozen selection and tracked outcomes', () => {
     expect(result.rows.map((item) => [item.contractId, item.status, item.reason])).toEqual([
       [CALL, 'missing', 'outcome_plan_unavailable'], [PUT, 'missing', 'outcome_plan_unavailable'],
     ])
+  })
+
+  it('evaluates a pick from its recovered plan when the morning was stored without one', async () => {
+    const expected = await view('2026-09-28T15:00:00.000Z')
+    const outcome = fixture.records.find((record) => record.recordType === 'outcome')
+    await archiveOutcomeRecovery(archive, createOutcomeCaptureAuditRecord({
+      scanId: fixture.manifest.scanId, availableAt: '2026-09-22T14:00:00.000Z', plans: outcome.payload.outcomes, feed: OUTCOME_RECOVERY_FEED,
+    }))
+    const readRecord = async (archiveRef, type, id) => (type === 'outcome' ? null : optionsAuditRecord(archiveRef, type, id))
+    const result = await view('2026-09-28T15:00:00.000Z', { readRecord })
+    expect(result.rows.map((item) => item.status)).not.toContain('missing')
+    expect(row(result, CALL).checkpoints).toEqual(row(expected, CALL).checkpoints)
   })
 
   it('reads a day whose compaction is missing from its raw batches, with identical results', async () => {
