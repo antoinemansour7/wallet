@@ -355,19 +355,49 @@ async function persistRun(redis, summary) {
   if (!redis) return
   try {
     await redis.lpush(RESEARCH_RUNS_KEY, JSON.stringify(summary))
-    await redis.ltrim(RESEARCH_RUNS_KEY, 0, runHistoryLimit() - 1)
   } catch (error) {
-    // Observability must never be the reason a research run fails.
-    console.error(`[research] run summary not persisted: ${error.message}`)
+    // The candidate traces are what make a nightly summary ~400 KB, and the
+    // only part that can fail to serialize. Without the run itself on record
+    // the schedule monitor reports a run that did happen as missed, and the
+    // reason is lost with Vercel's short-lived logs, so keep it here instead.
+    console.error(`[research] run summary not persisted, storing it without candidates: ${error.message}`)
+    try {
+      await redis.lpush(RESEARCH_RUNS_KEY, JSON.stringify({ ...summary, candidates: [],
+        candidateCount: summary.candidates.length, persistError: clip(error.message, MAX_MESSAGE) }))
+    } catch (retryError) {
+      // Observability must never be the reason a research run fails.
+      console.error(`[research] run summary not persisted: ${retryError.message}`)
+      return
+    }
   }
+  try { await redis.ltrim(RESEARCH_RUNS_KEY, 0, runHistoryLimit() - 1) }
+  catch (error) { console.error(`[research] run history not trimmed: ${error.message}`) }
 }
 
-export async function recordResearchRun(redis, { job, runId = randomUUID() }, work) {
+// Buffers `res.status(...).json(...)` so the real response goes out only after
+// the run summary is stored. Vercel may freeze a function once it has
+// responded, and a summary written after that can silently never land.
+function holdResponse(res) {
+  let pending = null
+  const held = {
+    status(code) { pending = { ...pending, code }; return held },
+    json(body) { pending = { code: 200, ...pending, body }; return held },
+  }
+  return { held, flush: () => pending && res.status(pending.code).json(pending.body) }
+}
+
+/**
+ * Runs `work` inside a traced research run and stores its summary. Pass the
+ * handler's `res` to have `work` receive a held copy: the response is then
+ * sent only once the summary is durable.
+ */
+export async function recordResearchRun(redis, { job, runId = randomUUID(), res }, work) {
   const run = { runId, job, startedAt: new Date().toISOString(), stages: [] }
   const startedAt = Date.now()
+  const response = res && holdResponse(res)
   let fatal = false
   try {
-    return await withResearchRun(run, work)
+    return await withResearchRun(run, () => work(response?.held))
   } catch (error) {
     fatal = true
     throw error
@@ -383,5 +413,6 @@ export async function recordResearchRun(redis, { job, runId = randomUUID() }, wo
       candidates: run.candidates || [],
       admission: run.admission || null,
     })
+    response?.flush()
   }
 }

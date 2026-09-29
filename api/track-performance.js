@@ -89,7 +89,7 @@ export default async function handler(req, res) {
 
   const startedAt = Date.now()
   const budget = createCronBudget({ startedAt })
-  return recordResearchRun(redis, { job: 'track-performance' }, () => stage(STAGES.performance_tracking, async () => {
+  return recordResearchRun(redis, { job: 'track-performance', res }, (held) => stage(STAGES.performance_tracking, async () => {
   const errors = []
   let tracked = 0
   let deferred = false
@@ -200,7 +200,7 @@ export default async function handler(req, res) {
     try { await invalidateStatsCache() } catch { /* non-critical */ }
   }
 
-  return res.status(200).json({
+  return held.status(200).json({
     tracked,
     experimentTracked,
     checkedDates: historyIndex.length,

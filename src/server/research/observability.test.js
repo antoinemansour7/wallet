@@ -386,4 +386,67 @@ describe('recordResearchRun', () => {
     await expect(recordResearchRun(fake, { job: 'nightly-research' }, async () => 'picks'))
       .resolves.toBe('picks')
   })
+
+  // Vercel may freeze a function once its response is sent, so a summary
+  // written after the response can silently never land (nightly runs of
+  // 2026-09-26/28/29 published picks but left no record).
+  it('holds the response until the run summary is stored', async () => {
+    const fake = redis()
+    const order = []
+    fake.lpush.mockImplementation(async () => { order.push('stored') })
+    const res = { status: vi.fn(() => res), json: vi.fn(() => { order.push('responded'); return res }) }
+
+    await recordResearchRun(fake, { job: 'nightly-research', res }, async (held) => {
+      held.status(200).json({ picks: 3 })
+      order.push('work done')
+    })
+
+    expect(order).toEqual(['work done', 'stored', 'responded'])
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(res.json).toHaveBeenCalledWith({ picks: 3 })
+  })
+
+  it('still responds when the summary cannot be stored', async () => {
+    const fake = redis()
+    fake.lpush.mockRejectedValue(new Error('redis unreachable'))
+    const res = { status: vi.fn(() => res), json: vi.fn(() => res) }
+
+    await recordResearchRun(fake, { job: 'nightly-research', res }, async (held) => held.status(503).json({ error: 'x' }))
+
+    expect(res.status).toHaveBeenCalledWith(503)
+    expect(res.json).toHaveBeenCalledWith({ error: 'x' })
+  })
+
+  it('stores a slim summary carrying the error when the full one is rejected', async () => {
+    const fake = redis()
+    fake.lpush.mockRejectedValueOnce(new Error('ERR max request size exceeded'))
+
+    await recordResearchRun(fake, { job: 'nightly-research' }, async () => {
+      await stage('claude_review', async () => 'reviewed')
+      recordCandidates([{ ticker: 'RKLB', outcome: 'published' }])
+    })
+
+    expect(fake.lpush).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(fake.lpush.mock.calls[1][1])).toMatchObject({
+      job: 'nightly-research',
+      status: 'success',
+      stages: [{ stage: 'claude_review', status: 'success' }],
+      candidates: [],
+      candidateCount: 1,
+      persistError: 'ERR max request size exceeded',
+    })
+  })
+
+  it('stores a slim summary when the candidate traces cannot be serialized', async () => {
+    const fake = redis()
+    const circular = { ticker: 'LOOP' }
+    circular.self = circular
+
+    await recordResearchRun(fake, { job: 'nightly-research' }, async () => recordCandidates([circular]))
+
+    expect(fake.lpush).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(fake.lpush.mock.calls[0][1])).toMatchObject({
+      candidates: [], candidateCount: 1, persistError: expect.stringMatching(/circular/i),
+    })
+  })
 })

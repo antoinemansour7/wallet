@@ -50,7 +50,7 @@ export default async function handler(req, res) {
   }
   if (!acquired) return res.status(409).json({ error: 'Evaluation already running' })
   try {
-    return await recordResearchRun(redis, { job: 'research-evaluation' }, () => stage(STAGES.evaluation_job, () => runPending(redis, budget, res)))
+    return await recordResearchRun(redis, { job: 'research-evaluation', res }, (held) => stage(STAGES.evaluation_job, () => runPending(redis, budget, held)))
   } finally {
     try {
       await redis.eval("if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end", [lock], [token])
