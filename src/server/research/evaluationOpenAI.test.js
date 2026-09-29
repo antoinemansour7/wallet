@@ -29,9 +29,24 @@ describe('OpenAI neutral reviewer batching', () => {
     expect(decisions.map((decision) => decision.key)).toEqual(candidates.map((candidate) => candidate.key))
   })
 
-  it('rejects a missing or duplicated neutral decision so the job can retry', async () => {
+  it('asks again for only the candidates a response skipped, repeated or mislabeled', async () => {
+    const decision = (key) => ({ key, status: 'rejected', score: 0, reason: 'Insufficient evidence', evidenceIds: [] })
+    const batch = Array.from({ length: 16 }, (_, index) => ({ key: `candidate-${index}` }))
+    mocks.generate
+      // Skips candidate-3, answers candidate-5 twice and invents a key.
+      .mockResolvedValueOnce([...batch.filter(({ key }) => key !== 'candidate-3').map(({ key }) => decision(key)), decision('candidate-5'), decision('made-up')])
+      .mockImplementationOnce(async ({ input }) => JSON.parse(input).map(({ key }) => decision(key)))
+
+    const decisions = await neutralReviewer(batch)
+
+    expect(JSON.parse(mocks.generate.mock.calls[1][0].input).map(({ key }) => key)).toEqual(['candidate-3', 'candidate-5'])
+    expect(decisions.map(({ key }) => key)).toEqual(batch.map(({ key }) => key))
+  })
+
+  it('fails the job, naming what is missing, when repeated requests still leave a candidate undecided', async () => {
     mocks.generate.mockResolvedValue([{ key: 'a' }, { key: 'a' }])
-    await expect(neutralReviewer([{ key: 'a' }, { key: 'b' }])).rejects.toThrow('every candidate exactly once')
+    await expect(neutralReviewer([{ key: 'a' }, { key: 'b' }])).rejects.toThrow('Neutral review did not cover every candidate exactly once after 3 requests: a, b')
+    expect(mocks.generate).toHaveBeenCalledTimes(3)
   })
 
   it('uses OpenAI with the original baseline prompt and caller deadline', async () => {
