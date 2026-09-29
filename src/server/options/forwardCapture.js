@@ -1,6 +1,7 @@
 import { digest } from '../research/archive.js'
 import { OPTIONS_LATEST_POINTER_KEY, optionsAuditRecord } from './auditStore.js'
 import { OPTIONS_CALENDAR_2026, marketDay, optionsLocalParts } from './calendar.js'
+import { recoveredOutcomePlans } from './outcomeRecovery.js'
 import {
   OPTIONS_OBSERVATION_POLICY, archiveObservationRecord, createObservationAuditRecord,
   outcomeAcquisitionJobs, runObservationAcquisition,
@@ -81,6 +82,7 @@ export async function publishedOutcomePlans({ archive, now, readRecord = options
       const record = await readRecord(archive, 'outcome', ref.id)
       for (const plan of record?.payload?.outcomes || []) plans.push({ ...plan, scanId: record.scanId })
     }
+    plans.push(...await recoveredOutcomePlans(archive, manifest.scanId, now))
   }
   const experiments = await archive.list('options-experiments', now, { since: now - policy.lookbackDays * 86400000 })
   // One frozen run per date and policy. Failed scheduler retries must not

@@ -354,7 +354,7 @@ export async function archiveObservationRecord(archive, record) {
     ['options-records:observation', `options-records:scan:${record.scanId}`], record.availableAt)
 }
 
-export function createOutcomeCaptureAuditRecord({ scanId, availableAt, plans = [], inputHashes = [] } = {}) {
+export function createOutcomeCaptureAuditRecord({ scanId, availableAt, plans = [], inputHashes = [], feed = 'forward-outcome-capture-plan' } = {}) {
   if (!Array.isArray(plans)) throw new Error('Outcome capture audit requires plans')
   const payload = {
     outcomes: plans.map((plan) => ({
@@ -369,7 +369,7 @@ export function createOutcomeCaptureAuditRecord({ scanId, availableAt, plans = [
   }
   return createOptionsAuditRecord({
     type: 'outcome', scanId, availableAt,
-    source: { provider: 'wallai', feed: 'forward-outcome-capture-plan', session: 'post-publication', entitlement: 'internal' },
+    source: { provider: 'wallai', feed, session: 'post-publication', entitlement: 'internal' },
     versions: { code: OPTIONS_OBSERVATION_POLICY_VERSION, model: 'deterministic-no-model', policy: OPTIONS_OBSERVATION_POLICY_VERSION },
     inputHashes: [...new Set(inputHashes)], payload, missing: findNulls(payload),
   })
