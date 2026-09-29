@@ -143,9 +143,9 @@ export default async function handler(req, res) {
   }
   if (!acquired) return res.status(409).json({ error: 'Research publication already running' })
   try {
-    return await recordResearchRun(redis, { job }, () => (job === 'research-reports'
-      ? runReports(res, startedAt, recordRun, redis, budget)
-      : runLocked(req, res, startedAt, recordRun, redis, budget)))
+    return await recordResearchRun(redis, { job, res }, (held) => (job === 'research-reports'
+      ? runReports(held, startedAt, recordRun, redis, budget)
+      : runLocked(req, held, startedAt, recordRun, redis, budget)))
   } finally {
     // A throw here (same Redis outage) would otherwise replace whatever the
     // try block returned or threw, masking the real result of the run.
