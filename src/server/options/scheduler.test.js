@@ -158,6 +158,34 @@ describe('options morning scheduler', () => {
     expect(deadlineAt).toBe('2026-07-15T12:00:45.000Z')
   })
 
+  // 2026-09-28/29: the shadow scan hit the 300 s function limit at 9:40, was
+  // finalized as `late`, and QStash never retried although the stage window
+  // ran to 9:50 -- two days of experiments were lost without a trace.
+  it('leaves an attempt that ran out of function time open for a retry while the stage window is open', async () => {
+    const now = () => Date.parse('2026-07-15T12:00:00.000Z')
+    const redis = memoryRedis(now), archive = memoryArchive()
+    const policy = { ...OPTIONS_SCHEDULE_POLICY, maxDurationMs: 15050, finishReserveMs: 15000 }
+    const execute = vi.fn()
+      .mockImplementationOnce(() => new Promise(() => {}))
+      .mockResolvedValue({ status: 'complete', metrics: {} })
+
+    expect(await runOptionsScheduledStage({ redis, archive, stage: 'premarket', now, policy, requestId: 'one', execute, enabled: true }))
+      .toMatchObject({ status: 'incomplete', errorCode: 'stage_deadline' })
+    expect(await runOptionsScheduledStage({ redis, archive, stage: 'premarket', now, policy, requestId: 'two', execute, enabled: true }))
+      .toMatchObject({ status: 'complete' })
+    expect(archive.records.map((item) => item.record.payload.status)).toEqual(['incomplete', 'complete'])
+  })
+
+  it('still finalizes an attempt as late when the stage window is what ran out', async () => {
+    const now = () => Date.parse('2026-07-15T13:19:59.950Z')
+    const redis = memoryRedis(now), execute = vi.fn(() => new Promise(() => {}))
+
+    expect(await runOptionsScheduledStage({ redis, archive: memoryArchive(), stage: 'premarket', now, requestId: 'late', execute, enabled: true }))
+      .toMatchObject({ status: 'late', errorCode: 'stage_deadline' })
+    expect(await runOptionsScheduledStage({ redis, archive: memoryArchive(), stage: 'premarket', now, requestId: 'retry', execute, enabled: true }))
+      .toMatchObject({ status: 'duplicate' })
+  })
+
   it('uses scanner deadlines for health instead of the research grace period', () => {
     expect(optionsScheduleHealth([], Date.parse('2026-07-15T13:19:59.999Z')).missing).toEqual([])
     expect(optionsScheduleHealth([], Date.parse('2026-07-15T13:20:00.000Z')).missing).toContainEqual(expect.objectContaining({ stage: 'premarket', status: 'missed' }))
