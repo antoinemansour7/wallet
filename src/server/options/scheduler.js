@@ -340,7 +340,12 @@ export async function runOptionsScheduledStage({
     if (error?.checkpoint) {
       try { await saveCheckpoint(error.checkpoint) } catch { /* lease loss is reflected below */ }
     }
-    const status = Date.parse(endedAt) >= Date.parse(window.deadlineAt) || errorCode === 'stage_deadline' ? 'late' : 'incomplete'
+    // Only the stage window closing is final. Running out of this function's
+    // own time (deadlineAt can be the earlier serverless limit) leaves the
+    // stage open, so the provider's retry can still finish it in the window.
+    const windowClosed = Date.parse(endedAt) >= Date.parse(window.deadlineAt)
+      || (errorCode === 'stage_deadline' && Date.parse(deadlineAt) === Date.parse(window.deadlineAt))
+    const status = windowClosed ? 'late' : 'incomplete'
     const audit = await archiveAttempt(archive, { scanId, window, status, startedAt, endedAt, attempt, fence: lease.fence,
       requestId, checkpoint: latestCheckpoint, errorCode })
     try {
