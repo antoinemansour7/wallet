@@ -229,7 +229,7 @@ export function createOptionsPublicationAuditRecord({
 
 export function createOpeningAuditRecords({
   scanId, tradingDate, availableAt, ranking, scenarios, chainRecordIds = [], premarketRecordIds = [],
-  observations = new Map(), completeness = 'complete',
+  observations = new Map(), completeness = 'complete', securities = new Map(),
 } = {}) {
   const scenarioRecord = createOptionsScenarioAuditRecord({ scanId, availableAt, scenarios, inputHashes: [...premarketRecordIds, ...chainRecordIds] })
   const scoreRecord = createOptionsScoreAuditRecord({
@@ -249,8 +249,15 @@ export function createOpeningAuditRecords({
   })
   const outcomePlans = ranking.displayed.map((entry) => {
     const observed = observations.get(entry.contract.contractId)
-    const contract = observed?.contract || entry.contract
-    if (!contract?.securityId || !contract?.issuerId) return null
+    // Chain contracts carry no identity of their own; the resolved security
+    // does. Without it every plan was dropped and no pick was ever observed.
+    const security = securities.get(entry.securityId)
+    const contract = { ...(observed?.contract || entry.contract),
+      ...(security && { securityId: security.securityId, issuerId: security.issuerId }) }
+    if (!contract.securityId || !contract.issuerId) {
+      console.error(`[options] no outcome plan for ${contract.contractId}: security identity unavailable`)
+      return null
+    }
     return createOutcomeCapturePlan({
       scanId, tradingDate,
       entryAt: observed?.contract?.quote?.marketAt || availableAt,
