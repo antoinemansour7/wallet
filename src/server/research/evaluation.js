@@ -20,6 +20,8 @@ const deepFreeze = (value) => {
 // The shared review receives NO attention counts, social theses, source scores,
 // frozen-engine decisions, or attention-conditioned model scores. Reusing those
 // scores would leave attention hidden inside the nominally disabled arm.
+const NEUTRAL_REVIEW_REQUESTS = 3
+
 export function neutralInputs(candidates) {
   return candidates.filter((c) => c.reviewable).map((c) => ({ key: c.key, securityId: c.securityId,
     ticker: c.ticker, strategyFamily: c.strategyFamily, price: c.price, currency: c.currency,
@@ -38,34 +40,48 @@ export async function neutralReviewer(candidates, options = {}) {
   const batchSize = 16
   for (let start = 0; start < candidates.length; start += batchSize) {
     const batch = candidates.slice(start, start + batchSize)
-    const reviewed = await generateStructuredArray({
-      name: 'neutral_research_review',
-      description: 'Attention-blind forward-research decisions for issue 107.',
-      instructions,
-      input: JSON.stringify(batch),
-      maxOutputTokens: 4000,
-      reasoningEffort: 'low',
-      requestOptions: options.requestOptions,
-      itemSchema: {
-        type: 'object',
-        properties: {
-          key: { type: 'string' },
-          status: { type: 'string', enum: ['accepted', 'rejected'] },
-          score: { type: 'number', minimum: 0, maximum: 100 },
-          reason: { type: 'string' },
-          evidenceIds: { type: 'array', items: { type: 'string' } },
-        },
-        required: ['key', 'status', 'score', 'reason', 'evidenceIds'],
-        additionalProperties: false,
-      },
-    })
-    if (reviewed.length !== batch.length || new Set(reviewed.map((d) => d.key)).size !== batch.length
-      || reviewed.some((d) => !batch.some((c) => c.key === d.key))) {
-      throw new Error('Neutral review did not cover every candidate exactly once')
+    // A response can skip a candidate, answer one twice or mangle a key. Only
+    // a key answered exactly once counts; the rest are asked for again on their own.
+    const decided = new Map()
+    let remaining = batch
+    for (let request = 1; request <= NEUTRAL_REVIEW_REQUESTS && remaining.length; request += 1) {
+      const reviewed = await reviewNeutralBatch(remaining, instructions, options)
+      for (const { key } of remaining) {
+        const answers = reviewed.filter((d) => d?.key === key)
+        if (answers.length === 1) decided.set(key, answers[0])
+      }
+      remaining = remaining.filter(({ key }) => !decided.has(key))
     }
-    decisions.push(...reviewed)
+    if (remaining.length) {
+      throw new Error(`Neutral review did not cover every candidate exactly once after ${NEUTRAL_REVIEW_REQUESTS} requests: ${remaining.map(({ key }) => key).join(', ')}`)
+    }
+    decisions.push(...batch.map(({ key }) => decided.get(key)))
   }
   return decisions
+}
+
+async function reviewNeutralBatch(batch, instructions, options) {
+  return generateStructuredArray({
+    name: 'neutral_research_review',
+    description: 'Attention-blind forward-research decisions for issue 107.',
+    instructions,
+    input: JSON.stringify(batch),
+    maxOutputTokens: 4000,
+    reasoningEffort: 'low',
+    requestOptions: options.requestOptions,
+    itemSchema: {
+      type: 'object',
+      properties: {
+        key: { type: 'string' },
+        status: { type: 'string', enum: ['accepted', 'rejected'] },
+        score: { type: 'number', minimum: 0, maximum: 100 },
+        reason: { type: 'string' },
+        evidenceIds: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['key', 'status', 'score', 'reason', 'evidenceIds'],
+      additionalProperties: false,
+    },
+  })
 }
 
 export function captureCandidates(inputs, master, asOf) {
