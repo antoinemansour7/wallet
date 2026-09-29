@@ -31,6 +31,7 @@ describe('owner-only options audit API', () => {
     { method: 'GET', query: { view: 'research', manifestId: 'f'.repeat(64), contractId: 'osi:EX' } },
     { method: 'GET', query: { view: 'operations' } },
     { method: 'GET', query: { view: 'shadow' } },
+    { method: 'GET', query: { view: 'results' } },
     { method: 'GET', query: { recordType: 'scenario', recordId: 'a'.repeat(64) } },
     { method: 'POST', body: { manifestId: 'f'.repeat(64), contractId: 'osi:EX' } },
   ])('enforces ownership on direct research, detail, lineage, operations and refresh requests: %j', async (overrides) => {
@@ -187,6 +188,27 @@ describe('owner-only options audit API', () => {
     expect(body(res)).toEqual({ shadow: { policyVersion: 'options-shadow-dashboard-v1', rows: [] } })
     expect(buildShadow).toHaveBeenCalledWith(expect.objectContaining({ archive: { fixture: 'archive' } }))
     expect(latestManifest).not.toHaveBeenCalled()
+  })
+
+  it('serves the plain results pages on ?view=results from the same shadow evaluation', async () => {
+    const buildShadow = vi.fn(async () => ({ checkedAt: '2026-09-22T14:00:00.000Z', days: [{ tradingDate: '2026-09-22', status: 'empty', candidates: 0 }], rows: [] }))
+    const local = createOptionsAuditHandler({
+      authorize: vi.fn(async () => ({ uid: 'owner' })), redisFromEnv: () => ({}), makeArchive: () => ({}),
+      latestManifest: vi.fn(), readRecord: vi.fn(), buildShadow, now: () => Date.parse('2026-09-22T14:00:00.000Z'),
+    })
+    const res = response()
+    await local(request({ query: { view: 'results' } }), res)
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(body(res).results).toMatchObject({ checkedAt: '2026-09-22T14:00:00.000Z', winDay: 3, days: [{ tradingDate: '2026-09-22', status: 'empty', picks: [] }] })
+  })
+
+  it('refuses to change anything through the results view', async () => {
+    const buildShadow = vi.fn()
+    const local = createOptionsAuditHandler({ authorize: vi.fn(async () => ({ uid: 'owner' })), redisFromEnv: () => ({}), makeArchive: () => ({}), buildShadow, refreshDetail: vi.fn() })
+    const res = response()
+    await local(request({ method: 'POST', query: { view: 'results' }, body: {} }), res)
+    expect(res.status).toHaveBeenCalledWith(405)
+    expect(buildShadow).not.toHaveBeenCalled()
   })
 
   it('refuses to change anything through the shadow view', async () => {
