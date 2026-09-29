@@ -128,7 +128,7 @@ function Dashboard({ user }) {
   return <div className="wallai-system options-workspace">
     <header className="options-header"><div><span className="options-label">Private research · Options · Shadow test · Experimental</span><h1>Shadow test</h1>
       <p>How published picks performed afterwards, observed without trading.</p></div>
-      <nav aria-label="Options pages"><Link to="/options">Morning opportunities ↗</Link></nav></header>
+      <nav aria-label="Options pages"><Link to="/options/results">Results</Link><Link to="/options">Morning opportunities ↗</Link></nav></header>
     <p className="options-notice" role="note">Experimental. Observed returns are historical research outcomes from indicative quotes. They are not live recommendations, fills or proof of profitability, and {data?.targetSessions || 20} sessions cannot establish an edge.</p>
     <div className="options-toolbar"><p>Checked {timestamp(data?.checkedAt)} · read-only</p><button type="button" onClick={reload} disabled={busy}>{busy ? 'Loading…' : 'Reload'}</button></div>
     {error && <p className="options-notice" role="alert">{error.message}{error.referenceId && <small>Reference: {error.referenceId}</small>}</p>}

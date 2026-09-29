@@ -110,7 +110,7 @@ function evaluatedRow({ manifest, selected, contract, underlyingPrice, plan, obs
     dteAtSelection: Number.isFinite(contract?.dte) ? contract.dte : expirationDate ? dteBetween(publication.tradingDate, expirationDate) : null,
     frozen,
   }
-  const missing = (reason) => ({ ...row, status: 'missing', reason, checkpoints: [], latest: null, path: null, targets: [], gainedWhileOtm: null })
+  const missing = (reason) => ({ ...row, status: 'missing', reason, checkpoints: [], latest: null, current: null, path: null, targets: [], gainedWhileOtm: null })
   if (!plan) return missing('outcome_plan_unavailable')
   if (!contract?.quote) return missing('frozen_entry_quote_unavailable')
 
@@ -140,10 +140,14 @@ function evaluatedRow({ manifest, selected, contract, underlyingPrice, plan, obs
   }))
   const sessions = checkpoints.filter((item) => item.key !== 'expiry' && item.status !== 'unavailable' && item.status !== 'contract_expired_before_endpoint')
   const latestObserved = [...checkpoints].reverse().find((item) => item.returnPct != null)
+  // The most recent price the capture observed, from a sample or a close.
+  const current = [...outcome.samples, ...outcome.endpoints].filter((point) => point.returnPct != null)
+    .map((point) => ({ at: point.observedAt || point.at, returnPct: point.returnPct }))
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).at(-1) || null
   const status = expirationDate && today > expirationDate ? 'expired'
     : sessions.length && sessions.every((item) => item.status !== 'unexpired_horizon') ? 'completed' : 'open'
   return {
-    ...row, status, checkpoints,
+    ...row, status, checkpoints, current,
     latest: latestObserved ? { key: latestObserved.key, label: latestObserved.label, returnPct: latestObserved.returnPct,
       underlyingMovePct: latestObserved.underlyingMovePct, ivChange: latestObserved.ivChange } : null,
     path: {

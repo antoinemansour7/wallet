@@ -151,7 +151,7 @@ function Workspace({ user }) {
   }
   return <div className="wallai-system options-workspace">
     <header className="om-header"><div className="om-top"><span className="options-label">Options</span>
-      <nav aria-label="Options pages"><Link to="/options/testing">Testing</Link><Link to="/options/operations">Operations</Link></nav></div>
+      <nav aria-label="Options pages"><Link to="/options/results">Results</Link><Link to="/options/testing">Testing</Link><Link to="/options/operations">Operations</Link></nav></div>
       <h1>Morning opportunities</h1></header>
     {body}
   </div>

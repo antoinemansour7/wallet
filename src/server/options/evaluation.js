@@ -29,10 +29,13 @@ function quoteProblem(point, at, policy) {
   return null
 }
 
+/** Dollars one contract costs at entry: the ask, entry slippage and the entry fee. */
+export const optionsEntryCost = (ask, policy = OPTIONS_EVALUATION_POLICY) => ask * policy.multiplier + policy.slippagePerShare * policy.multiplier + policy.feePerSide
+
 export function evaluateOptionsOutcome({ plan, entry, observations = [], asOf, policy = OPTIONS_EVALUATION_POLICY, includeSamples = false }) {
   const now = timestamp(asOf), start = timestamp(plan.entryAt)
   if (quoteProblem(entry, plan.entryAt, policy)) throw new Error('Entry requires a valid observed ask quote')
-  const cost = entry.quote.ask * policy.multiplier + policy.slippagePerShare * policy.multiplier + policy.feePerSide
+  const cost = optionsEntryCost(entry.quote.ask, policy)
   const returnFor = (bid) => 100 * ((Math.max(0, bid - policy.slippagePerShare) * policy.multiplier - policy.feePerSide) / cost - 1)
   const worstCase = round(returnFor(0))
   const seen = new Set()
