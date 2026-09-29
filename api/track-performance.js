@@ -7,6 +7,7 @@ import { trackEvaluation } from '../src/server/research/evaluationPerformance.js
 import { alpacaSipDailyBars, createGapFiller, marketGapDates } from '../src/server/research/priceGaps.js'
 
 import { Redis } from '@upstash/redis'
+import { refreshEvaluationSummary } from '../src/server/research/evaluationSummary.js'
 import { storePickPerformance, invalidateStatsCache } from '../src/server/agents/signalHistoryTools.js'
 import { sessionCheckpoints, LEGACY_EVALUATION_VERSION } from '../src/server/researchPerformance.js'
 import { STAGES, recordResearchRun, skipStage, stage } from '../src/server/research/observability.js'
@@ -176,6 +177,7 @@ export default async function handler(req, res) {
     try {
       experimentTracked = await withinCronBudget(budget, 'Performance evaluation', () =>
         trackEvaluation(createArchive(redis), { master, candlesFor, prefetch: gaps.prefetch, now: startedAt }))
+      await withinCronBudget(budget, 'Evaluation summary', () => refreshEvaluationSummary(redis))
     } catch (err) {
       if (err.code === 'CRON_TIME_BUDGET_EXCEEDED') deferred = true
       errors.push({ stage: 'evaluation', error: err.message })

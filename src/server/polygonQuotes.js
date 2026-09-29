@@ -74,6 +74,9 @@ function normalizePolygonSnapshot(item, requestedSymbols) {
     changePercent,
     previousClose,
     marketTime: polygonTimestampToSeconds(item.updated),
+    volume: Number.isFinite(item.day?.v) ? item.day.v : Number.isFinite(item.prevDay?.v) ? item.prevDay.v : null,
+    bid: Number.isFinite(item.lastQuote?.p) ? item.lastQuote.p : null,
+    ask: Number.isFinite(item.lastQuote?.P) ? item.lastQuote.P : null,
   }
 }
 

@@ -38,7 +38,7 @@ Rules:
 
 export async function runContrarianAgent(picks, technicals = new Map(), options = {}) {
   if (!picks || picks.length === 0) return []
-  const useOpenAI = usesOpenAIResearch()
+  const useOpenAI = options.provider === 'openai' || usesOpenAIResearch()
   const apiKey = useOpenAI ? process.env.OPENAI_API_KEY : process.env.ANTHROPIC_API_KEY
   if (!apiKey) throw new Error(`${useOpenAI ? 'OPENAI' : 'ANTHROPIC'}_API_KEY is not set`)
 
@@ -65,6 +65,7 @@ export async function runContrarianAgent(picks, technicals = new Map(), options 
           .join('\n')
         return articles ? `${pick.ticker}:\n${articles}` : null
       } catch (err) {
+        if (options.requireComplete) throw err
         console.error(`[contrarianAgent] Exa search failed for ${pick.ticker}:`, err.message)
         return null
       }
@@ -143,8 +144,16 @@ export async function runContrarianAgent(picks, technicals = new Map(), options 
         .replace(/\s*```$/, '')
       parsed = JSON.parse(raw)
     }
-    if (!Array.isArray(parsed)) return []
+    if (!Array.isArray(parsed)) {
+      if (options.requireComplete) throw new Error('Invalid risk review response')
+      return []
+    }
 
+    if (options.requireComplete && (parsed.length !== picks.length
+      || new Set(parsed.map((p) => p.ticker)).size !== picks.length
+      || picks.some((pick) => !parsed.some((p) => p.ticker === pick.ticker && p.bearCase && Number.isFinite(p.riskScore))))) {
+      throw new Error('Risk review did not cover every pick')
+    }
     // Merge bear cases back into picks
     const bearMap = new Map(parsed.map((b) => [b.ticker?.toUpperCase(), b]))
     return picks.map((pick) => {
@@ -156,6 +165,7 @@ export async function runContrarianAgent(picks, technicals = new Map(), options 
       }
     })
   } catch (err) {
+    if (options.requireComplete) throw err
     console.error('[contrarianAgent] failed to parse response:', err.message)
     return picks // Return picks unchanged if agent fails
   }

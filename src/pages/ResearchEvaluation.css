@@ -69,14 +69,6 @@
 .research-evaluation tbody td { color: var(--re-muted); }
 .research-evaluation small { display: block; margin-top: 3px; color: var(--re-muted); font-size: 10px; }
 
-.evaluation-filters { display: flex; flex-wrap: wrap; gap: var(--wa-4); margin-block: var(--wa-5) var(--wa-4); }
-.evaluation-filters label { display: grid; gap: var(--wa-2); color: var(--re-muted); font-size: 10px; letter-spacing: .09em; text-transform: uppercase; }
-.evaluation-filters :is(input, select) { min-height: 44px; min-width: 210px; max-width: 100%; padding: 0 var(--wa-3); border: 1px solid var(--re-line); border-radius: var(--wa-control); background: var(--re-paper); color: var(--re-text); font: 400 13px var(--wa-ui); letter-spacing: 0; text-transform: none; }
-.evaluation-filters :is(input, select):focus-visible { outline: 2px solid var(--wa-focus); outline-offset: 2px; }
-.evaluation-count { color: var(--re-muted); font-size: 12px; }
-.evaluation-stock { overflow-wrap: anywhere; }
-.evaluation-stock summary { font-variant-numeric: tabular-nums; }
-
 /* Loading and denial are screens too. Both keep the masthead's shape, so the
    page does not appear to change identity between its states. */
 .evaluation-state { padding-block: var(--wa-16); }
@@ -89,7 +81,6 @@
 }
 @media (max-width: 640px) {
   .evaluation-arm { padding: var(--wa-4); }
-  .evaluation-filters label { width: 100%; }
 }
 /* The shared .wallai-system focus ring is a mid-green from the landing palette;
    on the app's near-black it would be the only green chrome left on the page. */

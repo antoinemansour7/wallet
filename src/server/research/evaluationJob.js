@@ -39,7 +39,10 @@ export async function freezeEvaluationJob(archive, { runId, publicationId, decis
     id, runId, publicationId, decisionAt, frozenAt, availableAt: frozenAt,
     evaluationInputs: serializeEvaluationInputs(evaluationInputs),
   }
-  return archive.put('evaluation-job-input', id, record, 'evaluation-job-inputs', frozenAt)
+  const stored = await archive.put('evaluation-job-input', id, record, 'evaluation-job-inputs', frozenAt)
+  const { evaluationInputs: _inputs, ...metadata } = stored
+  await archive.put('evaluation-job-metadata', id, metadata, 'evaluation-job-metadata', stored.frozenAt)
+  return stored
 }
 
 async function recordStatus(archive, jobId, status, { attempt, error = null, resultRunId = null }) {
@@ -56,8 +59,18 @@ export const markJobStarted = (archive, job) => recordStatus(archive, job.jobId,
 export const markJobCompleted = (archive, jobId, attempt, { resultRunId }) => recordStatus(archive, jobId, 'completed', { attempt, resultRunId })
 export const markJobFailed = (archive, jobId, attempt, { error }) => recordStatus(archive, jobId, 'failed', { attempt, error })
 
-async function latestJobStatuses(archive, now) {
-  const events = await archive.list('evaluation-job-status', now, { since: now - JOB_LOOKBACK_MS })
+// Explicit operator recovery. Preserve prior attempts and immutable decisions;
+// a new review will have its actual completion timestamp, never a backdated fill.
+export async function requeueEvaluationJob(archive, job) {
+  const at = new Date().toISOString()
+  return archive.put('evaluation-job-status', digest([job.jobId, 'pending', at]), {
+    jobId: job.jobId, status: 'pending', attempt: job.attempt, at, availableAt: at,
+    error: null, resultRunId: job.resultRunId,
+  }, 'evaluation-job-status', at)
+}
+
+async function latestJobStatuses(archive, now, since = now - JOB_LOOKBACK_MS) {
+  const events = await archive.list('evaluation-job-status', now, { since })
   const latest = new Map()
   const statusPriority = { completed: 3, failed: 2, started: 1, pending: 0 }
   for (const event of events) {
@@ -113,8 +126,10 @@ export async function pendingEvaluationJobs(archive, now = Date.now(), { limit =
 }
 
 export async function latestEvaluationJob(archive, now = Date.now()) {
-  const jobs = await allEvaluationJobs(archive, now)
-  return jobs.at(-1) || null
+  const input = await archive.latest('evaluation-job-metadata', now) || await archive.latest('evaluation-job-inputs', now)
+  if (!input) return null
+  const statuses = await latestJobStatuses(archive, now, Date.parse(input.frozenAt))
+  return describeJob(input, statuses.get(input.id))
 }
 
 export async function evaluationJobsByRunId(archive, now = Date.now()) {

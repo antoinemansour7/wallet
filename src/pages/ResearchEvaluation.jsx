@@ -25,6 +25,7 @@ function Arm({ arm }) {
   return <section className="evaluation-arm" aria-label={arm.name}>
     <div className="evaluation-arm-title"><h2>{arm.name}</h2><span>{arm.cohort}</span></div>
     <p>{arm.observations} observations · {arm.accepted} accepted · {arm.rejected} rejected · {arm.version || 'Version recorded per decision'}</p>
+    {arm.dataLimited > 0 && <p>{arm.dataLimited} decisions could not be allocated because spread, volume or sector data was unavailable.</p>}
     {!arm.cohorts.length && <Results horizons={arm.emptyHorizons} />}
     {arm.cohorts.map((c) => <div key={`${c.version}:${c.period}`}>
       <h3>{periodName(c.period)} · {c.version}</h3>
@@ -55,15 +56,31 @@ function CurrentJob({ job }) {
       Evaluation: failed · Reason: {job.error || 'Unknown'} · Retry state: {job.retryState}
     </p>
   }
+  if (job.status === 'started') return <p className="evaluation-alert" role="status">Evaluation: running · Review in progress.</p>
   return <p className="evaluation-alert" role="status">
     Evaluation: pending · Frozen at: {new Date(job.frozenAt).toLocaleString()} · Next step: scheduled evaluation job
   </p>
 }
 
+function ReviewFailures({ failures }) {
+  if (!failures?.some(Boolean)) return null
+  const outOfCredits = failures.some((failure) => /credit balance is too low/i.test(failure || ''))
+  return <div className="evaluation-alert" role="status">
+    <p>{outOfCredits
+      ? 'This review was blocked because Anthropic credits ran out. Reviews now run on OpenAI, so the next one will not need them.'
+      : 'Some comparisons could not complete their latest review.'} Existing results remain available.</p>
+    <details><summary>Review failure details</summary>
+      {failures.map((failure, index) => failure && <p key={index}>
+        {index === 0 ? 'Frozen engine review' : 'Attention-blind review'}: {failure}
+      </p>)}
+    </details>
+  </div>
+}
+
 export default function ResearchEvaluation() {
-  const { user } = useAuth()
+  const { user, isResearchOwner } = useAuth()
   const [state, setState] = useState(null)
-  const [arm, setArm] = useState('all'), [status, setStatus] = useState('all'), [search, setSearch] = useState('')
+  const [reload, setReload] = useState(0)
   useEffect(() => {
     const controller = new AbortController()
     async function load() {
@@ -74,6 +91,10 @@ export default function ResearchEvaluation() {
           method: 'GET', headers: { Authorization: `Bearer ${token}` }, cache: 'no-store', signal: controller.signal,
         })
         const data = await response.json()
+        if ([401, 403].includes(response.status)) {
+          if (!controller.signal.aborted) setState({ uid: user.uid, denied: true })
+          return
+        }
         if (!response.ok) throw new Error(data.error || 'Evaluation data is unavailable')
         if (!controller.signal.aborted) setState({ uid: user.uid, data })
       } catch (error) {
@@ -82,17 +103,18 @@ export default function ResearchEvaluation() {
     }
     load()
     return () => controller.abort()
-  }, [user])
+  }, [user, reload])
   const current = state?.uid === user?.uid ? state : null
   // A non-owner must never learn this page exists: no title, no "Private ·
   // Read only" framing, nothing while loading, and an immediate exit on
   // denial — the same redirect a truly unknown route would produce.
-  if (!current) return null
-  if (current.error) return <Navigate to="/portfolio" replace />
+  if (!current) return isResearchOwner ? <div className="wallai-system research-evaluation"><p role="status">Loading evaluation summary…</p></div> : null
+  if (current.denied || (current.error && !isResearchOwner)) return <Navigate to="/portfolio" replace />
+  if (current.error) return <div className="wallai-system research-evaluation"><div className="evaluation-state">
+    <h1>Research evaluation</h1><p role="alert">{current.error}</p>
+    <button onClick={() => { setState(null); setReload((value) => value + 1) }}>Try again</button>
+  </div></div>
   const data = current.data
-  const stocks = data.observations.filter((o) => (arm === 'all' || o.arm === arm) && (status === 'all' || o.status === status)
-    && `${o.ticker} ${o.securityId} ${o.issuerId}`.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => b.decisionAt.localeCompare(a.decisionAt))
   return <div className="wallai-system research-evaluation">
     <header className="evaluation-head"><Eyebrow /><h1>Research evaluation</h1>
       <p className="evaluation-lede">Returns are hypothetical next-open fills. This experiment is collecting evidence; fundamentals has not proven itself.</p>
@@ -103,31 +125,17 @@ export default function ResearchEvaluation() {
         <div><dt>Latest run</dt><dd>{data.latestRun ? new Date(data.latestRun.availableAt).toLocaleString() : 'No forward observations yet'}</dd></div>
       </dl>
       <CurrentJob job={data.currentJob} />
-      {data.latestRun?.failures?.some(Boolean) && <p className="evaluation-alert" role="status">Some arms could not complete their review: {data.latestRun.failures.filter(Boolean).join(' · ')}</p>}
+      {data.generatedAt && <p>Summary updated {new Date(data.generatedAt).toLocaleString()}.</p>}
+      {data.stale && <p className="evaluation-alert" role="status">This summary is more than 36 hours old. The last available results are shown while the next update is pending.</p>}
+      <ReviewFailures failures={data.latestRun?.failures} />
     </header>
     <details><summary>Predeclared periods and methodology</summary>
-      <p>The attention engine is frozen at commit {data.definition?.baselineCommit || '0434948'}. Adding fundamentals preserves its attention selections and scores. The attention-disabled comparison reviews the same intake without attention features. Every alternative is shadow.</p>
+      <p>The attention selection and scoring rules come from commit {data.definition?.baselineCommit || '0434948'}. New reviews use OpenAI and have separate version labels from the original Anthropic baseline. Adding fundamentals preserves the attention selections and scores. The attention-disabled comparison reviews the same intake without attention features. Every alternative is shadow.</p>
       <p>Fundamentals quiet condition: at most 2 attention signals and at most 3% absolute daily price change (fundamentals-quiet-v1). Missing measurements remain unknown.</p>
       <p>Portfolio: $100,000 starting capital, $10,000 orders, 50% allocation limit, 20% sector allocation limit, 20-session holds. Missing spread, liquidity or sector data prevents allocation.</p>
       {data.definition?.periods.map((p) => <p key={p.id}>{periodName(p.id)}: {p.start.slice(0, 10)} to {p.end.slice(0, 10)}</p>)}
       <p>Untouched outcomes release: {data.definition?.finalReleaseAt?.slice(0, 10) || 'Scheduled when forward collection starts'}.</p>
     </details>
     {data.arms.map((a) => <Arm key={a.id} arm={a} />)}
-    <section className="evaluation-arm" aria-label="Individual observations"><h2>Individual stocks and daily observations</h2>
-      <div className="evaluation-filters">
-        <label>Experiment<select value={arm} onChange={(e) => setArm(e.target.value)}><option value="all">All experiments</option>{data.arms.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.cohort}</option>)}</select></label>
-        <label>Decision<select value={status} onChange={(e) => setStatus(e.target.value)}><option value="all">Accepted and rejected</option><option value="accepted">Accepted</option><option value="rejected">Rejected</option></select></label>
-        <label>Stock<input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ticker or security ID" /></label>
-      </div>
-      <p className="evaluation-count">{stocks.length} matching observations</p>
-      {stocks.map((o) => <details key={o.id} className="evaluation-stock"><summary>{o.ticker} · {o.decisionAt.slice(0, 10)} · {o.arm} · {o.cohort} · {o.status}</summary>
-        <p>{o.securityId || 'Identity unavailable'} · {o.issuerId || 'Issuer unavailable'} · {o.strategyFamily} · {o.armVersion}</p>
-        <p>Decision: {o.decisionAt} · horizons: {o.horizons.join(', ')} sessions · {periodName(o.period)}</p>
-        <p>Score: {o.score ?? 'Unknown'} · rank: {o.rank ?? 'Unknown'} · decision price: {o.price ?? 'Unknown'} {o.currency} · sector: {o.sector || 'Unavailable'}</p>
-        <p>{o.rejectionReason || o.reason || 'Delivered research decision'}</p>
-        <p>Evidence IDs: {(o.evidenceIds || []).join(', ') || 'Unavailable'}</p>
-        {o.outcomes.map((r) => <p key={r.horizon}>{r.horizon} sessions: {r.status} · return {pct(r.grossReturn)} · net {pct(r.netReturn)} · benchmark relative {pct(r.excessReturn)} · sector relative {pct(r.sectorExcessReturn)}{r.reason ? ` · ${r.reason}` : ''}</p>)}
-      </details>)}
-    </section>
   </div>
 }

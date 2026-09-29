@@ -45,6 +45,25 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs())
 
 describe('research-evaluation cron', () => {
+  it('retries a partial review instead of publishing failed-review rejections as success', async () => {
+    const archive = createArchive(mocks.store)
+    await seedPendingJob(archive)
+    mocks.prepareEvaluation.mockResolvedValueOnce({ id: 'partial', failures: ['OpenAI temporarily unavailable', null] })
+    await handler(request(), response())
+    expect(mocks.freezeEvaluation).not.toHaveBeenCalled()
+    expect(await latestEvaluationJob(archive)).toMatchObject({ status: 'failed', retryState: 'pending' })
+    await handler(request(), response())
+    expect(await latestEvaluationJob(archive)).toMatchObject({ status: 'completed', attempt: 2 })
+  })
+
+  it('resumes a persisted result after an interrupted delivery without another model review', async () => {
+    const archive = createArchive(mocks.store)
+    const job = await seedPendingJob(archive)
+    await archive.put('evaluation-run', 'persisted', { id: 'persisted', observations: [] }, `evaluation-job-runs:${job.id}`)
+    await handler(request(), response())
+    expect(mocks.prepareEvaluation).not.toHaveBeenCalled()
+    expect(await latestEvaluationJob(archive)).toMatchObject({ status: 'completed', resultRunId: 'persisted' })
+  })
   it('processes a pending job end-to-end and marks it completed', async () => {
     const archive = createArchive(mocks.store)
     await seedPendingJob(archive)
