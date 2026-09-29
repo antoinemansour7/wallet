@@ -37,7 +37,12 @@ job, including an older job that was marked completed despite review failures.
 Then invoke the authenticated `/api/research-evaluation` cron or let its schedule
 process the job. The script is safe to repeat.
 
-Missing market data is not a successful allocation: spread, volume, price,
-identity and sector gates remain in force. A rejected stock or a pending
+Missing market data is not a successful allocation: volume, price, identity
+and sector gates remain in force. The constrained portfolio (`constrained-v2`)
+checks the buy/sell spread only when one is known: the review runs overnight,
+and on the free data plans (Yahoo quotes, free Polygon) no source has a
+two-sided quote then. Sectors come from free Polygon company details (SIC code
+mapped by `sectors.js`, `sic-division-v1`), looked up only for the candidates
+the shared review accepted and archived per security so each is fetched once. A rejected stock or a pending
 20-session outcome is not itself a pipeline failure. Quote requests are batched
 at the adapter's 100-symbol limit, and supplied volume/bid/ask fields are retained.

@@ -7,8 +7,10 @@ export const ARMS = Object.freeze([
   { id: 'combined', name: 'Existing engine + fundamentals' },
   { id: 'no-attention', name: 'Combined pool, attention disabled' },
   { id: 'no-quiet', name: 'Fundamentals, quiet condition disabled' },
-  { id: 'constrained', name: 'Combined with portfolio constraints' },
-].map((arm) => Object.freeze({ ...arm, version: `${arm.id}-v1`, horizons: Object.freeze([5, 20]) })))
+  // v2: sizes on volume and sector alone when no spread is known. The review
+  // runs overnight, when no free quote source has a two-sided market.
+  { id: 'constrained', name: 'Combined with portfolio constraints', revision: 2 },
+].map(({ revision = 1, ...arm }) => Object.freeze({ ...arm, version: `${arm.id}-v${revision}`, horizons: Object.freeze([5, 20]) })))
 export const PORTFOLIO_POLICY = Object.freeze({ capital: 100000, orderSize: 10000, maxGross: 0.5,
   maxSector: 0.2, maxParticipation: 0.01, maxSpreadBps: 100, holdingSessions: 20 })
 export const COST_SCENARIOS = Object.freeze([20, 50, 100])

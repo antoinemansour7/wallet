@@ -114,6 +114,15 @@ describe('forward discovery ablation matrix', () => {
     expect(select(snapshot(), { active: active.slice(0, 2) }).find((r) => r.arm === 'constrained' && r.ticker === 'QUIET').rejectionReason).toBe('sector_concentration_limit')
   })
 
+  it('allocates on volume and sector when no overnight spread is available, and still enforces a known spread', () => {
+    const constrained = (extra) => select(snapshot([candidate('ONE', 'fundamentals', 0, extra)])).find((r) => r.arm === 'constrained')
+    const unknownSpread = constrained({ spreadBps: null })
+    expect(unknownSpread).toMatchObject({ status: 'accepted', armVersion: 'constrained-v2', costBps: expect.any(Number) })
+    expect(unknownSpread.costBps).toBeGreaterThanOrEqual(20)
+    expect(constrained({ spreadBps: null, volume: null }).rejectionReason).toBe('execution_or_sector_data_unavailable')
+    expect(constrained({ spreadBps: 250 }).rejectionReason).toBe('execution_constraint')
+  })
+
   it('does not reconstruct old decisions using future evidence, revisions or prices', () => {
     const s = identity('ABC'), master = createSecurityMaster([{ asOf: '2026-01-01', securities: [s] }])
     const future = '2026-09-10T12:00:00Z'

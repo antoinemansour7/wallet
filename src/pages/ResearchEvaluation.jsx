@@ -25,7 +25,7 @@ function Arm({ arm }) {
   return <section className="evaluation-arm" aria-label={arm.name}>
     <div className="evaluation-arm-title"><h2>{arm.name}</h2><span>{arm.cohort}</span></div>
     <p>{arm.observations} observations · {arm.accepted} accepted · {arm.rejected} rejected · {arm.version || 'Version recorded per decision'}</p>
-    {arm.dataLimited > 0 && <p>{arm.dataLimited} decisions could not be allocated because spread, volume or sector data was unavailable.</p>}
+    {arm.dataLimited > 0 && <p>{arm.dataLimited} decisions could not be allocated because trading volume or sector data was unavailable.</p>}
     {!arm.cohorts.length && <Results horizons={arm.emptyHorizons} />}
     {arm.cohorts.map((c) => <div key={`${c.version}:${c.period}`}>
       <h3>{periodName(c.period)} · {c.version}</h3>
@@ -132,7 +132,7 @@ export default function ResearchEvaluation() {
     <details><summary>Predeclared periods and methodology</summary>
       <p>The attention selection and scoring rules come from commit {data.definition?.baselineCommit || '0434948'}. New reviews use OpenAI and have separate version labels from the original Anthropic baseline. Adding fundamentals preserves the attention selections and scores. The attention-disabled comparison reviews the same intake without attention features. Every alternative is shadow.</p>
       <p>Fundamentals quiet condition: at most 2 attention signals and at most 3% absolute daily price change (fundamentals-quiet-v1). Missing measurements remain unknown.</p>
-      <p>Portfolio: $100,000 starting capital, $10,000 orders, 50% allocation limit, 20% sector allocation limit, 20-session holds. Missing spread, liquidity or sector data prevents allocation.</p>
+      <p>Portfolio: $100,000 starting capital, $10,000 orders, 50% allocation limit, 20% sector allocation limit, 20-session holds. Missing trading volume or sector data prevents allocation. The buy/sell spread is checked when known; the review runs overnight, when the free quote sources have none.</p>
       {data.definition?.periods.map((p) => <p key={p.id}>{periodName(p.id)}: {p.start.slice(0, 10)} to {p.end.slice(0, 10)}</p>)}
       <p>Untouched outcomes release: {data.definition?.finalReleaseAt?.slice(0, 10) || 'Scheduled when forward collection starts'}.</p>
     </details>

@@ -7,6 +7,7 @@ import { runCatalystAgent } from '../agents/catalystAgent.js'
 import { generateStructuredArray } from './openaiModel.js'
 import { reviewBaseline, EVALUATION_REVIEW_VERSION } from './evaluationBaseline.js'
 import { evaluationOutcomeRecords } from './evaluationOutcomeIndex.js'
+import { fetchPolygonSector, withSectors } from './sectors.js'
 
 const number = (value) => Number.isFinite(value) ? value : null
 const positive = (value) => Number.isFinite(value) && value > 0
@@ -128,7 +129,7 @@ export function captureCandidates(inputs, master, asOf) {
 
 export async function prepareEvaluation(inputs, { archive, master, reviewer = neutralReviewer,
   baselineReviewer = reviewBaseline, contrarian = runContrarianAgent, catalyst = runCatalystAgent,
-  requestOptions }) {
+  sectorLookup = fetchPolygonSector, requestOptions }) {
   const asOf = new Date().toISOString()
   const definition = await archive.put('evaluation-definition', EVALUATION_ID, experimentDefinition(asOf), 'evaluation-definitions', asOf)
   // Freeze learning feedback before the first observation, never adapt it on the
@@ -150,10 +151,13 @@ export async function prepareEvaluation(inputs, { archive, master, reviewer = ne
     reviewer(reviewInput, { requestOptions }),
   ])
   const failures = [baselineResult, neutralResult].map((r) => r.status === 'rejected' ? String(r.reason?.message || r.reason) : null)
+  const neutralDecisions = neutralResult.status === 'fulfilled' ? neutralResult.value : []
+  // Sector does not change a review decision; the constrained portfolio needs it to size accepted picks.
+  const sectored = await withSectors(archive, candidates, neutralDecisions, { lookup: sectorLookup, signal: requestOptions?.signal })
   const snapshot = { availableAt: new Date().toISOString(), asOf, definitionId: definition.id, reviewVersion: EVALUATION_REVIEW_VERSION,
     // Full model input/output and decision-time features, never reports written later.
-    candidates, baselineBoard: board, baselineReview, neutralInput: reviewInput,
-    neutralDecisions: neutralResult.status === 'fulfilled' ? neutralResult.value : [],
+    candidates: sectored, baselineBoard: board, baselineReview, neutralInput: reviewInput,
+    neutralDecisions,
     baselinePicks: baselineResult.status === 'fulfilled' ? baselineResult.value : [],
     failures, sectorTrends: [...inputs.sectorTrends], technicals: [...technicals], learningId: EVALUATION_ID }
   const id = digest(snapshot)
@@ -230,7 +234,7 @@ export function selectArms(snapshot, { runId, decisionAt, active = [] }) {
           accepted++; securities.add(row.securityId)
           if (arm.id === 'constrained') {
             row.portfolio = { ...PORTFOLIO_POLICY, weight: PORTFOLIO_POLICY.orderSize / PORTFOLIO_POLICY.capital }
-            row.costBps = Math.max(20, row.spreadBps + 20 * Math.sqrt(PORTFOLIO_POLICY.orderSize / (row.price * row.volume)))
+            row.costBps = Math.max(20, (row.spreadBps ?? 0) + 20 * Math.sqrt(PORTFOLIO_POLICY.orderSize / (row.price * row.volume)))
             positions.push(row)
           }
         }
@@ -246,8 +250,9 @@ export function selectArms(snapshot, { runId, decisionAt, active = [] }) {
 
 function portfolioRejection(c, active) {
   const p = PORTFOLIO_POLICY, weight = p.orderSize / p.capital
-  if (c.currency !== 'USD' || !c.sector || !positive(c.volume) || c.spreadBps === null) return 'execution_or_sector_data_unavailable'
-  if (c.spreadBps > p.maxSpreadBps || p.orderSize / (c.price * c.volume) > p.maxParticipation) return 'execution_constraint'
+  if (c.currency !== 'USD' || !c.sector || !positive(c.volume)) return 'execution_or_sector_data_unavailable'
+  // An unknown spread is not a failed gate: overnight there is no free two-sided quote.
+  if ((c.spreadBps !== null && c.spreadBps > p.maxSpreadBps) || p.orderSize / (c.price * c.volume) > p.maxParticipation) return 'execution_constraint'
   if (active.some((a) => a.securityId === c.securityId)) return 'security_already_held'
   if (active.reduce((sum, a) => sum + a.portfolio.weight, weight) > p.maxGross + 1e-9) return 'concurrent_exposure_limit'
   if (active.filter((a) => a.sector === c.sector).reduce((sum, a) => sum + a.portfolio.weight, weight) > p.maxSector + 1e-9) return 'sector_concentration_limit'
