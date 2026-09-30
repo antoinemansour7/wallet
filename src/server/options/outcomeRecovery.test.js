@@ -19,7 +19,7 @@ beforeEach(async () => {
     const record = await fixture.readRecord(ref, type, id)
     if (record && type === 'outcome') return { ...record, payload: { ...record.payload, outcomes: [] } }
     if (record && type === 'chain') {
-      return { ...record, payload: { ...record.payload, contracts: record.payload.contracts.map(({ securityId, issuerId, ...contract }) => contract) } }
+      return { ...record, payload: { ...record.payload, contracts: record.payload.contracts.map(({ securityId, issuerId, underlyingTicker, ...contract }) => contract) } }
     }
     return record
   }
@@ -34,7 +34,7 @@ describe('outcome plan recovery', () => {
     expect(recovery.plans.map((plan) => plan.contract.contractId).sort()).toEqual(fixture.contracts.map((contract) => contract.contractId).sort())
     expect(recovery.plans[0]).toMatchObject({
       tradingDate: '2026-09-22', entryAt: '2026-09-22T13:32:15.000Z',
-      contract: { securityId: 'sec:EX', issuerId: 'iss:EX' },
+      contract: { securityId: 'sec:EX', issuerId: 'iss:EX', ticker: 'EX' },
     })
     expect(recovery.record).toMatchObject({ recordType: 'outcome', scanId: fixture.manifest.scanId, source: { feed: OUTCOME_RECOVERY_FEED } })
   })

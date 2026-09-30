@@ -120,7 +120,7 @@ describe('opening publication records', () => {
 
     expect(records.outcomeRecord.payload.outcomes).toHaveLength(1)
     expect(records.outcomeRecord.payload.outcomes[0].contract).toMatchObject({
-      contractId: contract().contractId, securityId: security.securityId, issuerId: security.issuerId,
+      contractId: contract().contractId, securityId: security.securityId, issuerId: security.issuerId, ticker: security.ticker,
     })
   })
 
