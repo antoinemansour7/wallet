@@ -43,13 +43,13 @@ export async function buildOutcomeRecovery({ archive, manifest, availableAt, rea
       ? chains.find((record) => record.recordId === selected.revalidation.chainRecordId)
       : chains.find((record) => record.payload.contracts.some((item) => item.contractId === selected.contractId))
     const contract = chain?.payload.contracts.find((item) => item.contractId === selected.contractId)
-    const { securityId, issuerId } = chain?.payload.underlying || {}
+    const { securityId, issuerId, ticker } = chain?.payload.underlying || {}
     if (!contract) { unrecoverable.push({ contractId: selected.contractId, reason: 'chain_evidence_unavailable' }); continue }
     if (!securityId || !issuerId) { unrecoverable.push({ contractId: selected.contractId, reason: 'security_identity_unavailable' }); continue }
     plans.push(createOutcomeCapturePlan({
       scanId: manifest.scanId, tradingDate: publication.tradingDate,
       entryAt: selected.quoteMarketAt || publication.availableAt,
-      contract: { ...contract, securityId, issuerId },
+      contract: { ...contract, securityId, issuerId, underlyingTicker: ticker },
     }))
     evidence.add(chain.recordId)
   }

@@ -85,6 +85,15 @@ describe('forward capture schedule', () => {
   })
 })
 
+describe('capture contract identity', () => {
+  it('reads the stock ticker from the option symbol when a plan was stored without one', async () => {
+    const plans = (await publishedOutcomePlans({ archive, now: clock }))
+      .map((plan) => ({ ...plan, contract: { ...plan.contract, ticker: null } }))
+    const close = captureInstantsFor(plans, '2026-09-22').find((entry) => entry.scheduledAt === '2026-09-22T20:00:00.000Z')
+    expect(close.contracts.map((item) => item.ticker)).toEqual(['EX', 'EX'])
+  })
+})
+
 describe('recovered capture plans', () => {
   it('captures plans recovered for a morning that was stored without any', async () => {
     archive = createArchive(memoryRedis(now), { objectStore: memoryObjectStore() })
@@ -150,6 +159,14 @@ describe('forward capture tick', () => {
     expect(sameDay.status).toBe('observed')
     expect(sameDay.returnPct).toBeGreaterThan(0)
     expect(sameDay.underlyingMovePct).toBeCloseTo(100 * (185 / 180 - 1), 4)
+  })
+
+  it('keeps the option prices when the stock price request fails', async () => {
+    const adapter = fakeAdapter()
+    adapter.underlyingSnapshots.mockRejectedValue(new Error('Invalid Alpaca underlying symbol ""'))
+    expect(await tick(adapter)).toMatchObject({ status: 'captured' })
+    const [record] = await observationRecords('2026-09-22')
+    expect(record.payload.observations.map((item) => [item.status, item.underlyingPrice])).toEqual([['observed', null], ['observed', null]])
   })
 
   it('costs a single Redis read when nothing is due in the minute', async () => {

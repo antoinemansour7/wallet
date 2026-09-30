@@ -50,6 +50,14 @@ function uniquePlans(plans) {
   return [...byId.values()]
 }
 
+// An OSI symbol is the underlying's root followed by 15 characters of expiry,
+// type and strike. Plans published before contracts carried their ticker
+// (Sep 25–30, 2026) name it only here.
+function osiUnderlying(symbol) {
+  const root = symbol.length > 15 ? symbol.slice(0, -15) : ''
+  return /^[A-Z][A-Z0-9.]*$/.test(root) ? root : null
+}
+
 /** Every contract due at each scheduled instant of one trading date. */
 export function captureInstantsFor(plans, tradingDate) {
   const byInstant = new Map()
@@ -61,7 +69,7 @@ export function captureInstantsFor(plans, tradingDate) {
       const entry = byInstant.get(job.scheduledAt) || { scheduledAt: job.scheduledAt, tradingDate, contracts: [] }
       entry.contracts.push({
         planId: plan.planId, scanId: plan.scanId, contractId: plan.contract.contractId, symbol,
-        securityId: plan.contract.securityId, issuerId: plan.contract.issuerId, ticker: plan.contract.ticker,
+        securityId: plan.contract.securityId, issuerId: plan.contract.issuerId, ticker: plan.contract.ticker || osiUnderlying(symbol),
         purposes: job.purposes,
       })
       byInstant.set(job.scheduledAt, entry)
@@ -113,8 +121,13 @@ async function captureInstant(job, { adapter, now, sleep, policy }, attempt) {
   const [optionBatches, stockBatches] = await Promise.all([
     Promise.all(chunks([...new Set(contracts.map((item) => item.symbol))], policy.maxContractsPerRequest)
       .map((symbols) => adapter.contractSnapshots(symbols, { deadline: scheduledAt }))),
-    Promise.all(chunks(securities, policy.maxContractsPerRequest)
-      .map((items) => adapter.underlyingSnapshots(items, { deadline: scheduledAt }))),
+    // The stock price is context for the option quote. A failed stock request
+    // must never discard the option quotes it was fetched alongside.
+    Promise.all(chunks(securities.filter((item) => item.ticker), policy.maxContractsPerRequest)
+      .map((items) => adapter.underlyingSnapshots(items, { deadline: scheduledAt }).catch((error) => {
+        console.error(JSON.stringify({ service: 'options-forward-capture', event: 'underlying_snapshot_failed', message: error.message }))
+        return { observations: [], missing: [], requestCount: 1 }
+      }))),
   ])
   const receivedAt = new Date(now()).toISOString()
   const options = new Map(optionBatches.flatMap((batch) => batch.observations).map((item) => [item.symbol, item]))

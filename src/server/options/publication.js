@@ -253,7 +253,7 @@ export function createOpeningAuditRecords({
     // does. Without it every plan was dropped and no pick was ever observed.
     const security = securities.get(entry.securityId)
     const contract = { ...(observed?.contract || entry.contract),
-      ...(security && { securityId: security.securityId, issuerId: security.issuerId }) }
+      ...(security && { securityId: security.securityId, issuerId: security.issuerId, underlyingTicker: security.ticker }) }
     if (!contract.securityId || !contract.issuerId) {
       console.error(`[options] no outcome plan for ${contract.contractId}: security identity unavailable`)
       return null
