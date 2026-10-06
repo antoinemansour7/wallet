@@ -9,7 +9,9 @@ export const OPTIONS_OBSERVATION_POLICY = Object.freeze({
   pathSampleMinutes: 5,
   pools: Object.freeze({
     historical: Object.freeze({ maxRequestsPerDay: 1500, maxBytesPerDay: 250_000_000, maxConcurrency: 2 }),
-    forward: Object.freeze({ maxRequestsPerDay: 500, maxBytesPerDay: 100_000_000, maxConcurrency: 2 }),
+    // Routine path samples may spend all but the reserve; only close and
+    // expiry captures, which grade every pick, may draw on it.
+    forward: Object.freeze({ maxRequestsPerDay: 520, reservedRequests: 20, maxBytesPerDay: 100_000_000, maxConcurrency: 2 }),
     opening: Object.freeze({ reserved: true }),
   }),
 })
@@ -235,7 +237,9 @@ export function createOutcomeCapturePlan({ scanId, contract, tradingDate, entryA
     if (day.open) {
       let sample = zonedMarketInstant(cursor, day.openTime, calendar.timeZone)
       const close = regularSessionClose(cursor, calendar)
-      if (cursor === tradingDate && Date.parse(entry) > Date.parse(sample)) sample = entry
+      // Every plan samples on the same grid, so one request covers all picks
+      // due at an instant instead of one request per pick's entry second.
+      if (cursor === tradingDate) while (Date.parse(sample) < Date.parse(entry)) sample = addLocalMinutes(sample, policy.pathSampleMinutes)
       while (Date.parse(sample) < Date.parse(close)) {
         pathSamples.push({ kind: 'path_sample', tradingDate: cursor, scheduledAt: sample, resolutionMinutes: policy.pathSampleMinutes, status: 'pending' })
         sample = addLocalMinutes(sample, policy.pathSampleMinutes)
@@ -432,8 +436,9 @@ export async function runObservationAcquisition({
     while (cursor < unique.length) {
       const item = unique[cursor++]
       let result, lastError
+      const allowance = limits.maxRequestsPerDay - (item.job.reserved ? 0 : limits.reservedRequests || 0)
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-        if (state.requestCount >= limits.maxRequestsPerDay) break
+        if (state.requestCount >= allowance) break
         state.requestCount += 1
         try {
           result = await fetchJob(item.job, { attempt, jobId: item.id, pool })
@@ -441,7 +446,7 @@ export async function runObservationAcquisition({
         } catch (error) { lastError = error }
       }
       if (!result) {
-        state.failed.push({ jobId: item.id, reason: state.requestCount >= limits.maxRequestsPerDay ? 'daily_request_budget_exhausted' : lastError?.code || 'request_failed' })
+        state.failed.push({ jobId: item.id, reason: state.requestCount >= allowance ? 'daily_request_budget_exhausted' : lastError?.code || 'request_failed' })
         await persist()
         continue
       }

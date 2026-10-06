@@ -10,6 +10,7 @@ import {
   createObservationAuditRecord,
   createOptionsCoverageManifest,
   createOutcomeCapturePlan,
+  OPTIONS_OBSERVATION_POLICY,
   observationLicense,
   outcomeAcquisitionJobs,
   replayCoverageDecision,
@@ -108,6 +109,39 @@ describe('options historical and forward observation acquisition', () => {
     expect(new Set(jobs.map((job) => job.scheduledAt)).size).toBe(jobs.length)
     expect(jobs.find((job) => job.scheduledAt === '2026-12-04T21:00:00.000Z').purposes).toContain('expiry_close')
     expect(jobs.every((job) => job.pool === 'forward')).toBe(true)
+  })
+
+  it('starts entry-day path samples on the shared five-minute market grid, not at each pick\'s entry second', () => {
+    const plan = createOutcomeCapturePlan({
+      scanId: 'grid-scan', tradingDate: '2026-11-25', entryAt: '2026-11-25T14:32:07.412Z',
+      contract: {
+        contractId: 'osi:NVDA261204C00200000', rawId: 'provider-1', ...identity,
+        underlyingTicker: 'NVDA', type: 'call', strikePrice: 200, expirationDate: '2026-12-04',
+      },
+    })
+    const entryDay = plan.pathSampling.samples.filter((sample) => sample.tradingDate === '2026-11-25')
+    expect(entryDay[0].scheduledAt).toBe('2026-11-25T14:35:00.000Z')
+    expect(plan.pathSampling.samples.every((sample) => /:[0-5][05]:00\.000Z$/.test(sample.scheduledAt))).toBe(true)
+  })
+
+  it('keeps reserved requests for close captures once routine samples have spent the rest of the day', async () => {
+    const policy = { ...OPTIONS_OBSERVATION_POLICY, pools: { ...OPTIONS_OBSERVATION_POLICY.pools,
+      forward: { maxRequestsPerDay: 3, reservedRequests: 1, maxBytesPerDay: 1000, maxConcurrency: 1 } } }
+    const job = (name, reserved = false) => ({ pool: 'forward', provider: 'fixture', endpoint: '/snapshot', parameters: { name }, tradingDate: '2026-09-22', ...(reserved && { reserved }) })
+    let checkpoint = null
+    const run = (jobs) => runObservationAcquisition({
+      jobs, pool: 'forward', day: '2026-09-22', maxAttempts: 1, policy,
+      fetchJob: async (item) => ({ record: { recordId: hash(item.parameters.name), byteLength: 1 } }),
+      archiveRecord: async (record) => record,
+      loadCheckpoint: async () => checkpoint,
+      saveCheckpoint: async (value) => { checkpoint = structuredClone(value) },
+    })
+    const routine = await run([job('a'), job('b'), job('c')])
+    expect(routine.manifest.requestCount).toBe(2)
+    expect(routine.failed).toEqual([{ jobId: acquisitionJobId(job('c')), reason: 'daily_request_budget_exhausted' }])
+    const close = await run([job('close', true)])
+    expect(close.manifest.requestCount).toBe(3)
+    expect(close.completedJobIds).toContain(acquisitionJobId(job('close', true)))
   })
 
   it('creates a reproducible backfill manifest that preserves holidays and named cohorts as gaps/evidence', () => {

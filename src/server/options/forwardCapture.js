@@ -173,6 +173,8 @@ function captureJob(entry, policy) {
   return {
     pool: 'forward', provider: 'alpaca', endpoint: policy.endpoint, tradingDate: entry.tradingDate, scheduledAt: entry.scheduledAt,
     parameters: { scheduledAt: entry.scheduledAt, contracts: entry.contracts },
+    // Close and expiry quotes grade the picks; path samples only describe the route there.
+    reserved: entry.contracts.some((item) => item.purposes.some((purpose) => purpose !== 'path_sample')),
   }
 }
 
