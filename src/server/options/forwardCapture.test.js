@@ -67,7 +67,7 @@ describe('forward capture schedule', () => {
     const plans = await publishedOutcomePlans({ archive, now: clock })
     expect(plans).toHaveLength(2)
     const today = captureInstantsFor(plans, '2026-09-22')
-    expect(today[0].scheduledAt).toBe('2026-09-22T13:32:15.000Z')
+    expect(today[0].scheduledAt).toBe('2026-09-22T13:35:00.000Z')
     const close = today.find((entry) => entry.scheduledAt === '2026-09-22T20:00:00.000Z')
     expect(close.contracts.map((item) => [item.symbol, item.purposes])).toEqual([
       ['EX261022C00200000', ['endpoint+0']], ['EX261022P00160000', ['endpoint+0']],
@@ -159,6 +159,14 @@ describe('forward capture tick', () => {
     expect(sameDay.status).toBe('observed')
     expect(sameDay.returnPct).toBeGreaterThan(0)
     expect(sameDay.underlyingMovePct).toBeCloseTo(100 * (185 / 180 - 1), 4)
+  })
+
+  it('still captures the close after routine samples have spent the day\'s shared budget', async () => {
+    await redis.set('research:options:capture:checkpoint:v1:forward:2026-09-22', JSON.stringify({
+      completedJobIds: [], failed: [], requestCount: 500, byteCount: 0, recordIds: [] }))
+    const adapter = fakeAdapter()
+    expect(await tick(adapter)).toMatchObject({ status: 'captured', instants: ['2026-09-22T20:00:00.000Z'] })
+    expect(adapter.contractSnapshots).toHaveBeenCalledTimes(1)
   })
 
   it('keeps the option prices when the stock price request fails', async () => {
