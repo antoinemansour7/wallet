@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import ChangedValue from '../components/ChangedValue'
 import CompanyLogo from '../components/CompanyLogo'
 import { HistorySpot } from '../components/illustrations'
 
@@ -29,13 +30,12 @@ function pctReturn(pickPrice, currentPrice) {
 }
 
 function ReturnPill({ pct }) {
-  if (pct === null) return <span className="w-12 sm:w-16" />
   const isPos = pct >= 0
   const color = isPos ? 'text-gain' : 'text-loss'
   return (
-    <span className={`w-12 shrink-0 text-right font-mono text-[11px] font-semibold sm:w-16 sm:text-xs ${color}`}>
-      {isPos ? '+' : ''}{pct.toFixed(1)}%
-    </span>
+    <ChangedValue value={pct} className={`w-12 shrink-0 text-right font-mono text-[11px] font-semibold sm:w-16 sm:text-xs ${color}`}>
+      {pct === null ? null : `${isPos ? '+' : ''}${pct.toFixed(1)}%`}
+    </ChangedValue>
   )
 }
 
@@ -79,7 +79,7 @@ function EngineStats({ entries, liveQuotes }) {
   if (!all) return null
 
   return (
-    <div className="mb-8 space-y-4">
+    <div className="motion-enter mb-8 space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatPill label="Win Rate" value={`${all.winRate.toFixed(0)}%`} sub={`${all.wins}W / ${all.losses}L`} />
         <StatPill label="Avg Return" value={`${all.avgReturn >= 0 ? '+' : ''}${all.avgReturn.toFixed(1)}%`} sub="per pick" />
@@ -192,8 +192,8 @@ export default function History() {
           <>
             <EngineStats entries={entries} liveQuotes={liveQuotes} />
 
-            {/* Entries */}
-            <div className="space-y-3">
+            {/* Entries appear once when loading completes; quote updates stay in place. */}
+            <div className="motion-enter space-y-3">
               {entries.filter((entry) => entry.picks.some((p) => p.conviction >= 6)).map((entry) => (
                 <div key={entry.date} className="overflow-hidden rounded-xl border border-ink/[0.06] bg-wall-surface">
                   {/* Day header */}

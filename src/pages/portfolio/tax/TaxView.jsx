@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import ChangedValue from '../../../components/ChangedValue'
 import AccountIcon from '../AccountIcons'
 import TaxDataDialog from './TaxDataDialog'
 import Modal, { ModalClose } from '../../../components/Modal'
@@ -8,6 +9,7 @@ import { toMinorUnits } from '../../../utils/money'
 import { measureConversionCost, estimateConversionCost, estimateWealthsimpleFxFees } from '../../../utils/conversionCost'
 import { accountTypeLabel, contributionView, localTaxDate, money, saleReview, taxAccountType, taxOverview } from './taxModel'
 import './Tax.css'
+import './TaxOverview.css'
 
 const CRA_TFSA = 'https://www.canada.ca/en/revenue-agency/services/tax/individuals/topics/tax-free-savings-account/contributing/before.html'
 const CRA_RRSP = 'https://www.canada.ca/en/revenue-agency/services/tax/individuals/topics/rrsps-related-plans/contributing-a-rrsp-prpp.html'
@@ -21,7 +23,7 @@ const formatConversionDate = (iso) => {
     : iso
 }
 
-const SectionHeading = ({ title, subtitle, aside }) => <div className="tax-section-heading"><div><h2 id="tax-tool-title">{title}</h2>{subtitle && <p>{subtitle}</p>}</div>{aside}</div>
+const SectionHeading = ({ title, subtitle, aside, titleId = 'tax-tool-title' }) => <div className="tax-section-heading"><div><h2 id={titleId}>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>{aside}</div>
 const countLabel = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`
 const Badge = ({ children }) => <span className="tax-badge">{children}</span>
 
@@ -61,17 +63,17 @@ function WithholdingSimulator({ accounts, settings, currency, reference = {} }) 
   const comparable = projections.every((projection) => Number.isFinite(projection?.annualWithheldMinor) && projection.annualWithheldMinor >= 0)
   const largestAnnual = comparable ? Math.max(...projections.map((projection) => projection.annualWithheldMinor)) : 0
   const difference = comparable ? Math.abs(projections[0].annualWithheldMinor - projections[1].annualWithheldMinor) * years : null
-  return <section className="tax-card tax-simulator" id="tax-simulator">
-    <SectionHeading title="Compare account types" subtitle="See how the same holding is treated in two accounts." />
-    {!holding || typedAccounts.length < 2 ? <div className="tax-empty"><AccountIcon name="bank" size={24} /><h3>A comparison needs two accounts</h3><p>Add registration types in Accounts to compare holdings in {currency}.</p></div> : <>
+  return <section className="tax-card tax-simulator" id="tax-simulator" aria-labelledby="tax-compare-title">
+    <SectionHeading titleId="tax-compare-title" title="Compare account types" subtitle="Compare withholding on the same holding in two accounts." />
+    {!holding || typedAccounts.length < 2 ? <div className="tax-empty"><AccountIcon name="bank" size={24} /><h3>{typedAccounts.length < 2 ? 'A comparison needs two accounts' : 'No holdings ready to compare'}</h3><p>{typedAccounts.length < 2 ? `Add registration types in Accounts to compare holdings in ${currency}.` : `A ${currency} holding with a resolved listing is needed. Review the security details in Data & assumptions.`}</p></div> : <>
       <Field label="Holding"><select value={holding.key} onChange={(e) => setHoldingKey(e.target.value)}>{eligible.map((h) => <option key={h.key} value={h.key}>{h.row.SYMBOL} · {h.account.accountNumber}</option>)}</select></Field>
       <figure className="tax-withholding-chart" aria-label={`Estimated annual withholding in ${currency}`}>
       <figcaption>Estimated annual withholding · {currency}<span>Same holding and value · shared scale from zero</span></figcaption>
       <div className="tax-comparison">
         {[left, right].map((account, index) => <div className="tax-comparison-option" key={index}>
           <Field label={index === 0 ? 'Account A' : 'Account B'}><select value={account.accountNumber} onChange={(e) => (index === 0 ? setLeftKey : setRightKey)(e.target.value)}>{(index === 0 ? typedAccounts : otherAccounts).map((a) => <option key={a.accountNumber} value={a.accountNumber}>{accountTypeLabel(taxAccountType(a, settings))} · {a.accountNumber}</option>)}</select></Field>
-          <strong>{comparable ? money(projections[index].annualWithheldMinor, currency) : '—'} <small>{currency}</small></strong>
-          {comparable && <div className="tax-withholding-track" aria-hidden="true"><span style={{ width: `${largestAnnual ? projections[index].annualWithheldMinor / largestAnnual * 100 : 0}%` }} /></div>}
+          <ChangedValue as="strong" value={`${currency}:${projections[index]?.annualWithheldMinor}`} enabled={comparable}>{comparable ? money(projections[index].annualWithheldMinor, currency) : '—'} <small>{currency}</small></ChangedValue>
+          {comparable && <div className="tax-withholding-track" aria-hidden="true"><span style={{ width: '100%', transform: `scaleX(${largestAnnual ? projections[index].annualWithheldMinor / largestAnnual : 0})` }} /></div>}
           <p>{inFund ? 'Fund-level withholding · applies in either account' : projections[index]?.exempt ? 'Treaty-exempt in this scenario' : projections[index]?.recoverable ? 'Potential foreign tax credit' : projections[index] ? 'Withholding is not recoverable' : 'Not enough information to compare'}</p>
         </div>)}
       </div>
@@ -111,7 +113,7 @@ function ContributionCard({ type, record, disabled, onSave, accounts, workspace,
 function ContributionSection({ workspace, accounts }) {
   const { settings, update, loading, saving, loadFailed } = workspace
   const [editingType, setEditingType] = useState(null)
-  return <section className="tax-card" id="tax-room"><SectionHeading title="Contribution room" subtitle="Across your TFSA and RRSP accounts." aside={<Badge>CAD</Badge>} />
+  return <section className="tax-card" id="tax-room" aria-labelledby="tax-room-title"><SectionHeading titleId="tax-room-title" title="Contribution room" subtitle="Across your TFSA and RRSP accounts." aside={<Badge>CAD</Badge>} />
     <div className="tax-room-grid">{['TFSA', 'RRSP'].map((type) => <ContributionCard editing={editingType === type} onEdit={() => setEditingType(type)} onCancel={() => setEditingType((current) => current === type ? null : current)} key={type} type={type} record={settings.room?.[type]} disabled={loading || saving || loadFailed} accounts={accounts} workspace={workspace}
       onSave={(record) => update({ room: { ...settings.room, [type]: record } })} />)}</div>
     <details className="tax-details"><summary>How room is calculated</summary><p className="tax-footnote">Based on your entered room and the available ledger. Broker deposits count as contributions. Other incoming transfers require statement review; direct transfers between registered accounts may not use room. New-year room is not added automatically.</p>
@@ -205,6 +207,15 @@ function SalesSection({ ledger, prices = {} }) {
   </section>
 }
 
+function CostEntry({ label, regionLabel, id, basis, amount, unavailable, unit, description, note, action, onAction }) {
+  return <section className="tax-cost-entry" aria-label={regionLabel} id={id}>
+    <div className="tax-cost-identity"><h3>{label}</h3><p>{description}</p></div>
+    <div className="tax-cost-basis"><span>{basis}</span><p>{note}</p></div>
+    <div className={`tax-cost-amount ${unavailable ? 'is-unavailable' : ''}`}><strong>{amount}</strong><span>{unit}</span></div>
+    <button type="button" className="tax-text-button tax-cost-action" onClick={onAction}>{action}<AccountIcon name="arrow" size={14} /></button>
+  </section>
+}
+
 export default function TaxView({ accounts, workspace, onAddAccount }) {
   const { settings, loading, error, ledger, data = {}, prices, referenceLoading, syncState = {} } = workspace
   const currencies = [...new Set(accounts.flatMap((a) => [a.currency, ...(a.positions || []).map((r) => r['ACCOUNT CURRENCY'])]).filter(Boolean))].sort()
@@ -235,58 +246,49 @@ export default function TaxView({ accounts, workspace, onAddAccount }) {
   const showBrokerEstimate = !fx?.conversions.length && !!brokerEstimate
   const hasUsdActivity = (data.transactions ?? []).some((t) => String(t?.currency ?? '').toUpperCase() === 'USD')
   const [dataOpen, setDataOpen] = useState(false)
-  return <div className="tax-page">
+  return <div className="tax-page tax-overview">
     <header className="tax-header">
-      <div><h1>Tax & costs<span className="tax-year">{new Date().getFullYear()}</span></h1><p>Withholding, fund fees and contribution room.</p></div>
+      <div><p className="tax-eyebrow">PORTFOLIO / {taxYear}</p><h1>Tax & costs</h1><p>Understand the costs of holding and moving your investments.</p></div>
       <button type="button" className="tax-sync-button" onClick={workspace.sync} disabled={syncState.loading}><AccountIcon name="link" size={16} />{syncState.loading ? 'Syncing…' : 'Sync transactions'}</button>
     </header>
-    <div className="tax-summary-heading"><h2>Your costs at a glance</h2>{currencies.length > 1 && <div className="tax-currency-control" role="group" aria-label="Tax display currency">{currencies.map((value) => <button type="button" key={value} aria-pressed={currency === value} onClick={() => setCurrency(value)}>{value}</button>)}</div>}</div>
     {workspace.referenceError && <p className="tax-error" role="alert">{workspace.referenceError}</p>}
     {error && <p className="tax-error" role="alert">{error}</p>}
     {ledger.error && <p className="tax-error" role="alert">{ledger.error} <button type="button" className="tax-text-button" onClick={workspace.retry}>Try again</button></p>}
     {ledger.limited && <p className="tax-notice">Transaction history is incomplete. Contribution and sale calculations are unavailable until full history is loaded.</p>}
     {syncState.error && <p className="tax-error" role="alert">{syncState.error}</p>}
-    <div className="tax-summary">
-      {accounts.length === 0 && <div className="tax-empty"><AccountIcon name="bank" size={24} /><h3>Add your first account</h3><p>See what withholding, fund fees and currency conversion actually cost you.</p>{onAddAccount && <button type="button" className="tax-button" onClick={onAddAccount}>Add an account</button>}</div>}
-      <div className="tax-at-a-glance">
-        <section className="tax-metric tax-hero" aria-label="Portfolio withholding summary">
-          <div className="tax-hero-label">Dividend withholding <Badge>{summary.basis === 'measured' ? 'Recorded · 12 months' : 'Annual estimate'}</Badge></div>
-          <div className={`tax-hero-amount ${!summary.covered ? 'tax-amount-empty' : ''}`}>{loading || referenceLoading ? '—' : summary.covered ? money(summary.annualMinor, currency) : 'Not estimated'}</div>
-          <span className="tax-metric-unit">{currency} / year</span>
-          <p>{summary.covered ? `${countLabel(summary.covered, 'holding')} · ${summary.assumedYield ? 'Includes assumed yields' : 'Resolved dividend yields'}` : 'Account types and listing details are needed.'}{summary.gaps.length > 0 && <span className="tax-inline-gap">{countLabel(summary.gaps.length, 'holding')} not included</span>}</p>
-          <div className="tax-metric-note">Potential foreign tax credit <strong>{summary.covered ? money(summary.creditMinor, currency) : '—'} {currency}</strong></div>
-          <div className="tax-metric-footer"><button type="button" className="tax-text-button" onClick={() => setDataOpen(true)}>Review estimate <AccountIcon name="arrow" size={14} /></button></div>
-        </section>
-        <section className="tax-metric" aria-label="Annual fund fee summary">
-          <div className="tax-hero-label">Fund expenses <Badge>Annual estimate</Badge></div>
-          <div className={`tax-hero-amount ${!fees?.holdings.length ? 'tax-amount-empty' : ''}`}>{referenceLoading ? '—' : fees?.holdings.length ? money(fees.annualFeeMinor, currency) : fees || unresolvedFees.length ? 'Not estimated' : 'No funds identified'}</div>
-          <span className="tax-metric-unit">{currency} / year</span>
-          <p>{fees?.weightedMerPct != null ? `${fees.weightedMerPct.toFixed(3)}% weighted expense ratio · priced funds only` : 'Expense ratios apply to funds, not individual stocks.'}{feeGapCount > 0 && <span className="tax-inline-gap">{countLabel(feeGapCount, 'holding')} {feeGapCount === 1 ? 'needs' : 'need'} fee data</span>}</p>
-          <div className="tax-metric-note">Deducted within your funds</div>
-          <div className="tax-metric-footer"><button type="button" className="tax-text-button" onClick={() => openTool('fees')}>View breakdown<AccountIcon name="chevron" size={14} /></button></div>
-        </section>
-        <section className="tax-metric" aria-label="FX conversion cost summary" id="tax-fx-summary">
-          <div className="tax-hero-label">FX conversion costs <Badge>{historyUnavailable ? 'Unavailable' : showBrokerEstimate ? 'Estimated fee' : fx?.conversions.length ? 'Measured' : 'Not measured'}</Badge></div>
-          <div className={`tax-hero-amount ${(!fx?.conversions.length && !showBrokerEstimate) || historyUnavailable ? 'tax-amount-empty' : ''}`}>{historyUnavailable ? 'Unavailable' : fx?.conversions.length ? money(fx.totalCostMinor, 'CAD') : showBrokerEstimate ? money(brokerEstimate.totalCostMinor, 'CAD') : 'Not measured'}</div>
-          <span className="tax-metric-unit">CAD · {taxYear} to date</span>
-          <p>{historyUnavailable ? 'Complete transaction history is needed.' : fx?.conversions.length ? `${countLabel(fx.conversions.length, 'measured conversion')}${fx.complete ? '' : ` · ${fx.unpricedCount} records not priced`}` : showBrokerEstimate ? `From ${countLabel(brokerEstimate.purchases.length, 'USD purchase')}` : fx?.unpricedCount ? 'Some records need currency details.' : hasUsdActivity ? 'USD purchases alone do not establish a conversion.' : 'No conversions recorded.'}</p>
-          <div className="tax-metric-note">{showBrokerEstimate ? '1.5% published fee · Exact FX cost unavailable' : fx?.totalCostMinor < 0 ? 'Below the daily reference rate' : 'Compared with the daily reference rate'}</div>
-          <div className="tax-metric-footer"><button type="button" className="tax-text-button" onClick={() => openTool('currency')}>View conversions <AccountIcon name="arrow" size={14} /></button></div>
-        </section>
-      </div>
+    <section className="tax-costs" aria-labelledby="tax-costs-title">
+      <div className="tax-costs-heading"><div><h2 id="tax-costs-title">Investment costs</h2><p>Annual holding costs and this year’s currency conversions.</p></div>{currencies.length > 1 && <div className="tax-currency-control" role="group" aria-label="Tax display currency">{currencies.map((value) => <button type="button" key={value} aria-pressed={currency === value} onClick={() => setCurrency(value)}>{value}</button>)}</div>}</div>
+      {accounts.length === 0 ? <div className="tax-empty"><h3>Add your first account</h3><p>See what withholding, fund fees and currency conversion actually cost you.</p>{onAddAccount && <button type="button" className="tax-button" onClick={onAddAccount}>Add an account</button>}</div> : <>
+        <div className="tax-cost-columns" aria-hidden="true"><span>Cost</span><span>Basis</span><span>Amount</span><span /></div>
+        <CostEntry label="Dividend withholding" regionLabel="Portfolio withholding summary"
+          basis={summary.basis === 'measured' ? 'Recorded · 12 months' : 'Annual estimate'}
+          amount={loading || referenceLoading ? '—' : summary.covered ? money(summary.annualMinor, currency) : 'Not estimated'}
+          unavailable={loading || referenceLoading || !summary.covered} unit={`${currency} / year`}
+          description={<>{summary.covered ? `${countLabel(summary.covered, 'holding')} · ${summary.assumedYield ? 'Includes assumed yields' : 'Resolved dividend yields'}` : 'Account types and listing details are needed.'}{summary.gaps.length > 0 && <span className="tax-inline-gap">{countLabel(summary.gaps.length, 'holding')} not included</span>}</>}
+          note={<>Potential foreign tax credit <span>{summary.covered ? money(summary.creditMinor, currency) : '—'} {currency}</span></>}
+          action="Review estimate" onAction={() => setDataOpen(true)} />
+        <CostEntry label="Fund expenses" regionLabel="Annual fund fee summary" basis="Annual estimate"
+          amount={referenceLoading ? '—' : fees?.holdings.length ? money(fees.annualFeeMinor, currency) : fees || unresolvedFees.length ? 'Not estimated' : 'No funds identified'}
+          unavailable={referenceLoading || !fees?.holdings.length} unit={`${currency} / year`}
+          description={<>{fees?.weightedMerPct != null ? `${fees.weightedMerPct.toFixed(3)}% weighted expense ratio · priced funds only` : 'Expense ratios apply to funds, not individual stocks.'}{feeGapCount > 0 && <span className="tax-inline-gap">{countLabel(feeGapCount, 'holding')} {feeGapCount === 1 ? 'needs' : 'need'} fee data</span>}</>}
+          note="Deducted within your funds" action="View breakdown" onAction={() => openTool('fees')} />
+        <CostEntry label="FX conversion costs" regionLabel="FX conversion cost summary" id="tax-fx-summary"
+          basis={historyUnavailable ? 'Unavailable' : showBrokerEstimate ? 'Estimated fee' : fx?.conversions.length ? 'Measured' : 'Not measured'}
+          amount={historyUnavailable ? 'Unavailable' : fx?.conversions.length ? money(fx.totalCostMinor, 'CAD') : showBrokerEstimate ? money(brokerEstimate.totalCostMinor, 'CAD') : 'Not measured'}
+          unavailable={historyUnavailable || (!fx?.conversions.length && !showBrokerEstimate)} unit={`CAD · ${taxYear} to date`}
+          description={historyUnavailable ? 'Complete transaction history is needed.' : fx?.conversions.length ? `${countLabel(fx.conversions.length, 'measured conversion')}${fx.complete ? '' : ` · ${fx.unpricedCount} records not priced`}` : showBrokerEstimate ? `From ${countLabel(brokerEstimate.purchases.length, 'USD purchase')}` : fx?.unpricedCount ? 'Some records need currency details.' : hasUsdActivity ? 'USD purchases alone do not establish a conversion.' : 'No conversions recorded.'}
+          note={showBrokerEstimate ? '1.5% published fee · Exact FX cost unavailable' : fx?.totalCostMinor < 0 ? 'Below the daily reference rate' : 'Compared with the daily reference rate'}
+          action="View conversions" onAction={() => openTool('currency')} />
+      </>}
       <div className="tax-data-link"><span>{summary.gaps.length || feeGapCount ? 'Some holdings are excluded where data is missing.' : 'Based on your holdings and available records.'}</span><button type="button" className="tax-text-button" onClick={() => setDataOpen(true)}>Data & assumptions <AccountIcon name="arrow" size={14} /></button></div>
-    </div>
-    <section className="tax-tool-list" aria-label="Tax tools"><h2>Plan & review</h2>
-      {[
-        ['room', 'Contribution room', 'Add or update your TFSA and RRSP room.', 'bank'],
-        ['accounts', 'Compare accounts', 'See how account type changes dividend withholding.', 'shield'],
-        ['sales', 'Review sales', 'Compare a sale with the value of those shares today.', 'file'],
-      ].map(([id, title, description, icon]) => <button type="button" className="tax-tool-row" key={id} onClick={() => openTool(id)}><span className="tax-tool-icon"><AccountIcon name={icon} size={20} /></span><span><strong>{title}</strong><small>{description}</small></span><AccountIcon name="chevron" size={16} /></button>)}
     </section>
+    <div className="tax-planning">
+      <WithholdingSimulator accounts={accounts} settings={settings} currency={currency} reference={data.reference} />
+      <ContributionSection workspace={workspace} accounts={accounts} />
+    </div>
+    <section className="tax-sales-link" aria-labelledby="tax-sales-link-title"><div><h2 id="tax-sales-link-title">After a sale</h2><p>Compare your net proceeds with what those shares would be worth today.</p></div><button type="button" className="tax-text-button" onClick={() => openTool('sales')}>Review sales <AccountIcon name="arrow" size={16} /></button></section>
     <TaxDataDialog open={dataOpen} onClose={() => setDataOpen(false)} summary={summary} workspace={workspace} />
     <Modal open={toolOpen} onClose={() => setToolOpen(false)} labelledBy="tax-tool-title" className="tax-tool-dialog"><ModalClose onClose={() => setToolOpen(false)} /><div className="tax-tool-body">
-      {tool === 'room' && <ContributionSection workspace={workspace} accounts={accounts} />}
-      {tool === 'accounts' && <WithholdingSimulator accounts={accounts} settings={settings} currency={currency} reference={data.reference} />}
       {tool === 'fees' && <FeesSection accounts={accounts} reference={data.reference} loading={referenceLoading} />}
       {tool === 'currency' && <ConversionSection brokerEstimate={brokerEstimate} measured={fx} estimate={fxEstimate} accounts={accounts} year={taxYear} hasUsdActivity={hasUsdActivity} unavailable={historyUnavailable} />}
       {tool === 'sales' && <SalesSection ledger={ledger} prices={prices} />}

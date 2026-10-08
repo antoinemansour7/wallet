@@ -1,4 +1,5 @@
 import { useId, useState } from 'react'
+import { ReflowItem } from '../../components/InteractionMotion'
 import CompanyLogo from '../../components/CompanyLogo'
 import ChangedValue from '../../components/ChangedValue'
 
@@ -141,7 +142,7 @@ export default function PickCard({ pick, rank, defaultOpen = false, featured = f
   const primary = pick.horizon === 20 || pick.horizon === 60
 
   return (
-    <article className={`research-idea ${featured ? 'research-idea-featured' : ''}`} aria-label={ticker} data-open={open}>
+    <ReflowItem as="article" className={`research-idea ${featured ? 'research-idea-featured' : ''}`} aria-label={ticker} data-open={open}>
       {featured && <p className="research-leading-label"><span /> Leading idea <span className="research-leading-note">First in the research ranking</span></p>}
       <header className="research-idea-heading">
         <div className="research-identity">
@@ -208,6 +209,6 @@ export default function PickCard({ pick, rank, defaultOpen = false, featured = f
           <p className="research-provenance">{priceIsLive ? 'Price live' : entry > 0 ? `Price from ${runLabel(generatedAt)}${quoteVerified ? '' : ' · Not verified'}` : 'Price unavailable'}{priceIsLive && live.at ? ` · Updated ${new Date(live.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ''}</p>
         </footer>
       </div>}
-    </article>
+    </ReflowItem>
   )
 }

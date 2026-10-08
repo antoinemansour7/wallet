@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
+import { SelectionIndicator } from './InteractionMotion'
 import { Link, NavLink } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
@@ -192,6 +193,7 @@ function AccountMenu({ user, onSignOut, isResearchOwner }) {
 // bar gives the full window width back to the dashboard, which is the dense
 // part of this app. Mobile keeps the native-style bottom tab bar.
 export default function Navbar() {
+  const motionScope = useId()
   const { user, signOut, isResearchOwner } = useAuth()
 
   return (
@@ -227,7 +229,7 @@ export default function Navbar() {
                 {({ isActive }) => (
                   <>
                     {label}
-                    {isActive && <span aria-hidden="true" className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-brand-accent" />}
+                    {isActive && <SelectionIndicator id={`${motionScope}-desktop`} className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-brand-accent" />}
                   </>
                 )}
               </NavLink>
@@ -256,7 +258,7 @@ export default function Navbar() {
             >
               {({ isActive }) => (
                 <>
-                  {isActive && <span className="absolute top-0 h-[2px] w-7 rounded-full bg-gradient-accent" />}
+                  {isActive && <SelectionIndicator id={`${motionScope}-mobile`} className="absolute top-0 h-[2px] w-7 rounded-full bg-gradient-accent" />}
                   <Icon />
                   {label}
                 </>

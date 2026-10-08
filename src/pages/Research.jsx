@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { LayoutGroup } from 'framer-motion'
+import { SelectionIndicator } from '../components/InteractionMotion'
 import { useAuth } from '../context/AuthContext'
 import { loadLocalPortfolio } from '../utils/portfolioStorage'
 import { IS_PREVIEW, PREVIEW_RESEARCH } from '../preview/mockMode'
@@ -26,6 +28,7 @@ function formatTime(dateStr) {
 }
 
 export default function Research() {
+  const motionScope = useId()
   const [research, setResearch] = useState(null)
   const [loadingResearch, setLoadingResearch] = useState(true)
   const [loadError, setLoadError] = useState(false)
@@ -206,14 +209,14 @@ export default function Research() {
             <div className="research-section-heading"><div><p className="research-eyebrow">01 / The shortlist</p><h2 id="research-ideas-title">Worth your attention.</h2></div><span className="research-order-note">In research ranking order</span></div>
             {research?.picksByHorizon && <div className="research-horizons">
               <div role="group" aria-label="Research horizon">{[[5, 'Follow-through'], [20, 'Repricing'], [60, 'Business change']].map(([value, label]) =>
-                <button key={value} type="button" aria-pressed={horizon === value} onClick={() => selectHorizon(value)}><strong>{value} sessions</strong><span>{label}</span></button>,
+                <button key={value} type="button" aria-pressed={horizon === value} onClick={() => selectHorizon(value)}><strong>{value} sessions</strong><span>{label}</span>{horizon === value && <SelectionIndicator id={`${motionScope}-horizon`} className="research-horizon-indicator" />}</button>,
               )}</div>
               <p>{horizon === 5 ? 'Market attention and near-term catalysts.' : `Primary disclosures, reviewed over ${horizon} trading sessions. Experimental ideas ranked only within this horizon.`}</p>
             </div>}
             {loadingResearch ? <div role="status" className="research-loading"><span className="sr-only">Loading research</span>{[0, 1, 2].map((index) => <div key={index} className="research-skeleton" aria-hidden="true"><span /><span /><span /></div>)}</div>
               : loadError ? <div className="research-empty" role="alert"><span aria-hidden="true">↻</span><h3>We couldn’t load your briefing.</h3><p>Try again to reconnect to the latest research.</p><button type="button" className="research-primary-button" onClick={loadResearch}>Try again</button></div>
               : !hasAnything ? <div className="research-empty"><span aria-hidden="true">✳</span><h3>{hasRun ? 'No qualifying ideas this run' : 'No picks yet'}</h3><p>{hasRun ? 'The research criteria did not produce a recommendation.' : 'New research appears after the next scheduled market scan.'}</p>{hasRun && <p className="research-muted">The scan is complete. There’s no need to force an idea.</p>}</div>
-              : <>
+              : <LayoutGroup>
                 {picks.map((pick, index) => <PickCard key={`${horizon}:${pick.candidateId || pick.ticker}`} pick={pick} rank={rankFor(pick)} featured={index === 0} defaultOpen={index === 0} live={livePrices[pick.ticker]} generatedAt={pick.generatedAt || research?.generatedAt} />)}
                 {picks.length === 0 && <div className="research-empty"><span aria-hidden="true">○</span><h3>Nothing looked strong enough tonight</h3><p>{below.length} weaker idea{below.length === 1 ? '' : 's'} below, if you want to look anyway.</p></div>}
                 {below.length > 0 && <div className="research-below">
@@ -221,7 +224,7 @@ export default function Research() {
                   <button type="button" className="research-text-button" onClick={() => setShowBelow((value) => !value)} aria-expanded={showBelow} aria-controls="research-below-list">{showBelow ? 'Hide the weaker ideas' : `Show ${below.length} weaker idea${below.length === 1 ? '' : 's'}`}<span aria-hidden="true">{showBelow ? '−' : '+'}</span></button>
                   {showBelow && <div id="research-below-list">{below.map((pick) => <PickCard key={`${horizon}:${pick.candidateId || pick.ticker}`} pick={pick} rank={rankFor(pick)} live={livePrices[pick.ticker]} generatedAt={pick.generatedAt || research?.generatedAt} />)}</div>}
                 </div>}
-              </>}
+              </LayoutGroup>}
           </section>
 
           <aside className="research-context" aria-label="Research context">

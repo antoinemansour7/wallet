@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { fmtCurrency, fmtNumber, fmtPct, parseNum } from '../../utils/portfolioStats'
+import { ReflowItem } from '../../components/InteractionMotion'
 import CompanyLogo from '../../components/CompanyLogo'
 import ChangedValue from '../../components/ChangedValue'
 import EmptyState from './EmptyState'
@@ -98,7 +99,7 @@ function PositionRow({ row, expanded, onToggle, stale }) {
     // The tint sits on the wrapper, not the button: highlighting only the
     // header left the detail below it on bare white, reading as a separate row
     // rather than as the row you just opened.
-    <div className={expanded ? 'bg-ink/[0.03]' : ''}>
+    <ReflowItem className={expanded ? 'bg-ink/[0.03]' : ''}>
       <button
         type="button"
         onClick={onToggle}
@@ -159,7 +160,7 @@ function PositionRow({ row, expanded, onToggle, stale }) {
           </Detail>
         </div>
       )}
-    </div>
+    </ReflowItem>
   )
 }
 
@@ -285,7 +286,7 @@ export default function HoldingsView({ rows, accounts, onUploadClick }) {
           const acct = account.accountNumber
 
           return (
-            <section key={acct}>
+            <ReflowItem as="section" key={acct}>
               <AccountHeader
                 account={account}
                 staleCount={account.positions.filter((r) => isPriceStale(r, newestPricedAt)).length}
@@ -316,7 +317,7 @@ export default function HoldingsView({ rows, accounts, onUploadClick }) {
 
                   {showCash && <CashRow account={account} />}
               </div>
-            </section>
+            </ReflowItem>
           )
         })}
       </div>
