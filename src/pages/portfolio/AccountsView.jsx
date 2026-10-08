@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { ReflowItem } from '../../components/InteractionMotion'
 import CompanyLogo from '../../components/CompanyLogo'
 import { fmtCurrency } from '../../utils/portfolioStats'
 import { accountSources, sourceLabel } from '../../utils/accountMerge'
@@ -43,15 +44,15 @@ export default function AccountsView({ accounts = [], taxSettings = {}, onAdd, o
                 const linked = feeds.some((feed) => feed.id.startsWith('plaid:'))
                 const positions = account.positions || []
                 const top = [...positions].sort((a, b) => Number(b['MARKET VALUE'] || 0) - Number(a['MARKET VALUE'] || 0)).slice(0, 4)
-                return <button className="account-card" key={account.accountNumber} onClick={() => onOpenAccount?.(account)} aria-label={`Manage account ${account.accountNumber}`}>
+                return <ReflowItem as="button" className="account-card" key={account.accountNumber} onClick={() => onOpenAccount?.(account)} aria-label={`Manage account ${account.accountNumber}`}>
                   <div className="account-card-top"><span className={`ac-tile ${linked ? 'ac-tile-green' : ''}`}><AccountIcon name={linked ? 'bank' : positions.length ? 'file' : 'wallet'} /></span><span className={`ac-badge ${linked ? 'ac-badge-connected' : ''}`}>{linked ? <><span /> Via Plaid</> : positions.length ? 'Statement' : 'Cash'}</span><AccountIcon name="chevron" size={15} /></div>
                   <h2>{taxSettings.accountTypes?.[account.accountNumber] ? accountTypeLabel(taxAccountType(account, taxSettings) || 'UNKNOWN') : accountTitle(account)}</h2><p className="account-identifier">Account {account.accountNumber}</p>
                   <div className="account-card-balances">{currencyTotals([account]).map(({ currency, value }) => <p key={currency} className="account-card-value">{fmtCurrency(value)} <span>{currency}</span></p>)}</div>
                   <p className="account-card-sources">{feeds.map((feed) => sourceLabel(feed.id)).join(' · ') || 'Cash balance'}</p>
                   <div className="account-card-footer"><div className="account-logos">{top.map((position, index) => <CompanyLogo key={`${position.SYMBOL}-${index}`} symbol={position.SYMBOL} description={position.DESCRIPTION} size={23} />)}</div><span>{positions.length} holding{positions.length === 1 ? '' : 's'}</span><span className="account-cash-label">{fmtCurrency(account.cash || 0)} cash</span></div>
-                </button>
+                </ReflowItem>
               })}
-              <button className="account-add-card" onClick={() => onAdd?.()}><span className="ac-tile"><AccountIcon name="plus" /></span><strong>{filter === 'linked' && !visibleAccounts.length ? 'Connect your first brokerage' : 'Bring another account in'}</strong><span>Connect a brokerage or upload a statement</span><span className="ac-text-link">Add account <AccountIcon name="arrow" size={16} /></span></button>
+              <ReflowItem as="button" className="account-add-card" onClick={() => onAdd?.()}><span className="ac-tile"><AccountIcon name="plus" /></span><strong>{filter === 'linked' && !visibleAccounts.length ? 'Connect your first brokerage' : 'Bring another account in'}</strong><span>Connect a brokerage or upload a statement</span><span className="ac-text-link">Add account <AccountIcon name="arrow" size={16} /></span></ReflowItem>
             </div>
           </> : <div className="accounts-empty"><div className="accounts-empty-art" aria-hidden="true"><span className="ac-tile"><AccountIcon name="bank" size={30} /></span><span className="ac-tile"><AccountIcon name="wallet" size={30} /></span></div><p className="accounts-eyebrow">LET’S GET STARTED</p><h2>A home for your investments.</h2><p>Bring your accounts together to see your holdings, cash, and performance.</p><button className="ac-button ac-primary" onClick={() => onAdd?.('connect')}><AccountIcon name="link" size={18} /> Connect a brokerage</button><button className="ac-button ac-secondary" onClick={() => inputRef.current?.click()}><AccountIcon name="upload" size={18} /> Import a statement</button><span className="ac-security"><AccountIcon name="lock" size={14} /> Your money stays with your brokerage.</span></div>}
         </div>

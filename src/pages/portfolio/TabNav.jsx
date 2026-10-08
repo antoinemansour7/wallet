@@ -1,10 +1,10 @@
 import { useId } from 'react'
-import { LayoutGroup, motion, useReducedMotion } from 'framer-motion'
+import { LayoutGroup } from 'framer-motion'
+import { SelectionIndicator } from '../../components/InteractionMotion'
 import { TABS } from './constants'
 
 export default function TabNav({ activeView, hasData, onChange }) {
   const groupId = useId()
-  const reducedMotion = useReducedMotion()
   return (
     <nav aria-label="Portfolio views" className="mb-8 flex gap-0 overflow-x-auto sm:gap-1 border-b border-ink/[0.08] scrollbar-none">
       <LayoutGroup id={groupId}>{TABS.map((tab) => {
@@ -31,7 +31,7 @@ export default function TabNav({ activeView, hasData, onChange }) {
               {tab.label}
             </span>
             {isActive && (
-              <motion.span aria-hidden="true" layoutId="active-portfolio-view" initial={false} transition={{ duration: reducedMotion ? 0 : 0.2, ease: [0.22, 1, 0.36, 1] }} className="pointer-events-none absolute inset-x-0 top-0 bottom-2.5 rounded-lg bg-brand-accent/[0.10] dark:bg-brand-accent/[0.16]" />
+              <SelectionIndicator id="active-portfolio-view" className="pointer-events-none absolute inset-x-0 top-0 bottom-2.5 rounded-lg bg-brand-accent/[0.10] dark:bg-brand-accent/[0.16]" />
             )}
           </button>
         )

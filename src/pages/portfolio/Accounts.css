@@ -68,8 +68,8 @@ html.dark .accounts-summary { border-color: #2a2b2f; }
 .accounts-filters button span { font-size: 10px; color: var(--ac-muted); }
 .accounts-toolbar-hint { color: var(--ac-muted); font-size: 10px; }
 .accounts-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 17px; }
-.account-card { display: block; min-width: 0; padding: 21px; border: 1px solid var(--ac-border); border-radius: 14px; background: var(--ac-surface); text-align: left; transition: transform 220ms, border-color 220ms, box-shadow 220ms; }
-.account-card:hover { transform: translateY(-3px); border-color: color-mix(in srgb, var(--ac-accent), transparent 50%); box-shadow: 0 8px 20px #1834200a; }
+.account-card { display: block; min-width: 0; padding: 21px; border: 1px solid var(--ac-border); border-radius: 14px; background: var(--ac-surface); text-align: left; transition: border-color 220ms, box-shadow 220ms; }
+.account-card:hover { border-color: color-mix(in srgb, var(--ac-accent), transparent 50%); box-shadow: 0 8px 20px #1834200a; }
 .account-card-top { display: flex; align-items: center; gap: 9px; margin-bottom: 19px; }
 .account-card-top > svg { margin-left: auto; color: var(--ac-muted); }
 .ac-badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px; border: 1px solid var(--ac-border); border-radius: 6px; color: var(--ac-muted); font-size: 9px; white-space: nowrap; }
