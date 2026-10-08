@@ -66,6 +66,43 @@ describe('Tax navigation and hierarchy', () => {
   })
 })
 
+describe('Withholding comparison chart', () => {
+  it('shows exact annual amounts and zero-length exempt bars, even for a longer illustration', () => {
+    render(<TaxView accounts={accounts} workspace={workspace()} />)
+    const dialog = open(/Compare accounts/)
+    const chart = within(dialog).getByRole('figure', { name: 'Estimated annual withholding in USD' })
+    expect(chart).toHaveTextContent('$19.50 USD')
+    expect(chart).toHaveTextContent('$0.00 USD')
+    const bars = chart.querySelectorAll('.tax-withholding-track > span')
+    expect(bars[0]).toHaveStyle({ width: '100%' })
+    expect(bars[1]).toHaveStyle({ width: '0%' })
+    fireEvent.click(within(dialog).getByText('Compare over several years'))
+    fireEvent.change(within(dialog).getByRole('slider'), { target: { value: '20' } })
+    expect(chart).toHaveTextContent('$19.50 USD')
+    expect(chart).not.toHaveTextContent('$390.00')
+    expect(dialog).toHaveTextContent('$390.00')
+    expect(dialog).toHaveTextContent('This compares dividend withholding only.')
+  })
+
+  it('keeps two zero estimates at zero instead of drawing minimum-sized bars', () => {
+    render(<TaxView accounts={accounts} workspace={workspace({ data: { reference: { MSFT: { ...reference.MSFT, yieldPct: 0 } } } })} />)
+    open(/Compare accounts/)
+    const chart = screen.getByRole('figure')
+    expect(within(chart).getAllByText('$0.00', { exact: false })).toHaveLength(2)
+    for (const bar of chart.querySelectorAll('.tax-withholding-track > span')) expect(bar).toHaveStyle({ width: '0%' })
+  })
+
+  it('does not draw unavailable projections as zero costs', () => {
+    const unpriced = accounts.map((account) => ({ ...account, positions: account.positions.map((row) => ({ ...row, 'MARKET VALUE': 0 })) }))
+    render(<TaxView accounts={unpriced} workspace={workspace()} />)
+    open(/Compare accounts/)
+    const chart = screen.getByRole('figure')
+    expect(chart.querySelector('.tax-withholding-track')).toBeNull()
+    expect(chart).not.toHaveTextContent('$0.00')
+    expect(chart).toHaveTextContent('Not enough information to compare')
+  })
+})
+
 describe('Contribution editing', () => {
   it('saves room with its date and checks a planned contribution on request', async () => {
     const state = workspace()

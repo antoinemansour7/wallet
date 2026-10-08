@@ -248,7 +248,7 @@ export default function Portfolio() {
     if (!file) return
     setError('')
     setLoading(true)
-    setLoadingMsg('Reading your statement…')
+    setLoadingMsg(`Reading ${file.name}…`)
     try {
       const parsed = await parseSpreadsheet(file)
       stageStatement({
@@ -396,7 +396,7 @@ export default function Portfolio() {
       setAccounts(nextAccounts)
       setRows(nextRows)
       setFileName(pending.name)
-      setCompleted({ count: pending.knownAccounts?.length || 1, name: pending.name })
+      setCompleted({ count: pending.knownAccounts?.length || 1, name: pending.name, kind: pending.kind })
       draftConnection.current = null
       setPending(null)
       setPreview(null)
@@ -503,7 +503,7 @@ export default function Portfolio() {
 
   // Dropped or picked on the accounts screen: the sheet opens straight into
   // reading it, rather than onto a chooser asking what you just handed it.
-  const addFromFile = useCallback((file) => { openAdd(); handleFile(file) },
+  const addFromFile = useCallback((file) => { openAdd('file'); handleFile(file) },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [openAdd])
 

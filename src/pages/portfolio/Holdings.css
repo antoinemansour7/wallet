@@ -1,0 +1,16 @@
+.holdings-controls { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.holdings-controls label { min-width: 0; }
+.holdings-controls label > span { display: block; margin-bottom: 7px; color: rgb(var(--color-ink) / .65); font-size: 12px; }
+.holdings-controls input, .holdings-controls select { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid rgb(var(--color-ink) / .2); border-radius: 9px; background: rgb(var(--color-wall-surface)); color: rgb(var(--color-ink)); font-size: 14px; }
+.holdings-controls input::placeholder { color: rgb(var(--color-ink) / .5); }
+.holdings-controls :is(input, select):focus-visible, .holdings-results button:focus-visible { outline: 2px solid rgb(var(--color-brand-accent)); outline-offset: 3px; }
+.holdings-results { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; margin: 8px 0 20px; font-size: 12px; color: rgb(var(--color-ink) / .65); }
+.holdings-results button { flex-shrink: 0; min-height: 44px; padding: 8px; color: rgb(var(--color-ink)); text-decoration: underline; text-underline-offset: 3px; }
+.holdings-no-results { padding: 36px 20px; border: 1px solid rgb(var(--color-ink) / .12); border-radius: 16px; text-align: center; }
+.holdings-no-results h3 { font-size: 15px; font-weight: 500; }
+.holdings-no-results p { margin-top: 8px; font-size: 13px; color: rgb(var(--color-ink) / .65); }
+@media (max-width: 540px) {
+  .holdings-controls { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .holdings-search { grid-column: 1 / -1; }
+  .holdings-controls input, .holdings-controls select { font-size: 16px; }
+}

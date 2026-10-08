@@ -58,19 +58,24 @@ function WithholdingSimulator({ accounts, settings, currency, reference = {} }) 
   const right = otherAccounts.find((a) => a.accountNumber === rightKey) || otherAccounts.find((a) => taxAccountType(a, settings) !== taxAccountType(left || {}, settings)) || otherAccounts[0]
   const projections = [left, right].map((account) => account && holding ? projectWithholding({ row: holding.row, securityReference: reference[String(holding.row.SYMBOL).toUpperCase()], accountType: taxAccountType(account, settings), assumptions: { yieldPct: settings.yieldPct ?? 1.3 } }) : null)
   const inFund = projections.some((p) => p?.treatment === 'IN_FUND')
-  const comparable = projections.every(Boolean)
+  const comparable = projections.every((projection) => Number.isFinite(projection?.annualWithheldMinor) && projection.annualWithheldMinor >= 0)
+  const largestAnnual = comparable ? Math.max(...projections.map((projection) => projection.annualWithheldMinor)) : 0
   const difference = comparable ? Math.abs(projections[0].annualWithheldMinor - projections[1].annualWithheldMinor) * years : null
   return <section className="tax-card tax-simulator" id="tax-simulator">
     <SectionHeading title="Compare account types" subtitle="See how the same holding is treated in two accounts." />
     {!holding || typedAccounts.length < 2 ? <div className="tax-empty"><AccountIcon name="bank" size={24} /><h3>A comparison needs two accounts</h3><p>Add registration types in Accounts to compare holdings in {currency}.</p></div> : <>
       <Field label="Holding"><select value={holding.key} onChange={(e) => setHoldingKey(e.target.value)}>{eligible.map((h) => <option key={h.key} value={h.key}>{h.row.SYMBOL} · {h.account.accountNumber}</option>)}</select></Field>
+      <figure className="tax-withholding-chart" aria-label={`Estimated annual withholding in ${currency}`}>
+      <figcaption>Estimated annual withholding · {currency}<span>Same holding and value · shared scale from zero</span></figcaption>
       <div className="tax-comparison">
         {[left, right].map((account, index) => <div className="tax-comparison-option" key={index}>
           <Field label={index === 0 ? 'Account A' : 'Account B'}><select value={account.accountNumber} onChange={(e) => (index === 0 ? setLeftKey : setRightKey)(e.target.value)}>{(index === 0 ? typedAccounts : otherAccounts).map((a) => <option key={a.accountNumber} value={a.accountNumber}>{accountTypeLabel(taxAccountType(a, settings))} · {a.accountNumber}</option>)}</select></Field>
-          <small>Annual withholding</small><strong>{comparable ? money(projections[index].annualWithheldMinor, currency) : '—'}</strong>
+          <strong>{comparable ? money(projections[index].annualWithheldMinor, currency) : '—'} <small>{currency}</small></strong>
+          {comparable && <div className="tax-withholding-track" aria-hidden="true"><span style={{ width: `${largestAnnual ? projections[index].annualWithheldMinor / largestAnnual * 100 : 0}%` }} /></div>}
           <p>{inFund ? 'Fund-level withholding · applies in either account' : projections[index]?.exempt ? 'Treaty-exempt in this scenario' : projections[index]?.recoverable ? 'Potential foreign tax credit' : projections[index] ? 'Withholding is not recoverable' : 'Not enough information to compare'}</p>
         </div>)}
       </div>
+      </figure>
       <details className="tax-details"><summary>Compare over several years</summary><div className="tax-period"><label htmlFor="tax-years">Illustration over <strong>{years} years</strong></label><input id="tax-years" type="range" min="1" max="30" value={years} onChange={(e) => setYears(Number(e.target.value))} /></div></details>
       <div className="tax-comparison-result"><span>Difference in withholding<br /><small>Same value and yield each year, no compounding</small></span><strong>{money(difference, currency)} <small>{currency}</small></strong></div>
       <p className="tax-footnote">This compares dividend withholding only. It excludes Canadian income tax, contribution deductions, withdrawal tax and investment returns.</p>
