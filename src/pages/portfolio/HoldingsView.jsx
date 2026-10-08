@@ -6,6 +6,7 @@ import EmptyState from './EmptyState'
 import { sortPositionsByValue } from './helpers'
 import { lastPricedAt, isPriceStale, PRICED_AT_KEY } from '../../utils/livePrices'
 import ErrorBoundary, { RowFallback } from '../../components/ErrorBoundary'
+import './Holdings.css'
 
 // This screen is a ledger, and a ledger is read down its columns. What made it
 // hard to read was not density but repetition: every account stated its return
@@ -230,19 +231,32 @@ function AccountHeader({ account, staleCount }) {
 
 export default function HoldingsView({ rows, accounts, onUploadClick }) {
   const [expandedKey, setExpandedKey] = useState(null)
+  const [query, setQuery] = useState('')
+  const [accountFilter, setAccountFilter] = useState('')
+  const [sort, setSort] = useState('value')
+  const search = query.trim().toLocaleLowerCase()
+  // If a sync removes the selected account, return to the whole portfolio.
+  const selectedAccount = accounts.some((account) => account.accountNumber === accountFilter) ? accountFilter : ''
 
   // Judged across the whole book, not per account: a refresh either reached a
   // row or it did not, and the comparison that matters is against the rows it
   // did reach.
   const newestPricedAt = useMemo(() => lastPricedAt(rows), [rows])
 
-  const sortedAccounts = useMemo(
-    () => accounts.map((account) => ({
-      ...account,
-      positions: sortPositionsByValue(account.positions),
-    })),
-    [accounts],
-  )
+  const visibleAccounts = useMemo(() => accounts
+    .filter((account) => !selectedAccount || account.accountNumber === selectedAccount)
+    .map((account) => {
+      const matches = account.positions.filter((row) => !search || `${row.SYMBOL ?? ''} ${row.DESCRIPTION ?? ''}`.toLocaleLowerCase().includes(search))
+      const positions = sort === 'symbol'
+        ? [...matches].sort((a, b) => String(a.SYMBOL ?? '').localeCompare(String(b.SYMBOL ?? '')))
+        : sortPositionsByValue(matches)
+      const showCash = account.cash !== 0 && (!search || `cash ${account.currency || 'CAD'}`.toLocaleLowerCase().includes(search))
+      return { account, positions, showCash }
+    })
+    .filter(({ positions, showCash }) => !search || positions.length || showCash),
+  [accounts, selectedAccount, search, sort])
+  const visibleCount = visibleAccounts.reduce((total, { positions }) => total + positions.length, 0)
+  const clearFilters = () => { setQuery(''); setAccountFilter(''); setExpandedKey(null) }
 
   if (!accounts.length && !rows.length) return <EmptyState onUploadClick={onUploadClick} />
 
@@ -255,8 +269,19 @@ export default function HoldingsView({ rows, accounts, onUploadClick }) {
         </span>
       </div>
 
+      <div className="holdings-controls" role="search" aria-label="Find holdings">
+        <label className="holdings-search"><span>Search holdings</span><input type="search" placeholder="Ticker or company name" value={query} onChange={(event) => { setQuery(event.target.value); setExpandedKey(null) }} /></label>
+        <label><span>Account</span><select value={selectedAccount} onChange={(event) => { setAccountFilter(event.target.value); setExpandedKey(null) }}><option value="">All accounts</option>{accounts.map((account) => <option key={account.accountNumber} value={account.accountNumber}>{account.accountNumber}{account.currency ? ` · ${account.currency}` : ''}</option>)}</select></label>
+        <label><span>Sort within accounts</span><select value={sort} onChange={(event) => setSort(event.target.value)}><option value="value">Highest value</option><option value="symbol">Ticker A–Z</option></select></label>
+      </div>
+      <div className="holdings-results">
+        <p role="status" aria-live="polite">{visibleCount} of {rows.length} position{rows.length === 1 ? '' : 's'}{search || selectedAccount ? ' match' : ''}. Account totals include all holdings and cash.</p>
+        {(query || selectedAccount) && <button type="button" onClick={clearFilters}>Clear filters</button>}
+      </div>
+      {!visibleAccounts.length && <div className="holdings-no-results"><h3>No matching holdings</h3><p>Try another ticker, company name or account.</p></div>}
+
       <div className="space-y-9">
-        {sortedAccounts.map((account) => {
+        {visibleAccounts.map(({ account, positions, showCash }) => {
           const acct = account.accountNumber
 
           return (
@@ -267,12 +292,12 @@ export default function HoldingsView({ rows, accounts, onUploadClick }) {
               />
 
               <div className="divide-y divide-ink/[0.06] overflow-hidden rounded-2xl border border-ink/[0.08] bg-wall-surface">
-                  {account.positions.length === 0 && (
+                  {positions.length === 0 && !search && (
                     <p className="px-5 py-4 text-[13.5px] text-ink/45">No holdings in this account.</p>
                   )}
 
-                  {account.positions.map((row, i) => {
-                    const key = `${acct}:${row.SYMBOL ?? i}`
+                  {positions.map((row) => {
+                    const key = `${acct}:${row.SYMBOL ?? account.positions.indexOf(row)}`
                     // The one place fed directly by four sources this app does
                     // not control — a statement, a PDF, Plaid, a price
                     // provider. One malformed row must cost that row, not the
@@ -289,7 +314,7 @@ export default function HoldingsView({ rows, accounts, onUploadClick }) {
                     )
                   })}
 
-                  {account.cash !== 0 && <CashRow account={account} />}
+                  {showCash && <CashRow account={account} />}
               </div>
             </section>
           )
